@@ -159,11 +159,10 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
         
         // --- PERFORMANCE OPTIMIZATIONS ---
-        rvPickerGrid.setHasFixedSize(true)
-        rvPickerGrid.setItemViewCacheSize(30)
-        rvPickerGrid.setDrawingCacheEnabled(true)
-        rvPickerGrid.setDrawingCacheQuality(View.DRAWING_CACHE_QUALITY_HIGH)
-        rvPickerGrid.recycledViewPool.setMaxRecycledViews(0, 50)
+        rvPickerGrid.setHasFixedSize(false)
+        rvPickerGrid.setItemViewCacheSize(0)
+        rvPickerGrid.setDrawingCacheEnabled(false)
+        rvPickerGrid.recycledViewPool.setMaxRecycledViews(0, 0)
         
         rvPickerGrid.adapter = adapter
 
@@ -617,10 +616,12 @@ class AppPickerPanelView @JvmOverloads constructor(
             holder.tvPackage?.setTextColor(subTextColor)
 
             // --- OPTIMIZED ICON LOADING WITH GLIDE ---
+            Glide.with(holder.itemView.context).clear(holder.ivIcon)
             Glide.with(holder.itemView.context)
-                .load(AppIconRequest(app.packageName, panelPrefs.selectedIconPack))
+                .load(AppIconRequest(app.packageName, panelPrefs.appearanceKey))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
+                .error(android.R.drawable.sym_def_app_icon)
                 .override((120 * scale).toInt(), (120 * scale).toInt())
                 .into(holder.ivIcon)
 

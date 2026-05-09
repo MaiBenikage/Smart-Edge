@@ -133,11 +133,11 @@ class SidePanelView @JvmOverloads constructor(
         binding.rvPanelApps.layoutManager = GridLayoutManager(context, currentCols)
         binding.rvPanelApps.adapter = adapter
 
-        binding.rvPanelApps.setHasFixedSize(true)
+        binding.rvPanelApps.setHasFixedSize(false)
         binding.rvPanelApps.isNestedScrollingEnabled = false
-        binding.rvPanelApps.setItemViewCacheSize(30)
-        (binding.rvPanelApps.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
-        binding.rvPanelApps.recycledViewPool.setMaxRecycledViews(0, 30)
+        binding.rvPanelApps.setItemViewCacheSize(0)
+        (binding.rvPanelApps.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = true
+        binding.rvPanelApps.recycledViewPool.setMaxRecycledViews(0, 0)
 
         binding.rvPanelApps.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {

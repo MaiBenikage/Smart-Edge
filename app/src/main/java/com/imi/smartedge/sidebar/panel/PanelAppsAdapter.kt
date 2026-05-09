@@ -196,15 +196,19 @@ class PanelAppsAdapter(
                     holder.ivIcon.clipToOutline = true
                 }
             } else {
+                Glide.with(context).clear(holder.ivIcon)
                 holder.ivIcon.imageTintList = null
                 holder.ivIcon.background = null
                 holder.ivIcon.setPadding(0, 0, 0, 0)
+                
                 Glide.with(context)
-                    .load(AppIconRequest(app.packageName, panelPrefs.selectedIconPack))
+                    .load(AppIconRequest(app.packageName, panelPrefs.appearanceKey))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(android.R.drawable.sym_def_app_icon)
+                    .error(android.R.drawable.sym_def_app_icon)
                     .override((120 * scale).toInt(), (120 * scale).toInt())
                     .into(holder.ivIcon)
+                    
                 IconShapeHelper.applyShape(holder.ivIcon, panelPrefs.iconShape)
             }
                 

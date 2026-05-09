@@ -133,13 +133,15 @@ class AppPickerActivity : AppCompatActivity() {
             holder.tvName.textSize = baseTextSize * scale
             
             // --- OPTIMIZED ICON LOADING WITH GLIDE ---
-            // Pass icon pack explicitly so Glide treats it as a new resource when pack changes
+            Glide.with(this@AppPickerActivity).clear(holder.ivIcon)
             Glide.with(this@AppPickerActivity)
-                .load(AppIconRequest(app.packageName, panelPrefs.selectedIconPack))
+                .load(AppIconRequest(app.packageName, panelPrefs.appearanceKey))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
+                .error(android.R.drawable.sym_def_app_icon)
                 .override((120 * scale).toInt(), (120 * scale).toInt())
                 .into(holder.ivIcon)
+            IconShapeHelper.applyShape(holder.ivIcon, panelPrefs.iconShape)
 
             holder.tvName.text = app.appName
 

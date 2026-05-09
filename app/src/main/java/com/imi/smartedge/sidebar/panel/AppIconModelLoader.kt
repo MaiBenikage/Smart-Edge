@@ -1,7 +1,14 @@
 package com.imi.smartedge.sidebar.panel
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
+import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.Build
+import android.util.Log
 import com.bumptech.glide.Priority
 import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.Options
@@ -12,27 +19,63 @@ import com.bumptech.glide.load.model.MultiModelLoaderFactory
 import com.bumptech.glide.signature.ObjectKey
 
 /**
- * Custom model for Glide to load an app icon by its package name and icon pack.
- * Including iconPack in the model ensures Glide treats different packs as different images.
+ * Custom model for Glide to load an app icon.
+ * The 'appearanceKey' ensures that ANY change to shapes, themes, or packs
+ * will result in a fresh icon load, bypassing stale caches.
  */
-data class AppIconRequest(val packageName: String, val iconPack: String)
+data class AppIconRequest(val packageName: String, val appearanceKey: String)
 
 /**
- * Fetches the actual Drawable from the PackageManager/IconPackManager.
+ * Fetches the actual Drawable and converts it to a static Bitmap for maximum stability.
  */
 class AppIconDataFetcher(private val context: Context, private val request: AppIconRequest) : DataFetcher<Drawable> {
     override fun loadData(priority: Priority, callback: DataFetcher.DataCallback<in Drawable>) {
         try {
             val repository = AppRepository(context)
-            // The repository already uses panelPrefs.selectedIconPack, but we can pass it explicitly
-            // if we want to be even more surgical. For now, loadIconForAppSync handles it.
             val icon = repository.loadIconForAppSync(request.packageName)
-            if (icon != null) {
-                callback.onDataReady(icon)
-            } else {
-                callback.onLoadFailed(Exception("Failed to load icon for ${request.packageName}"))
+            
+            if (icon == null) {
+                callback.onLoadFailed(Exception("Icon null for ${request.packageName}"))
+                return
             }
+
+            // --- THE NUCLEAR OPTION: Convert to Static Bitmap ---
+            // This removes all adaptive logic, masking, and state conflicts.
+            val processedIcon = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && icon is AdaptiveIconDrawable) {
+                try {
+                    val density = context.resources.displayMetrics.density
+                    // Double the size for 2x super-sampling (ensures perfectly smooth edges)
+                    val size = (144 * density).toInt().coerceAtLeast(256)
+                    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bitmap)
+                    
+                    // To draw 108dp unclipped layers into a 72dp bitmap:
+                    // The layers must be 1.5x larger than the bitmap.
+                    val layerSize = (size * 1.5f).toInt()
+                    val offset = (size - layerSize) / 2
+                    val layerBounds = Rect(offset, offset, offset + layerSize, offset + layerSize)
+                    
+                    icon.background?.mutate()?.let {
+                        it.bounds = layerBounds
+                        it.draw(canvas)
+                    }
+                    icon.foreground?.mutate()?.let {
+                        it.bounds = layerBounds
+                        it.draw(canvas)
+                    }
+                    
+                    BitmapDrawable(context.resources, bitmap)
+                } catch (e: Exception) {
+                    Log.e("AppIconDataFetcher", "Bitmap conversion failed", e)
+                    icon.mutate() 
+                }
+            } else {
+                icon.mutate()
+            }
+
+            callback.onDataReady(processedIcon)
         } catch (e: Exception) {
+            Log.e("AppIconDataFetcher", "Load failed", e)
             callback.onLoadFailed(e)
         }
     }
@@ -48,8 +91,7 @@ class AppIconDataFetcher(private val context: Context, private val request: AppI
  */
 class AppIconModelLoader(private val context: Context) : ModelLoader<AppIconRequest, Drawable> {
     override fun buildLoadData(model: AppIconRequest, width: Int, height: Int, options: Options): ModelLoader.LoadData<Drawable> {
-        // UNIQUE KEY: Package + IconPack ensures seamless switching without manual cache clearing
-        val uniqueKey = "${model.packageName}|${model.iconPack}"
+        val uniqueKey = "pkg:${model.packageName}|state:${model.appearanceKey}"
         return ModelLoader.LoadData(ObjectKey(uniqueKey), AppIconDataFetcher(context, model))
     }
 

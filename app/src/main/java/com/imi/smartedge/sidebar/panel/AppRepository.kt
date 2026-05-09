@@ -18,13 +18,8 @@ class AppRepository(context: Context) {
     private val iconPackManager = IconPackManager(appContext)
 
     companion object {
-        // Fast in-memory cache specifically for SYSTEM icons.
-        // System icons don't change when switching packs, so caching them here 
-        // bypasses the expensive PackageManager IPC calls entirely.
-        private val systemIconCache = java.util.concurrent.ConcurrentHashMap<String, android.graphics.drawable.Drawable>()
-
-        fun clearSystemIconCache(packageName: String) {
-            systemIconCache.remove(packageName)
+        fun clearSystemIconCache(packageName: String? = null) {
+            // Memory cache disabled for icon stability
         }
     }
 
@@ -35,21 +30,24 @@ class AppRepository(context: Context) {
     fun loadIconForAppSync(packageName: String): android.graphics.drawable.Drawable? {
         val selectedPack = panelPrefs.selectedIconPack
         
-        // Always load the base system icon first
-        val systemIcon = systemIconCache[packageName] ?: try {
-            val appInfo = packageManager.getApplicationInfo(packageName, 0)
-            val icon = appInfo.loadIcon(packageManager)
-            if (icon != null) {
-                systemIconCache[packageName] = icon
+        // try getting the properly colored launcher icons using LauncherApps
+        val systemIcon = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                val launcherApps = appContext.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? android.content.pm.LauncherApps
+                val activityList = launcherApps?.getActivityList(packageName, android.os.Process.myUserHandle())
+                if (!activityList.isNullOrEmpty()) {
+                    activityList[0].getIcon(0)
+                } else {
+                    val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                    appInfo.loadIcon(packageManager)
+                }
+            } else {
+                val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                appInfo.loadIcon(packageManager)
             }
-            icon
         } catch (e: Exception) {
             try {
-                val icon = packageManager.getApplicationIcon(packageName)
-                if (icon != null) {
-                    systemIconCache[packageName] = icon
-                }
-                icon
+                packageManager.getApplicationIcon(packageName)
             } catch (e2: Exception) {
                 null
             }
@@ -75,12 +73,13 @@ class AppRepository(context: Context) {
             .distinctBy { it.activityInfo.packageName }
             .map { resolveInfo ->
                 val pkg = resolveInfo.activityInfo.packageName
-                AppInfo(
-                    packageName = pkg,
-                    appName = resolveInfo.loadLabel(packageManager).toString(),
-                    isInPanel = panelIdentifiers.contains(pkg),
-                    type = AppInfo.Type.APP
-                )
+                    AppInfo(
+                        packageName = pkg,
+                        appName = resolveInfo.loadLabel(packageManager).toString(),
+                        isInPanel = panelIdentifiers.contains(pkg),
+                        type = AppInfo.Type.APP,
+                        appearanceKey = panelPrefs.appearanceKey
+                    )
             }
             .toMutableList()
 
@@ -123,10 +122,10 @@ class AppRepository(context: Context) {
                             isInPanel = panelIdentifiers.contains(uri),
                             type = AppInfo.Type.ACTIVITY,
                             intentUri = uri,
-                            activityName = act.name
+                            activityName = act.name,
+                            appearanceKey = panelPrefs.appearanceKey
                         ))
                     } catch (e: Exception) {
-                        // Skip individual activity failures
                         continue
                     }
                 }
@@ -147,18 +146,18 @@ class AppRepository(context: Context) {
         identifiers.mapNotNull { id ->
             when {
                 id == "smartedge.shortcut.one_hand" -> {
-                    AppInfo(id, "One-Handed Mode", true, AppInfo.Type.SHORTCUT)
+                    AppInfo(id, "One-Handed Mode", true, AppInfo.Type.SHORTCUT, appearanceKey = panelPrefs.appearanceKey)
                 }
                 id == "smartedge.shortcut.reboot" -> {
-                    AppInfo(id, "Power Menu", true, AppInfo.Type.SHORTCUT)
+                    AppInfo(id, "Power Menu", true, AppInfo.Type.SHORTCUT, appearanceKey = panelPrefs.appearanceKey)
                 }
                 id.startsWith("smartedge.folder.") -> {
                     val name = id.substringAfterLast(".").replaceFirstChar { it.uppercase() }
-                    AppInfo(id, name, true, AppInfo.Type.FOLDER)
+                    AppInfo(id, name, true, AppInfo.Type.FOLDER, appearanceKey = panelPrefs.appearanceKey)
                 }
                 id.startsWith("smartedge.tool.") -> {
                     val name = id.substringAfterLast(".").replaceFirstChar { it.uppercase() }
-                    AppInfo(id, name, true, AppInfo.Type.TOOL)
+                    AppInfo(id, name, true, AppInfo.Type.TOOL, appearanceKey = panelPrefs.appearanceKey)
                 }
                 id.startsWith("intent:") -> {
                     try {
@@ -176,21 +175,22 @@ class AppRepository(context: Context) {
                             isInPanel = true,
                             type = AppInfo.Type.ACTIVITY,
                             intentUri = id,
-                            activityName = intent.component?.className
+                            activityName = intent.component?.className,
+                            appearanceKey = panelPrefs.appearanceKey
                         )
                     } catch (e: Exception) {
                         null
                     }
                 }
                 else -> {
-                    // Standard APP (Package Name)
                     try {
                         val appInfo = packageManager.getApplicationInfo(id, 0)
                         AppInfo(
                             packageName = id,
                             appName = packageManager.getApplicationLabel(appInfo).toString(),
                             isInPanel = true,
-                            type = AppInfo.Type.APP
+                            type = AppInfo.Type.APP,
+                            appearanceKey = panelPrefs.appearanceKey
                         )
                     } catch (e: Exception) {
                         null

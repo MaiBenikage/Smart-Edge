@@ -618,6 +618,14 @@ class PanelPreferences(context: Context) {
         }
     }
 
+    /**
+     * Generates a unique key representing the current visual state of icons.
+     * Including this in Glide requests ensures everything refreshes automatically
+     * when ANY appearance setting is changed.
+     */
+    val appearanceKey: String
+        get() = "shape:$iconShape|pack:$selectedIconPack|theme:$uiTheme"
+
     fun getPanelApps(): List<String> {
         val raw = prefs.getString(KEY_PANEL_APPS, "") ?: ""
         return if (raw.isBlank()) emptyList()

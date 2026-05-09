@@ -11,7 +11,8 @@ data class AppInfo(
     val type: Type = Type.APP,
     val intentUri: String? = null,
     val activityName: String? = null,
-    val subItems: List<String>? = null // identifiers for items inside a folder
+    val subItems: List<String>? = null, // identifiers for items inside a folder
+    val appearanceKey: String? = null // Forces redraw when shape/theme changes
 ) {
     enum class Type {
         APP, ACTIVITY, SHORTCUT, FOLDER, TOOL

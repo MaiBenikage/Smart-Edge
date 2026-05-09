@@ -14,8 +14,8 @@ android {
         applicationId = "com.imi.smartedge.sidebar.panel"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.3.3"
+        versionCode = 12
+        versionName = "1.3.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
