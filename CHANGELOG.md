@@ -11,6 +11,9 @@
 - **feat(gestures)**: Added fully configurable multi-tap gestures (single, double, and triple tap).
 - **feat(sidebar)**: Added ability to manually select specific apps to hide the sidebar in (replaced automatic immersive mode detection).
 - **feat(sidebar)**: Added a dedicated tools folder and navigation system.
+- **fix(icons)**: Fixed "blank clickable icons" issue by disabling problematic RecyclerView optimizations and implementing explicit state clearing.
+- **feat(icons)**: Implemented high-definition, super-sampled icon rendering for perfectly smooth "Circle" shapes.
+- **fix(icons)**: Improved real-time settings refresh using a global appearance tracking key.
 - **fix(ui)**: Fixed stuck drag shadow in freeform/drag-to-split operations.
 - **fix(sidebar)**: Resolved glitchy app sorting and reordering in the sidebar.
 - **fix(service)**: Prevented unintended service restarts when disabled and cleaned up debug artifacts.
