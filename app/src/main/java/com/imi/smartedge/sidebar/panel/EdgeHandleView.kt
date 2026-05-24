@@ -15,6 +15,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.Gravity
 
 class EdgeHandleView @JvmOverloads constructor(
     context: Context,
@@ -25,16 +26,21 @@ class EdgeHandleView @JvmOverloads constructor(
     var onAdjustBrightness: ((delta: Int) -> Unit)? = null
     var onAdjustVolume: ((delta: Int) -> Unit)? = null
     var onSideChanged: ((newSide: String) -> Unit)? = null
+    
     var isRightSide: Boolean = true
     var showPill: Boolean = true
         set(value) {
-            field = value
-            updatePill()
+            if (field != value) {
+                field = value
+                updatePill()
+            }
         }
     var isImmersiveMode: Boolean = false
         set(value) {
-            field = value
-            updatePill()
+            if (field != value) {
+                field = value
+                updatePill()
+            }
         }
     var isGameActive: Boolean = false
 
@@ -50,6 +56,9 @@ class EdgeHandleView @JvmOverloads constructor(
     private var isTopHalf = false
     private var hasPassedThreshold = false
     private var isTriggered = false
+
+    private var isTempHighAlpha = false
+    private var lastPillState: String? = null
 
     private val density = resources.displayMetrics.density
     private val triggerThreshold = 16 * density
@@ -89,6 +98,19 @@ class EdgeHandleView @JvmOverloads constructor(
             else -> if (tapCount >= 3) performAction(panelPrefs.tripleTapAction)
         }
         tapCount = 0
+    }
+
+    private val resetAlphaRunnable = Runnable {
+        isTempHighAlpha = false
+        alpha = panelPrefs.panelOpacity / 100f
+        updatePill()
+    }
+
+    fun showTemporarily() {
+        isTempHighAlpha = true
+        alpha = 1.0f
+        handler.removeCallbacks(resetAlphaRunnable)
+        handler.postDelayed(resetAlphaRunnable, 3000)
     }
 
     private fun performAction(actionId: Int) {
@@ -218,8 +240,27 @@ class EdgeHandleView @JvmOverloads constructor(
         }
     }
 
+    fun updateState(isRight: Boolean, isPill: Boolean, immersive: Boolean, opacity: Int) {
+        val changed = isRightSide != isRight || showPill != isPill || isImmersiveMode != immersive
+        isRightSide = isRight
+        showPill = isPill
+        isImmersiveMode = immersive
+        if (!isTempHighAlpha) {
+            alpha = opacity / 100f
+        }
+        if (changed) {
+            updatePill()
+        }
+    }
+
     fun updatePill() {
-        val hidePillInCurrentApp = panelPrefs.autoHideInFullscreen && panelPrefs.isWhitelistedFromAutoHide(panelPrefs.currentForegroundPackage)
+        val currentPkg = panelPrefs.currentForegroundPackage
+        val hidePillInCurrentApp = panelPrefs.autoHideInFullscreen && panelPrefs.isWhitelistedFromAutoHide(currentPkg)
+        
+        // Build a unique key for the current visual state to prevent redundant updates
+        val stateKey = "${isRightSide}_${showPill}_${hidePillInCurrentApp}_${panelPrefs.pillColor}_${panelPrefs.handleWidth}_${panelPrefs.pillWidth}_${panelPrefs.panelOpacity}_${isImmersiveMode}"
+        if (stateKey == lastPillState) return
+        lastPillState = stateKey
 
         if (showPill && !hidePillInCurrentApp) {
             val cornerRadius = 12 * density
@@ -253,7 +294,10 @@ class EdgeHandleView @JvmOverloads constructor(
             }
             background = newInset
             
-            alpha = panelPrefs.panelOpacity / 100f
+            if (!isTempHighAlpha) {
+                alpha = panelPrefs.panelOpacity / 100f
+            }
+            
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 post { systemGestureExclusionRects = listOf(Rect(0, 0, width, height)) }
             }
@@ -312,7 +356,6 @@ class EdgeHandleView @JvmOverloads constructor(
 
                 // ── Drag-reposition mode ──────────────────────────────────────
                 if (isDragMode) {
-                    // ... (existing drag logic)
                     val params = layoutParams as? WindowManager.LayoutParams
                     if (params != null) {
                         val screenH = resources.displayMetrics.heightPixels
@@ -321,17 +364,13 @@ class EdgeHandleView @JvmOverloads constructor(
 
                         val newY = (dragStartWindowY + totalDy).toInt().coerceIn(-maxOffset, maxOffset)
                         
-                        // Only send updates to WM if the value actually changed to prevent stuttering
                         if (params.y != newY) {
                             params.y = newY
-                            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                            if (isAttachedToWindow) {
-                                try { wm.updateViewLayout(this, params) } catch (e: Exception) {}
-                            }
+                            updateLayoutSafely(params)
                         }
                     }
 
-                    // Flip side based on absolute screen position to prevent ping-pong glitching
+                    // Flip side based on absolute screen position
                     val screenW = resources.displayMetrics.widthPixels
                     val leftThreshold = screenW * 0.3f
                     val rightThreshold = screenW * 0.7f
@@ -354,15 +393,14 @@ class EdgeHandleView @JvmOverloads constructor(
                         val volumeOn = panelPrefs.slideVolumeEnabled
                         val brightnessOn = panelPrefs.slideBrightnessEnabled
                         
-                        // Decide if we are sliding volume or brightness
                         isSlidingVolume = when {
-                            volumeOn && brightnessOn -> isTopHalf // Top = Volume, Bottom = Brightness
+                            volumeOn && brightnessOn -> isTopHalf 
                             volumeOn -> true
                             else -> false
                         }
                         
                         isSlidingSeek = true
-                        accumulatedDy = 0f // Start fresh to avoid the "trigger jump"
+                        accumulatedDy = 0f 
                         handler.removeCallbacks(dragModeRunnable)
                         handler.removeCallbacks(holdRunnable)
                         vibrateHaptic(10)
@@ -374,7 +412,6 @@ class EdgeHandleView @JvmOverloads constructor(
                         val multiplier = 100f / sensitivity
                         
                         if (isSlidingVolume) {
-                            // Volume: ~25dp = 1 step at 100 sens (Balanced control for 15 steps)
                             val pixelsPerUnit = (25f * density * multiplier).coerceAtLeast(1f)
                             if (Math.abs(accumulatedDy) >= pixelsPerUnit) {
                                 val units = (accumulatedDy / pixelsPerUnit).toInt()
@@ -382,7 +419,6 @@ class EdgeHandleView @JvmOverloads constructor(
                                 accumulatedDy -= units * pixelsPerUnit
                             }
                         } else {
-                            // Brightness: ~3dp = 1 step at 100 sens (Balanced for 255 steps)
                             val pixelsPerUnit = (3f * density * multiplier).coerceAtLeast(1f)
                             if (Math.abs(accumulatedDy) >= pixelsPerUnit) {
                                 val units = (accumulatedDy / pixelsPerUnit).toInt()
@@ -398,18 +434,15 @@ class EdgeHandleView @JvmOverloads constructor(
                 if (!panelPrefs.gesturesEnabled || isTriggered) return true
                 val dx = if (isRightSide) (startX - event.rawX) else (event.rawX - startX)
                 
-                // Adjust threshold for games if deliberate gesture is enabled
                 val effectiveThreshold = if (isGameActive && panelPrefs.deliberateGestureInGames) {
-                    triggerThreshold * 2.5f // Require deeper swipe
+                    triggerThreshold * 2.5f 
                 } else {
                     triggerThreshold
                 }
 
-                // Cancel long-press/drag timer if user clearly moving inward
                 if (dx > triggerThreshold) {
                     handler.removeCallbacks(dragModeRunnable)
                 }
-                // Cancel if moving vertically primarily (user is quickly trying to scroll app behind)
                 if (!hasPassedThreshold && Math.abs(totalDy) > triggerThreshold && Math.abs(totalDy) > Math.abs(event.rawX - startX) * 1.5f) {
                     handler.removeCallbacks(dragModeRunnable)
                 }
@@ -418,9 +451,8 @@ class EdgeHandleView @JvmOverloads constructor(
                     hasPassedThreshold = true
                     handler.removeCallbacks(dragModeRunnable)
                     
-                    // In games, we can also add a mandatory hold time even after the swipe
                     val effectiveHoldTime = if (isGameActive && panelPrefs.deliberateGestureInGames) {
-                        holdDurationMs * 2 // Wait longer
+                        holdDurationMs * 2 
                     } else {
                         holdDurationMs
                     }
@@ -446,7 +478,6 @@ class EdgeHandleView @JvmOverloads constructor(
                 handler.removeCallbacks(dragModeRunnable)
 
                 if (isDragMode) {
-                    // Save final position to prefs
                     saveFinalPosition()
                     isDragMode = false
                     animate().scaleX(1f).scaleY(1f).setDuration(150).start()
@@ -472,37 +503,26 @@ class EdgeHandleView @JvmOverloads constructor(
         }
         return true
     }
-    /** Flips the pill to the given side with a smooth animation. */
+
     private fun flipSide(newSide: String) {
         if ((newSide == PanelPreferences.SIDE_RIGHT) == isRightSide) return
 
         vibrateHaptic(30)
         isRightSide = newSide == PanelPreferences.SIDE_RIGHT
 
-        // Update the WindowManager gravity immediately
         val params = layoutParams as? WindowManager.LayoutParams ?: return
-        params.gravity = if (isRightSide) {
-            android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
-        } else {
-            android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
-        }
+        params.gravity = if (isRightSide) Gravity.END or Gravity.CENTER_VERTICAL
+                        else Gravity.START or Gravity.CENTER_VERTICAL
 
-        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        if (isAttachedToWindow) {
-            try { wm.updateViewLayout(this, params) } catch (e: Exception) {}
-        }
-
-        // Flip the pill visual (left/right rounded shape)
+        updateLayoutSafely(params)
         updatePill()
     }
 
-    /** Persists the current window Y position and side to preferences. */
     private fun saveFinalPosition() {
         val params = layoutParams as? WindowManager.LayoutParams ?: return
         val offsetDp = (params.y / density).toInt()
         panelPrefs.handleVerticalOffset = offsetDp
 
-        // Safely notify the service that the side changed, keeping layout passes out of the drag loop
         val newSide = if (isRightSide) PanelPreferences.SIDE_RIGHT else PanelPreferences.SIDE_LEFT
         if (panelPrefs.panelSide != newSide) {
             panelPrefs.panelSide = newSide
@@ -532,7 +552,10 @@ class EdgeHandleView @JvmOverloads constructor(
         val prefs = PanelPreferences(context)
         isRightSide = prefs.panelSide == PanelPreferences.SIDE_RIGHT
         showPill = prefs.showPill
-        alpha = prefs.panelOpacity / 100f
+        
+        if (!isTempHighAlpha) {
+            alpha = prefs.panelOpacity / 100f
+        }
 
         val params = layoutParams as? WindowManager.LayoutParams
         if (params != null) {
@@ -540,7 +563,7 @@ class EdgeHandleView @JvmOverloads constructor(
             val safeMargin = (10 * density).toInt()
 
             val h = if (showPill) (prefs.handleHeight * density).toInt()
-                    else (screenH * 0.60f).toInt()
+                    else (prefs.handleHeight * 1.5f * density).toInt()
 
             val maxOffset = (screenH / 2) - (h / 2) - safeMargin
             val requestedOffset = (prefs.handleVerticalOffset * density).toInt()
@@ -549,12 +572,8 @@ class EdgeHandleView @JvmOverloads constructor(
             params.width = (prefs.handleWidth * density).toInt()
             params.height = h
 
-            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            if (isAttachedToWindow) {
-                wm.updateViewLayout(this, params)
-            }
+            updateLayoutSafely(params)
         }
         updatePill()
-        invalidate()
     }
 }

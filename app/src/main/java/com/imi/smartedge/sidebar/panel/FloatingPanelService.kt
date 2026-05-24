@@ -221,7 +221,7 @@ class FloatingPanelService : Service() {
                     if (isLandscape && !panelPrefs.showInLandscape) {
                         edgeHandleView?.visibility = View.GONE
                     } else {
-                        addEdgeHandle() // Re-add instead of just update to ensure it forces UI rebuilds
+                        addEdgeHandle(forceRecreate = false)
                         edgeHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
                     }
 
@@ -255,14 +255,9 @@ class FloatingPanelService : Service() {
                 edgeHandleView?.isImmersiveMode = isImmersiveMode
             }
             ACTION_SHOW_TEMP -> {
-                addEdgeHandle()
-                edgeHandleView?.alpha = 1.0f
-                
-                handler.postDelayed({
-                    edgeHandleView?.alpha = panelPrefs.panelOpacity / 100f
-                }, 3000)
-            }
-        }
+                addEdgeHandle(forceRecreate = false)
+                edgeHandleView?.showTemporarily()
+            }        }
         return if (panelPrefs.serviceEnabled) START_STICKY else START_NOT_STICKY
     }
 
@@ -329,7 +324,7 @@ class FloatingPanelService : Service() {
         }
     }
 
-    private fun addEdgeHandle() {
+    private fun addEdgeHandle(forceRecreate: Boolean = false) {
         val anyTriggerEnabled = panelPrefs.gesturesEnabled || 
                                 panelPrefs.tapToOpen || 
                                 panelPrefs.doubleTapToOpen || 
@@ -340,12 +335,23 @@ class FloatingPanelService : Service() {
             edgeHandleView = null
             return
         }
-        removeView(edgeHandleView)
-        edgeHandleView = null
 
         val isRight = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
         val isPillVisible = panelPrefs.showPill
-        
+
+        if (edgeHandleView != null && !forceRecreate) {
+            edgeHandleView?.updateState(
+                isRight, 
+                isPillVisible, 
+                this.isImmersiveMode, 
+                panelPrefs.panelOpacity
+            )
+            return
+        }
+
+        removeView(edgeHandleView)
+        edgeHandleView = null
+
         edgeHandleView = EdgeHandleView(this).apply {
             onTrigger = {
                 refreshApps {

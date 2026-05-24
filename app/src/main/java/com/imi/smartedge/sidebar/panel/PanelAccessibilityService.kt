@@ -9,6 +9,7 @@ class PanelAccessibilityService : AccessibilityService() {
 
     private lateinit var panelPrefs: PanelPreferences
     private var lastImmersiveState = false
+    private var lastPackageName: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -169,6 +170,9 @@ class PanelAccessibilityService : AccessibilityService() {
         
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
+            if (packageName == lastPackageName) return
+            lastPackageName = packageName
+
             val className = event.className?.toString() ?: ""
             
             // Store current foreground package for Context/Game mode
