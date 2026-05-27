@@ -130,6 +130,21 @@ class EdgeHandleView @JvmOverloads constructor(
 
     private fun triggerAccessibilityAction(action: String) {
         vibrateHaptic()
+        
+        if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
+            val success = when (action) {
+                PanelAccessibilityService.ACTION_BACK -> AutomationManager.performBack()
+                PanelAccessibilityService.ACTION_HOME -> AutomationManager.performHome()
+                PanelAccessibilityService.ACTION_RECENTS -> AutomationManager.performRecents()
+                PanelAccessibilityService.ACTION_NOTIFICATIONS -> AutomationManager.performNotifications()
+                PanelAccessibilityService.ACTION_QUICK_SETTINGS -> AutomationManager.performQuickSettings()
+                PanelAccessibilityService.ACTION_LOCK_SCREEN -> { AutomationManager.performLockScreen(); true }
+                PanelAccessibilityService.ACTION_SHOW_POWER_MENU -> AutomationManager.performPowerMenu()
+                else -> false
+            }
+            if (success) return
+        }
+
         val intent = Intent(context, PanelAccessibilityService::class.java).apply {
             this.action = action
         }
@@ -143,6 +158,12 @@ class EdgeHandleView @JvmOverloads constructor(
 
     private fun triggerScreenshot() {
         vibrateHaptic()
+        
+        if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
+            AutomationManager.takeScreenshot()
+            return
+        }
+
         val intent = Intent(context, PanelAccessibilityService::class.java).apply {
             action = PanelAccessibilityService.ACTION_TAKE_SCREENSHOT
         }
@@ -151,6 +172,12 @@ class EdgeHandleView @JvmOverloads constructor(
 
     private fun triggerPreviousApp() {
         vibrateHaptic()
+
+        if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
+            AutomationManager.performPreviousApp()
+            return
+        }
+
         val intent = Intent(context, PanelAccessibilityService::class.java).apply {
             action = PanelAccessibilityService.ACTION_PREVIOUS_APP
         }

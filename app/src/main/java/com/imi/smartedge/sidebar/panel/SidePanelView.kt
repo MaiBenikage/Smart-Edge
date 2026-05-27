@@ -370,11 +370,15 @@ class SidePanelView @JvmOverloads constructor(
             }
             SpringAnimator.scalePulse(it)
             
-            // Trigger System Power Menu via Accessibility Service
-            val intent = Intent(context, PanelAccessibilityService::class.java).apply {
-                action = PanelAccessibilityService.ACTION_SHOW_POWER_MENU
+            if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
+                AutomationManager.performPowerMenu()
+            } else {
+                // Trigger System Power Menu via Accessibility Service
+                val intent = Intent(context, PanelAccessibilityService::class.java).apply {
+                    action = PanelAccessibilityService.ACTION_SHOW_POWER_MENU
+                }
+                context.startService(intent)
             }
-            context.startService(intent)
             onClose?.invoke()
         }
 

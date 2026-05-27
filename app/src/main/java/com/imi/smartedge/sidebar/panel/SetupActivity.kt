@@ -40,6 +40,21 @@ class SetupActivity : AppCompatActivity() {
         }
         binding.cardNotifications.setOnClickListener { requestNotificationAccess() }
         
+        binding.cardAutomation.setOnClickListener {
+            AutomationManager.checkRootAndRequestPermission(this) { success ->
+                runOnUiThread {
+                    if (success) {
+                        panelPrefs.useAutomationForGestures = true
+                        updateUI()
+                    } else {
+                        SecureSettingsDialog.show(this) {
+                            updateUI()
+                        }
+                    }
+                }
+            }
+        }
+        
         binding.btnGrantAll.setOnClickListener {
             if (!hasOverlayPermission()) {
                 requestOverlayPermission()
@@ -73,16 +88,26 @@ class SetupActivity : AppCompatActivity() {
         val hasBattery = isIgnoringBatteryOptimizations()
         val hasAutoStart = hasAutoStartPermission()
         val hasNotifications = isNotificationAccessEnabled()
+        val hasAutomation = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
 
         updateCardState(binding.cardOverlay, binding.actionOverlay, hasOverlay)
         updateCardState(binding.cardAccessibility, binding.actionAccessibility, hasAccessibility)
         updateCardState(binding.cardBattery, binding.actionBattery, hasBattery)
         updateCardState(binding.cardNotifications, binding.actionNotifications, hasNotifications)
         
+        // Update Native Gesture Label with status
+        val status = when {
+            AutomationManager.isRootAvailable() -> " (Root)"
+            AutomationManager.isShizukuAvailable() -> " (Shizuku)"
+            else -> ""
+        }
+        binding.titleAutomation.text = "Native Gesture$status"
+        updateCardState(binding.cardAutomation, binding.actionAutomation, hasAutomation)
+        
         // Auto-start is hard to detect on most OEMs, but we can detect on MIUI
         updateCardState(binding.cardAutoStart, binding.actionAutoStart, hasAutoStart)
 
-        val requiredGranted = hasOverlay && hasAccessibility
+        val requiredGranted = hasOverlay && (hasAccessibility || hasAutomation)
         binding.btnContinue.isEnabled = requiredGranted
         
         val typedValue = android.util.TypedValue()
@@ -164,7 +189,9 @@ class SetupActivity : AppCompatActivity() {
             action.imageTintList = android.content.res.ColorStateList.valueOf(
                 android.graphics.Color.parseColor("#00FF00") // ELECTRIC GREEN
             )
-            card.isClickable = card.id == binding.cardAutoStart.id 
+            // Allow clicking to toggle even when granted for internal preferences
+            card.isClickable = card.id == binding.cardAutoStart.id || 
+                             card.id == binding.cardAutomation.id
             card.alpha = 1.0f // Keep full opacity for the card
             title?.alpha = 1.0f // Set to normal
             desc?.alpha = 1.0f  // Set to normal

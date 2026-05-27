@@ -108,6 +108,11 @@
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
 
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_automation_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Native Gesture" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:id="@+id/tvAutomationDesc" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Use Root or Shizuku for system gestures (Back, Home, etc.) to reduce resource usage. Requires 'System Automation' to be set up below." android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
+
                     <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_haptic" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Haptic Feedback" android:textColor="?attr/colorOnSurface" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

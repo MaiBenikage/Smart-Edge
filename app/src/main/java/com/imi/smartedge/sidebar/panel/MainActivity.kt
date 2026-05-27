@@ -148,10 +148,11 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private fun updateServiceStatus() {
         val isEnabled = panelPrefs.serviceEnabled
         val isAccessibilityEnabled = isAccessibilityServiceEnabled()
+        val automationActive = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
         
         val typedValue = android.util.TypedValue()
         
-        if (isEnabled && isAccessibilityEnabled) {
+        if (isEnabled && (isAccessibilityEnabled || automationActive)) {
             // Service is fully ACTIVE (Green)
             binding.btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
             binding.btnStartStop.setIconTintResource(android.R.color.white)
@@ -160,7 +161,12 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
             binding.btnStartStopClassic.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
             binding.btnStartStopClassic.setTextColor(Color.WHITE)
 
-            binding.tvStatus.text = "Service is Active"
+            val statusSuffix = when {
+                automationActive && AutomationManager.isRootAvailable() -> " (Root)"
+                automationActive && AutomationManager.isShizukuAvailable() -> " (Shizuku)"
+                else -> ""
+            }
+            binding.tvStatus.text = if (automationActive) "Active$statusSuffix" else "Service is Active"
             theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, typedValue, true)
             binding.tvStatus.setTextColor(typedValue.data)
             binding.statusDot.imageTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
@@ -335,7 +341,8 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
             return
         }
 
-        if (!isAccessibilityServiceEnabled()) {
+        val automationEnabled = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
+        if (!automationEnabled && !isAccessibilityServiceEnabled()) {
             binding.root.showModernToast("Please enable 'SidePanel' in Accessibility Settings", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
             openAccessibilitySettings()
             return
@@ -353,7 +360,8 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
             return
         }
         
-        if (!isAccessibilityServiceEnabled()) {
+        val automationEnabled = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
+        if (!automationEnabled && !isAccessibilityServiceEnabled()) {
             binding.root.showModernToast("Please enable 'SidePanel' in Accessibility Settings", Snackbar.LENGTH_LONG)
             openAccessibilitySettings()
             return
@@ -369,25 +377,5 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
         } else {
             startService(intent)
         }
-    }
-
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        if (PanelAccessibilityService.isRunning) return true
-        
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        
-        val colonSplitter = android.text.TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServices)
-        
-        while (colonSplitter.hasNext()) {
-            val componentName = colonSplitter.next()
-            if (componentName.equals("$packageName/${PanelAccessibilityService::class.java.name}", ignoreCase = true)) {
-                return true
-            }
-        }
-        return false
     }
 }

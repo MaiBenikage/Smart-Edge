@@ -81,6 +81,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
 
         binding.featureAutoStart.isChecked = panelPrefs.autoStart
         binding.featureGestures.isChecked = panelPrefs.gesturesEnabled
+        binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
         binding.sbSwipeSensitivity.value = panelPrefs.swipeSensitivity.toFloat()
         binding.tvSwipeSensitivityValue.text = "${panelPrefs.swipeSensitivity}%"
         binding.layoutSwipeSensitivity.visibility = if (panelPrefs.gesturesEnabled) View.VISIBLE else View.GONE
@@ -189,6 +190,14 @@ class InteractionSettingsActivity : AppCompatActivity() {
             binding.tvSecureSettingsStatus.text = "Not Granted"
             binding.tvSecureSettingsStatus.setTextColor(getColor(android.R.color.holo_red_dark))
         }
+        
+        // Update Native Gesture Label with status
+        val status = when {
+            AutomationManager.isRootAvailable() -> " (Root)"
+            AutomationManager.isShizukuAvailable() -> " (Shizuku)"
+            else -> ""
+        }
+        binding.featureAutomationGestures.text = "Native Gesture$status"
     }
 
     private fun setupListeners() {
@@ -216,6 +225,38 @@ class InteractionSettingsActivity : AppCompatActivity() {
             panelPrefs.gesturesEnabled = isChecked
             binding.layoutSwipeSensitivity.visibility = if (isChecked) View.VISIBLE else View.GONE
             applyOnly()
+        }
+
+        binding.featureAutomationGestures.setOnCheckedChangeListener { buttonView, isChecked ->
+            if (isChecked && !AutomationManager.isAutomationPossible()) {
+                // Try to auto-detect root first
+                AutomationManager.checkRootAndRequestPermission(this) { success ->
+                    runOnUiThread {
+                        if (success) {
+                            panelPrefs.useAutomationForGestures = true
+                            buttonView.isChecked = true
+                            applyOnly()
+                        } else {
+                            buttonView.isChecked = false
+                            showAutomationSetupDialog(buttonView)
+                        }
+                    }
+                }
+                return@setOnCheckedChangeListener
+            }
+            panelPrefs.useAutomationForGestures = isChecked
+            
+            // If disabled and accessibility is also not enabled, the service shouldn't stay active
+            // as it has no way to perform system actions (though it could still open the panel).
+            // However, to keep it consistent with MainActivity's logic:
+            if (!isChecked && !isAccessibilityServiceEnabled()) {
+                if (panelPrefs.serviceEnabled) {
+                    panelPrefs.toggleService(this, false)
+                    binding.root.showModernToast("Service disabled: No gesture method active")
+                }
+            } else {
+                applyOnly()
+            }
         }
 
         binding.sbSwipeSensitivity.addOnChangeListener { _, value, fromUser ->
@@ -505,6 +546,28 @@ class InteractionSettingsActivity : AppCompatActivity() {
             binding.tvPickerGapValue.text = "${default}dp"
             applyOnly()
         }
+
+        binding.btnSecureSettings.setOnClickListener {
+            SecureSettingsDialog.show(this) {
+                updateSecureSettingsUI()
+            }
+        }
+    }
+
+    private fun showAutomationSetupDialog(buttonView: android.widget.CompoundButton) {
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Automation Unavailable")
+            .setMessage("Root or Shizuku is required to use this feature. Please set up 'System Automation' first.")
+            .setPositiveButton("Setup") { _, _ ->
+                SecureSettingsDialog.show(this) {
+                    updateSecureSettingsUI()
+                    if (AutomationManager.isAutomationPossible()) {
+                        buttonView.isChecked = true
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showAppMultiPicker(title: String, currentSelected: List<String>, onSave: (List<String>) -> Unit) {

@@ -5,144 +5,373 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.view.LayoutInflater
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.imi.smartedge.sidebar.panel.databinding.LayoutSecureSettingsDialogBinding
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 
-object SecureSettingsDialog {
+class SecureSettingsDialog : BottomSheetDialogFragment() {
 
-    fun show(context: Context, onPermissionGranted: () -> Unit) {
-        val binding = LayoutSecureSettingsDialogBinding.inflate(LayoutInflater.from(context))
+    private var onPermissionGranted: (() -> Unit)? = null
+
+    companion object {
+        const val TAG = "SecureSettingsDialog"
         
-        val dialog = MaterialAlertDialogBuilder(context)
-            .setView(binding.root)
-            .create()
-
-        fun updateStatus() {
-            val isGranted = context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
-            
-            // Clear existing animations
-            binding.statusDot.clearAnimation()
-            
-            if (isGranted) {
-                binding.tvStatus.text = "ACTIVE"
-                binding.statusCard.setCardBackgroundColor(context.getColor(R.color.md_theme_primaryContainer))
-                binding.tvStatus.setTextColor(context.getColor(R.color.md_theme_onPrimaryContainer))
-                binding.statusDot.setCardBackgroundColor(context.getColor(R.color.md_theme_primary))
-            } else {
-                binding.tvStatus.text = "INACTIVE"
-                binding.statusCard.setCardBackgroundColor(context.getColor(R.color.md_theme_errorContainer))
-                binding.tvStatus.setTextColor(context.getColor(R.color.md_theme_onErrorContainer))
-                binding.statusDot.setCardBackgroundColor(context.getColor(R.color.md_theme_error))
-                
-                // Add pulse animation for Inactive state
-                val pulse = android.view.animation.AlphaAnimation(1f, 0.4f).apply {
-                    duration = 800
-                    repeatMode = android.view.animation.Animation.REVERSE
-                    repeatCount = android.view.animation.Animation.INFINITE
-                }
-                binding.statusDot.startAnimation(pulse)
+        fun show(context: Context, onPermissionGranted: () -> Unit) {
+            val dialog = SecureSettingsDialog()
+            dialog.onPermissionGranted = onPermissionGranted
+            (context as? androidx.fragment.app.FragmentActivity)?.let {
+                dialog.show(it.supportFragmentManager, TAG)
             }
         }
+    }
 
-        updateStatus()
-
-        val packageName = context.packageName
+    override fun onCreateView(
+        inflater: android.view.LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        val ctx = requireContext()
+        val density = ctx.resources.displayMetrics.density
+        val packageName = ctx.packageName
         val adbCommand = "adb shell pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
-        binding.tvAdbCommand.text = adbCommand
 
-        binding.btnCopyAdb.setOnClickListener {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCommand))
-            binding.root.showModernToast("Command copied")
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (24 * density).toInt(),
+                (12 * density).toInt(),
+                (24 * density).toInt(),
+                (28 * density).toInt()
+            )
         }
 
-        binding.btnGrantShizuku.setOnClickListener {
-            try {
-                if (rikka.shizuku.Shizuku.pingBinder()) {
-                    if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-                        try {
+        // Drag handle
+        val handle = View(ctx).apply {
+            val lp = LinearLayout.LayoutParams((40 * density).toInt(), (4 * density).toInt())
+            lp.gravity = Gravity.CENTER_HORIZONTAL
+            lp.bottomMargin = (20 * density).toInt()
+            layoutParams = lp
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * density
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+        }
+        root.addView(handle)
+
+        // Header
+        val headerRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (24 * density).toInt() }
+        }
+
+        val iconBg = FrameLayout(ctx).apply {
+            val size = (48 * density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = (16 * density).toInt() }
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14 * density
+                setColor(Color.parseColor("#1A4A9EFF"))
+            }
+        }
+        val iconView = ImageView(ctx).apply {
+            setImageResource(android.R.drawable.ic_menu_manage)
+            imageTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#4A9EFF"))
+            val pad = (12 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        iconBg.addView(iconView)
+        headerRow.addView(iconBg)
+
+        val titleCol = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvTitle = TextView(ctx).apply {
+            text = "Native Gesture Engine"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val isGranted = ctx.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
+        val tvStatus = TextView(ctx).apply {
+            text = if (isGranted) "Status: Active" else "Status: Inactive"
+            textSize = 12f
+            setTextColor(if (isGranted) Color.parseColor("#00FF00") else Color.parseColor("#99FFFFFF"))
+            if (isGranted) typeface = Typeface.DEFAULT_BOLD
+        }
+        titleCol.addView(tvTitle)
+        titleCol.addView(tvStatus)
+        headerRow.addView(titleCol)
+        root.addView(headerRow)
+
+        val tvDesc = TextView(ctx).apply {
+            text = "Enable high-performance gestures without traditional Accessibility Services."
+            textSize = 14f
+            setTextColor(Color.parseColor("#B3FFFFFF"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (24 * density).toInt() }
+        }
+        root.addView(tvDesc)
+
+        // Divider
+        root.addView(View(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * density).toInt()).apply {
+                bottomMargin = (24 * density).toInt()
+            }
+            setBackgroundColor(Color.parseColor("#1AFFFFFF"))
+        })
+
+        // Shizuku Row
+        root.addView(createAutomationRow(ctx, density, "Shizuku", "Wireless ADB automation",
+            onGrant = {
+                try {
+                    if (rikka.shizuku.Shizuku.pingBinder()) {
+                        if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
                             val sh = "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
                             val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null)
                             process.waitFor()
-                            if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED) {
-                                binding.root.showModernToast("Permission granted via Shizuku!")
-                                updateStatus()
-                                onPermissionGranted()
-                            } else {
-                                binding.root.showModernToast("Shizuku grant failed")
-                            }
-                        } catch (e: Exception) {
-                            binding.root.showModernToast("Shizuku execution failed")
+                            refreshUI(ctx, tvStatus)
+                        } else {
+                            rikka.shizuku.Shizuku.requestPermission(1001)
                         }
-                    } else {
-                        rikka.shizuku.Shizuku.requestPermission(1001)
-                        binding.root.showModernToast("Allow Shizuku and try again")
                     }
-                } else {
-                    binding.root.showModernToast("Shizuku is not running")
-                }
-            } catch (e: Exception) {
-                binding.root.showModernToast("Shizuku unavailable")
-            }
-        }
-
-        binding.btnRevokeShizuku.setOnClickListener {
-            try {
-                if (rikka.shizuku.Shizuku.pingBinder()) {
-                    if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-                        try {
+                } catch (e: Exception) {}
+            },
+            onRevoke = {
+                try {
+                    if (rikka.shizuku.Shizuku.pingBinder()) {
+                        if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
                             val sh = "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"
                             val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null)
                             process.waitFor()
-                            if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) {
-                                binding.root.showModernToast("Permission revoked!")
-                                updateStatus()
-                                onPermissionGranted()
-                            }
-                        } catch (e: Exception) {
-                            binding.root.showModernToast("Shizuku revoke failed")
+                            refreshUI(ctx, tvStatus)
                         }
-                    } else {
-                        rikka.shizuku.Shizuku.requestPermission(1001)
+                    }
+                } catch (e: Exception) {}
+            }
+        ))
+
+        // Root Row
+        root.addView(createAutomationRow(ctx, density, "Root Access", "Direct system grant",
+            onGrant = {
+                AutomationManager.requestRootPermission { success ->
+                    if (success) {
+                        try {
+                            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"))
+                            p.waitFor()
+                            activity?.runOnUiThread { refreshUI(ctx, tvStatus) }
+                        } catch (e: Exception) {}
                     }
                 }
-            } catch (e: Exception) {}
-        }
+            },
+            onRevoke = {
+                try {
+                    val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"))
+                    p.waitFor()
+                    activity?.runOnUiThread { refreshUI(ctx, tvStatus) }
+                } catch (e: Exception) {}
+            }
+        ))
 
-        binding.btnGrantRoot.setOnClickListener {
-            try {
-                val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"))
-                p.waitFor()
-                if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED) {
-                    binding.root.showModernToast("Permission granted via Root!")
-                    updateStatus()
-                    onPermissionGranted()
-                } else {
-                    binding.root.showModernToast("Root grant failed")
-                }
-            } catch (e: Exception) {
-                binding.root.showModernToast("Root not available")
+        // ADB Section
+        val adbHeaderRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (20 * density).toInt(); bottomMargin = (8 * density).toInt() }
+        }
+        
+        val adbTitle = TextView(ctx).apply {
+            text = "MANUAL SETUP (ADB)"
+            textSize = 11f
+            setTextColor(Color.parseColor("#66FFFFFF"))
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.1f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        adbHeaderRow.addView(adbTitle)
+
+        val btnCopy = TextView(ctx).apply {
+            text = "Copy"
+            setTextColor(Color.parseColor("#4A9EFF"))
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 4 * density
+                setColor(Color.parseColor("#1A4A9EFF"))
+            }
+            setOnClickListener {
+                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCommand))
+                Toast.makeText(ctx, "Command copied to clipboard", Toast.LENGTH_SHORT).show()
             }
         }
+        adbHeaderRow.addView(btnCopy)
+        root.addView(adbHeaderRow)
 
-        binding.btnRevokeRoot.setOnClickListener {
-            try {
-                val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"))
-                p.waitFor()
-                if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) {
-                    binding.root.showModernToast("Permission revoked!")
-                    updateStatus()
-                    onPermissionGranted()
-                }
-            } catch (e: Exception) {
-                binding.root.showModernToast("Root revoke failed")
+        val adbBox = TextView(ctx).apply {
+            text = adbCommand
+            textSize = 10f
+            setTextColor(Color.parseColor("#E6FFFFFF"))
+            typeface = Typeface.MONOSPACE
+            setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12 * density
+                setColor(Color.parseColor("#1AFFFFFF"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCommand))
+                Toast.makeText(ctx, "Command copied to clipboard", Toast.LENGTH_SHORT).show()
             }
         }
+        root.addView(adbBox)
 
-        binding.btnClose.setOnClickListener { dialog.dismiss() }
+        // Close Button
+        val btnClose = Button(ctx).apply {
+            text = "Done"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14 * density
+                setColor(Color.parseColor("#4A9EFF"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (54 * density).toInt()
+            ).apply { topMargin = (28 * density).toInt() }
+            setOnClickListener { dismiss() }
+        }
+        root.addView(btnClose)
 
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.show()
+        return root
+    }
+
+    private fun createAutomationRow(
+        ctx: Context,
+        density: Float,
+        title: String,
+        subtitle: String,
+        onGrant: () -> Unit,
+        onRevoke: () -> Unit
+    ): View {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (20 * density).toInt() }
+        }
+
+        val textCol = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        textCol.addView(TextView(ctx).apply {
+            text = title
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        textCol.addView(TextView(ctx).apply {
+            text = subtitle
+            textSize = 12f
+            setTextColor(Color.parseColor("#99FFFFFF"))
+        })
+        row.addView(textCol)
+
+        val btnRevoke = Button(ctx).apply {
+            text = "Revoke"
+            setTextColor(Color.parseColor("#FF5252"))
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 19 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#FF5252"))
+                setColor(Color.TRANSPARENT)
+            }
+            layoutParams = LinearLayout.LayoutParams((80 * density).toInt(), (38 * density).toInt()).apply {
+                marginEnd = (12 * density).toInt()
+            }
+            setOnClickListener { onRevoke() }
+        }
+        row.addView(btnRevoke)
+
+        val btnGrant = Button(ctx).apply {
+            text = "Grant"
+            setTextColor(Color.parseColor("#4A9EFF"))
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 19 * density
+                setStroke((1 * density).toInt(), Color.parseColor("#4A9EFF"))
+                setColor(Color.TRANSPARENT)
+            }
+            layoutParams = LinearLayout.LayoutParams((80 * density).toInt(), (38 * density).toInt())
+            setOnClickListener { onGrant() }
+        }
+        row.addView(btnGrant)
+        return row
+    }
+
+    private fun refreshUI(ctx: Context, tvStatus: TextView) {
+        val isGranted = ctx.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
+        tvStatus.text = if (isGranted) "Status: Active" else "Status: Inactive"
+        tvStatus.setTextColor(if (isGranted) Color.parseColor("#00FF00") else Color.parseColor("#99FFFFFF"))
+        if (isGranted) {
+            tvStatus.typeface = Typeface.DEFAULT_BOLD
+            onPermissionGranted?.invoke()
+        }
+    }
+
+    override fun onCreateDialog(savedInstanceState: Bundle?): android.app.Dialog {
+        val dialog = super.onCreateDialog(savedInstanceState) as BottomSheetDialog
+        dialog.setOnShowListener {
+            val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            bottomSheet?.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                val density = resources.displayMetrics.density
+                cornerRadii = floatArrayOf(
+                    24 * density, 24 * density,
+                    24 * density, 24 * density,
+                    0f, 0f, 0f, 0f
+                )
+                setColor(Color.parseColor("#1F2732"))
+            }
+        }
+        return dialog
     }
 }

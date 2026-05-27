@@ -1,95 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:layout_margin="20dp"
-    app:cardBackgroundColor="?attr/colorSurface"
-    app:cardCornerRadius="32dp"
-    app:cardElevation="0dp"
-    app:strokeWidth="1.2dp"
-    app:strokeColor="?attr/colorOutlineVariant">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:id="@+id/mainContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp"
+        android:padding="20dp"
         android:animateLayoutChanges="true">
 
-        <!-- HEADER SECTION -->
+        <!-- STATUS SECTION -->
         <LinearLayout
+            android:id="@+id/statusContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="System Automation"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="22sp"
-                android:fontFamily="sans-serif-medium"
-                android:letterSpacing="-0.01" />
+            android:layout_marginBottom="20dp">
 
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/statusCard"
+                android:id="@+id/statusDot"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                app:cardCornerRadius="4dp"
+                app:cardElevation="0dp"
+                app:cardBackgroundColor="?attr/colorError"
+                app:strokeWidth="0dp" />
+
+            <TextView
+                android:id="@+id/tvStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                app:cardCornerRadius="24dp"
-                app:cardElevation="0dp"
-                app:cardBackgroundColor="?attr/colorErrorContainer"
-                app:strokeWidth="0dp">
-                
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="14dp"
-                    android:paddingVertical="8dp">
-
-                    <com.google.android.material.card.MaterialCardView
-                        android:id="@+id/statusDot"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        app:cardCornerRadius="5dp"
-                        app:cardElevation="0dp"
-                        app:cardBackgroundColor="?attr/colorError"
-                        app:strokeWidth="0dp" />
-
-                    <TextView
-                        android:id="@+id/tvStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="10dp"
-                        android:text="INACTIVE"
-                        android:textColor="?attr/colorOnErrorContainer"
-                        android:textSize="10.5sp"
-                        android:textStyle="bold"
-                        android:letterSpacing="0.1" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                android:layout_marginStart="12dp"
+                android:text="System automation is currently inactive"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif"
+                android:alpha="0.8" />
         </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Secure Settings allows for fluid system-level automation and advanced gesture control."
+            android:text="Enable high-performance gestures that bypass the need for traditional Accessibility Services."
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="14.5sp"
-            android:lineSpacingExtra="4dp" />
+            android:textSize="13sp"
+            android:lineHeight="18sp" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="24dp"
             android:background="?attr/colorOutlineVariant"
-            android:alpha="0.5" />
+            android:alpha="0.4" />
 
         <!-- ADB SECTION -->
         <LinearLayout
@@ -102,52 +68,51 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="VIA COMPUTER"
-                android:textColor="?attr/colorPrimary"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.15" />
+                android:text="Manual Setup (ADB)"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium" />
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnCopyAdb"
                 style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="Copy"
-                android:textSize="13sp"
+                android:layout_height="40dp"
+                android:text="Copy Command"
+                android:textSize="12sp"
                 app:icon="@drawable/ic_copy"
-                app:iconSize="16dp" />
+                app:iconSize="14dp" />
         </LinearLayout>
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:cardCornerRadius="16dp"
+            android:layout_marginTop="4dp"
+            app:cardCornerRadius="12dp"
             app:cardElevation="0dp"
-            app:cardBackgroundColor="?attr/colorSurfaceContainerHighest"
-            app:strokeWidth="0dp">
+            app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+            app:strokeWidth="1dp"
+            app:strokeColor="?attr/colorOutlineVariant">
             <TextView
                 android:id="@+id/tvAdbCommand"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="16dp"
+                android:padding="12dp"
                 android:text="adb shell pm grant..."
                 android:textColor="?attr/colorOnSurface"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:typeface="monospace"
-                android:alpha="0.9" />
+                android:alpha="0.7" />
         </com.google.android.material.card.MaterialCardView>
 
         <!-- AUTOMATED SECTION -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="AUTOMATED"
-            android:textColor="?attr/colorPrimary"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.15" />
+            android:layout_marginTop="24dp"
+            android:text="One-Tap Methods"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif-medium" />
 
         <!-- Shizuku Row -->
         <LinearLayout
@@ -155,7 +120,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="12dp">
+            android:layout_marginTop="16dp">
             
             <LinearLayout
                 android:layout_width="0dp"
@@ -167,14 +132,14 @@
                     android:layout_height="wrap_content"
                     android:text="Shizuku"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="16.5sp"
+                    android:textSize="15sp"
                     android:fontFamily="sans-serif-medium" />
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Rootless automation"
+                    android:text="ADB-based wireless automation"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="12.5sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
@@ -184,17 +149,21 @@
                 android:layout_height="wrap_content"
                 android:text="Revoke"
                 android:textColor="?attr/colorError"
+                android:textSize="12sp"
                 android:minWidth="0dp"
-                android:paddingHorizontal="12dp" />
+                android:paddingHorizontal="8dp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnGrantShizuku"
-                style="@style/Widget.Material3.Button.TonalButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="wrap_content"
-                android:layout_height="44dp"
+                android:layout_height="38dp"
                 android:text="Grant"
-                app:cornerRadius="22dp"
-                android:paddingHorizontal="20dp" />
+                android:textSize="12sp"
+                app:cornerRadius="19dp"
+                android:paddingHorizontal="16dp"
+                app:strokeColor="?attr/colorPrimary"
+                android:textColor="?attr/colorPrimary" />
         </LinearLayout>
 
         <!-- Root Row -->
@@ -203,7 +172,8 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="20dp">
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp">
             
             <LinearLayout
                 android:layout_width="0dp"
@@ -215,14 +185,14 @@
                     android:layout_height="wrap_content"
                     android:text="Root Access"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="16.5sp"
+                    android:textSize="15sp"
                     android:fontFamily="sans-serif-medium" />
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Instant direct grant"
+                    android:text="Direct system-level integration"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="12.5sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
@@ -232,28 +202,22 @@
                 android:layout_height="wrap_content"
                 android:text="Revoke"
                 android:textColor="?attr/colorError"
+                android:textSize="12sp"
                 android:minWidth="0dp"
-                android:paddingHorizontal="12dp" />
+                android:paddingHorizontal="8dp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnGrantRoot"
-                style="@style/Widget.Material3.Button.TonalButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="wrap_content"
-                android:layout_height="44dp"
+                android:layout_height="38dp"
                 android:text="Grant"
-                app:cornerRadius="22dp"
-                android:paddingHorizontal="20dp" />
+                android:textSize="12sp"
+                app:cornerRadius="19dp"
+                android:paddingHorizontal="16dp"
+                app:strokeColor="?attr/colorPrimary"
+                android:textColor="?attr/colorPrimary" />
         </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnClose"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:layout_marginTop="28dp"
-            android:text="Dismiss"
-            android:letterSpacing="0.05" />
-
     </LinearLayout>
-</com.google.android.material.card.MaterialCardView>
+</androidx.core.widget.NestedScrollView>

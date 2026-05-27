@@ -80,6 +80,7 @@ class PanelPreferences(context: Context) {
         private const val KEY_SLIDE_VOLUME_ENABLED = "slide_volume_enabled"
         private const val KEY_SLIDE_SENSITIVITY = "slide_sensitivity"
         private const val KEY_SWIPE_SENSITIVITY = "swipe_sensitivity"
+        private const val KEY_USE_AUTOMATION_FOR_GESTURES = "use_automation_for_gestures"
 
         private const val KEY_TAP_ACTION = "tap_action"
         private const val KEY_DOUBLE_TAP_ACTION = "double_tap_action"
@@ -374,6 +375,7 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_SLIDE_VOLUME_ENABLED, DEFAULT_SLIDE_VOLUME)
             putInt(KEY_SLIDE_SENSITIVITY, DEFAULT_SLIDE_SENSITIVITY)
             putInt(KEY_SWIPE_SENSITIVITY, DEFAULT_SWIPE_SENSITIVITY)
+            putBoolean(KEY_USE_AUTOMATION_FOR_GESTURES, false)
             putString(KEY_HOME_BUTTON_STYLE, DEFAULT_HOME_BUTTON_STYLE)
             putInt(KEY_THEME_MODE, DEFAULT_THEME_MODE)
             putBoolean(KEY_FREEFORM_ENABLED, false)
@@ -606,8 +608,8 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putInt(KEY_ANIM_SPEED, value) }
 
     var setupCompleted: Boolean
-        get() = prefs.getBoolean("setup_completed_new", false)
-        set(value) = prefs.edit { putBoolean("setup_completed_new", value) }
+        get() = prefs.getBoolean("setup_completed_v2", false)
+        set(value) = prefs.edit { putBoolean("setup_completed_v2", value) }
 
     var toolsFolderMigrated: Boolean
         get() = prefs.getBoolean(KEY_TOOLS_FOLDER_MIGRATED, false)
@@ -628,6 +630,10 @@ class PanelPreferences(context: Context) {
     var swipeSensitivity: Int
         get() = prefs.getInt(KEY_SWIPE_SENSITIVITY, DEFAULT_SWIPE_SENSITIVITY)
         set(value) = prefs.edit { putInt(KEY_SWIPE_SENSITIVITY, value) }
+
+    var useAutomationForGestures: Boolean
+        get() = prefs.getBoolean(KEY_USE_AUTOMATION_FOR_GESTURES, false)
+        set(value) = prefs.edit { putBoolean(KEY_USE_AUTOMATION_FOR_GESTURES, value) }
 
     var serviceEnabled: Boolean
         get() = prefs.getBoolean("service_enabled", true)

@@ -319,6 +319,51 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         }
         root.addView(btnOpen)
 
+        // "Use System Automation instead" secondary button
+        val btnAutomation = Button(ctx).apply {
+            text = "Use System Automation instead"
+            setTextColor(android.graphics.Color.parseColor("#4A9EFF"))
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 14 * density
+                setStroke((1 * density).toInt(), android.graphics.Color.parseColor("#4A9EFF"))
+                setColor(android.graphics.Color.TRANSPARENT)
+            }
+            setPadding(0, (10 * density).toInt(), 0, (10 * density).toInt())
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.topMargin = (12 * density).toInt()
+            layoutParams = lp
+            setOnClickListener {
+                SecureSettingsDialog.show(ctx) {
+                    // Update preference if automation becomes possible
+                    if (AutomationManager.isAutomationPossible()) {
+                        PanelPreferences(ctx).useAutomationForGestures = true
+                    }
+                }
+                dismiss()
+            }
+        }
+        root.addView(btnAutomation)
+
+        val tvNote = TextView(ctx).apply {
+            text = "Automation (Root/Shizuku) can handle gestures without using the Accessibility Service, saving RAM and CPU."
+            textSize = 11f
+            setTextColor(android.graphics.Color.parseColor("#66FFFFFF"))
+            gravity = android.view.Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.topMargin = (12 * density).toInt()
+            layoutParams = lp
+        }
+        root.addView(tvNote)
+
         // Style the bottom sheet itself with dark background
         dialog?.setOnShowListener {
             val bottomSheet = (dialog as? com.google.android.material.bottomsheet.BottomSheetDialog)

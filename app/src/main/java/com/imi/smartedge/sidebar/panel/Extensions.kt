@@ -407,6 +407,29 @@ fun applyAppTheme(context: Context) {
 }
 
 /**
+ * Checks if the app's Accessibility Service is currently running.
+ */
+fun Context.isAccessibilityServiceEnabled(): Boolean {
+    if (PanelAccessibilityService.isRunning) return true
+    
+    val enabledServices = Settings.Secure.getString(
+        contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+    ) ?: return false
+    
+    val colonSplitter = android.text.TextUtils.SimpleStringSplitter(':')
+    colonSplitter.setString(enabledServices)
+    
+    while (colonSplitter.hasNext()) {
+        val componentName = colonSplitter.next()
+        if (componentName.equals("$packageName/${PanelAccessibilityService::class.java.name}", ignoreCase = true)) {
+            return true
+        }
+    }
+    return false
+}
+
+/**
  * Opens a modern color picker with manual Hex input support and visual sliders.
  * Integrated into a seamless Material 3 Dialog using skydoves ColorPickerView.
  */
