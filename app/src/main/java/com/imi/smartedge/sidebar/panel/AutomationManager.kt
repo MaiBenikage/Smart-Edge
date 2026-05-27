@@ -107,6 +107,7 @@ object AutomationManager {
     fun performRecents() = execute("input keyevent 187")
     fun performNotifications() = execute("cmd statusbar expand-notifications")
     fun performQuickSettings() = execute("cmd statusbar expand-settings")
+    fun performSplitScreen() = execute("cmd statusbar toggle-split-screen")
     
     fun performPowerMenu() = execute("input keyevent 26 --longpress") // Long press power for menu
 

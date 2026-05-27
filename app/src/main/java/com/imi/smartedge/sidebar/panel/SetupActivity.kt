@@ -211,26 +211,6 @@ class SetupActivity : AppCompatActivity() {
 
     private fun hasOverlayPermission(): Boolean = Settings.canDrawOverlays(this)
 
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        if (PanelAccessibilityService.isRunning) return true
-        
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        
-        val colonSplitter = android.text.TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServices)
-        
-        while (colonSplitter.hasNext()) {
-            val componentName = colonSplitter.next()
-            if (componentName.equals("$packageName/${PanelAccessibilityService::class.java.name}", ignoreCase = true)) {
-                return true
-            }
-        }
-        return false
-    }
-
     private fun isIgnoringBatteryOptimizations(): Boolean {
         val powerManager = getSystemService(POWER_SERVICE) as android.os.PowerManager
         return powerManager.isIgnoringBatteryOptimizations(packageName)

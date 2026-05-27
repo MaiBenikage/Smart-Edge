@@ -226,7 +226,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             setOnClickListener {
                 val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCommand))
-                Toast.makeText(ctx, "Command copied to clipboard", Toast.LENGTH_SHORT).show()
+                root.showModernToast("Command copied to clipboard")
             }
         }
         adbHeaderRow.addView(btnCopy)
@@ -250,7 +250,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             setOnClickListener {
                 val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCommand))
-                Toast.makeText(ctx, "Command copied to clipboard", Toast.LENGTH_SHORT).show()
+                root.showModernToast("Command copied to clipboard")
             }
         }
         root.addView(adbBox)
