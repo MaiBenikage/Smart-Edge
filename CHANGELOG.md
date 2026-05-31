@@ -6,7 +6,23 @@
 
 ---
 
-### v1.3.4 (Latest)
+### v1.3.5 (Latest)
+- **feat(gestures)**: Added 'Long Press' gesture support to the edge handle. You can now configure a specific action (like Go to Home) for a long press.
+- **feat(animation)**: Restored 'Slide' as a selectable animation style and made it the default for a smoother entry.
+- **fix(animation)**: Resolved issue where the main sidebar would always slide even if 'Popup' was selected.
+- **fix(ui)**: Fixed false-negative 'Accessibility Required' warning when using Shizuku-based Native Gestures.
+- **feat(ui)**: Re-introduced Animation Style selection in Interaction Settings.
+- **fix(animation)**: Unified animation logic between the main panel and app picker to respect user preferences consistently.
+- **feat(ui)**: Added search functionality to all App Selectors (Hide Apps, Game Mode, Pinned Apps).
+- **feat(icons)**: Modernized Icon Pack selection UI with a sleek BottomSheet design.
+- **feat(gestures)**: Added split-screen support to the Native Gesture Engine.
+- **feat(gestures)**: Implemented Native Gesture Engine (via Root or Shizuku) for seamless system navigation, bypassing traditional accessibility delays.
+- **feat(gestures)**: Improved swipe responsiveness and added a customizable swipe sensitivity setting.
+- **fix(ui)**: Resolved pill flickering and ghosting issues during rapid interactions.
+
+---
+
+### v1.3.4
 - **feat(gestures)**: Added advanced tap gesture actions including Back, Home, Recents, Notifications, Quick Settings, Lock Screen, and Power Menu.
 - **feat(gestures)**: Added fully configurable multi-tap gestures (single, double, and triple tap).
 - **feat(sidebar)**: Added ability to manually select specific apps to hide the sidebar in (replaced automatic immersive mode detection).
