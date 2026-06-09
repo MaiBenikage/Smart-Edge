@@ -28,6 +28,12 @@ class EdgeHandleView @JvmOverloads constructor(
     var onSideChanged: ((newSide: String) -> Unit)? = null
     
     var isRightSide: Boolean = true
+        set(value) {
+            if (field != value) {
+                field = value
+                updatePill()
+            }
+        }
     var showPill: Boolean = true
         set(value) {
             if (field != value) {

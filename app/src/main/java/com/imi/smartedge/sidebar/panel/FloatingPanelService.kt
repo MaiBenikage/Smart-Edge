@@ -35,12 +35,19 @@ class FloatingPanelService : Service() {
     private var rootLayout: android.widget.FrameLayout? = null
     private var rootParams: WindowManager.LayoutParams? = null
 
+    private val activeTorches = mutableSetOf<String>()
     private var isFlashlightOn = false
+    private var lastManualToggleTime = 0L
     private var cameraManager: android.hardware.camera2.CameraManager? = null
     private val torchCallback = object : android.hardware.camera2.CameraManager.TorchCallback() {
         override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
             super.onTorchModeChanged(cameraId, enabled)
-            isFlashlightOn = enabled
+            // Ignore system callbacks for a short period after a manual toggle
+            if (System.currentTimeMillis() - lastManualToggleTime > 500) {
+                if (enabled) activeTorches.add(cameraId) else activeTorches.remove(cameraId)
+                isFlashlightOn = activeTorches.isNotEmpty()
+                Log.d(TAG, "External torch change: $enabled for camera $cameraId. Master state: $isFlashlightOn")
+            }
         }
     }
     
@@ -153,9 +160,15 @@ class FloatingPanelService : Service() {
         initSidePanel()
         initPickerPanel()
         
+        // Force enable notch gestures for debugging if we're in a debug build
+        // val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        // if (isDebug) {
+        //    panelPrefs.notchGesturesEnabled = true
+        // }
+
         if (panelPrefs.serviceEnabled) {
             addEdgeHandle()
-            addNotchHandle()
+            // // addNotchHandle() // Commented out per user request
         }
 
         val filter = android.content.IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
@@ -217,7 +230,7 @@ class FloatingPanelService : Service() {
                 
                 if (newState) {
                     addEdgeHandle()
-                    addNotchHandle()
+                    // addNotchHandle()
                 } else {
                     stopSelf()
                 }
@@ -255,7 +268,7 @@ class FloatingPanelService : Service() {
                         notchHandleView?.visibility = View.GONE
                     } else {
                         addEdgeHandle(forceRecreate = false)
-                        addNotchHandle()
+                        // addNotchHandle()
                         edgeHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
                         notchHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
                     }
@@ -267,6 +280,26 @@ class FloatingPanelService : Service() {
                     
                     sidePanelView?.updateStyles()
                     sidePanelView?.refreshIcons()
+                    
+                    // Update side/picker gravity in case it changed
+                    val isRightSide = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
+                    sidePanelView?.let { panel ->
+                        val lp = panel.layoutParams as? android.widget.FrameLayout.LayoutParams
+                        if (lp != null) {
+                            lp.gravity = if (isRightSide) Gravity.END or Gravity.CENTER_VERTICAL
+                                         else Gravity.START or Gravity.CENTER_VERTICAL
+                            panel.layoutParams = lp
+                        }
+                    }
+                    pickerPanelView?.let { picker ->
+                        val lp = picker.layoutParams as? android.widget.FrameLayout.LayoutParams
+                        if (lp != null) {
+                            lp.gravity = if (isRightSide) Gravity.END or Gravity.CENTER_VERTICAL
+                                         else Gravity.START or Gravity.CENTER_VERTICAL
+                            picker.layoutParams = lp
+                        }
+                    }
+
                     pickerPanelView?.applyTheme()
                     pickerPanelView?.clearIcons()
                     updateBlur(isPanelOpen)
@@ -291,7 +324,7 @@ class FloatingPanelService : Service() {
             }
             ACTION_SHOW_TEMP -> {
                 addEdgeHandle(forceRecreate = false)
-                addNotchHandle()
+                // addNotchHandle()
                 edgeHandleView?.showTemporarily()
             }
             ACTION_TOGGLE_FLASHLIGHT -> toggleFlashlight()
@@ -315,14 +348,30 @@ class FloatingPanelService : Service() {
     private fun toggleFlashlight() {
         try {
             val manager = cameraManager ?: getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+            
             val cameraId = manager.cameraIdList.firstOrNull { id ->
                 val chars = manager.getCameraCharacteristics(id)
                 chars.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-            } ?: return
+            }
             
-            val newState = !isFlashlightOn
+            if (cameraId == null) {
+                Log.e(TAG, "No flashlight-capable camera found!")
+                return
+            }
+
+            // Redundant check: if our master boolean says ON, or if we have ANY active torch IDs
+            val currentState = isFlashlightOn || activeTorches.isNotEmpty()
+            val newState = !currentState
+            
+            Log.d(TAG, "toggleFlashlight: Toggling to $newState (current state: $currentState, activeTorches: $activeTorches)")
+            
+            lastManualToggleTime = System.currentTimeMillis()
+            isFlashlightOn = newState
+            if (newState) activeTorches.add(cameraId) else activeTorches.clear()
+            
             manager.setTorchMode(cameraId, newState)
             showIndicator(if (newState) getString(R.string.indicator_flashlight_on) else getString(R.string.indicator_flashlight_off))
+            
         } catch (e: Exception) {
             Log.e(TAG, "Failed to toggle flashlight", e)
         }
@@ -457,24 +506,27 @@ class FloatingPanelService : Service() {
     }
 
     private fun addNotchHandle() {
+        Log.d(TAG, "addNotchHandle called. Enabled: ${panelPrefs.notchGesturesEnabled}")
         if (!panelPrefs.notchGesturesEnabled) {
             removeView(notchHandleView)
             notchHandleView = null
             return
         }
 
-        if (notchHandleView != null) return
+        if (notchHandleView != null) {
+            Log.d(TAG, "Notch handle already exists")
+            return
+        }
 
         notchHandleView = NotchHandleView(this)
 
         val params = WindowManager.LayoutParams(
-            dpToPx(60), // Width around notch
-            dpToPx(40), // Height around notch
+            dpToPx(120), // Increased width for easier debugging
+            dpToPx(60),  // Increased height for easier debugging
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -485,6 +537,7 @@ class FloatingPanelService : Service() {
         }
 
         try {
+            Log.d(TAG, "Adding notch handle to WindowManager")
             windowManager.addView(notchHandleView, params)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add notch handle", e)
@@ -507,6 +560,19 @@ class FloatingPanelService : Service() {
         val isPillVisible = panelPrefs.showPill
 
         if (edgeHandleView != null && !forceRecreate) {
+            // Update gravity if side changed without recreating the whole view
+            val params = edgeHandleView?.layoutParams as? WindowManager.LayoutParams
+            if (params != null) {
+                val newGravity = if (isRight) Gravity.END or Gravity.CENTER_VERTICAL
+                                 else Gravity.START or Gravity.CENTER_VERTICAL
+                if (params.gravity != newGravity) {
+                    params.gravity = newGravity
+                    try {
+                        windowManager.updateViewLayout(edgeHandleView, params)
+                    } catch (e: Exception) {}
+                }
+            }
+            
             edgeHandleView?.updateState(
                 isRight, 
                 isPillVisible, 

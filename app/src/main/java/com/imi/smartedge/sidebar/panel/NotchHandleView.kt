@@ -28,12 +28,33 @@ class NotchHandleView @JvmOverloads constructor(
     private val tapTimeoutMs = ViewConfiguration.getDoubleTapTimeout().toLong()
 
     private val tapRunnable = Runnable {
-        when (tapCount) {
-            1 -> performAction(panelPrefs.notchTapAction)
-            2 -> performAction(panelPrefs.notchDoubleTapAction)
-            else -> if (tapCount >= 3) performAction(panelPrefs.notchTripleTapAction)
-        }
+        val currentCount = tapCount
         tapCount = 0
+        when (currentCount) {
+            1 -> performAction(panelPrefs.notchTapAction)
+            2 -> {
+                val action = panelPrefs.notchDoubleTapAction
+                if (action != PanelPreferences.ACTION_NONE) {
+                    performAction(action)
+                } else {
+                    performAction(panelPrefs.notchTapAction)
+                }
+            }
+            3 -> {
+                val action = panelPrefs.notchTripleTapAction
+                if (action != PanelPreferences.ACTION_NONE) {
+                    performAction(action)
+                } else {
+                    val doubleAction = panelPrefs.notchDoubleTapAction
+                    if (doubleAction != PanelPreferences.ACTION_NONE) {
+                        performAction(doubleAction)
+                    } else {
+                        performAction(panelPrefs.notchTapAction)
+                    }
+                }
+            }
+            else -> if (currentCount > 3) performAction(panelPrefs.notchTripleTapAction)
+        }
     }
 
     private val longPressRunnable = Runnable {
@@ -108,9 +129,16 @@ class NotchHandleView @JvmOverloads constructor(
                 if (event.action == MotionEvent.ACTION_UP) {
                     val duration = System.currentTimeMillis() - downTime
                     if (duration < ViewConfiguration.getLongPressTimeout()) {
-                        tapCount++
-                        handler.removeCallbacks(tapRunnable)
-                        handler.postDelayed(tapRunnable, tapTimeoutMs)
+                        // If no double/triple tap actions are set, execute single tap immediately
+                        if (panelPrefs.notchDoubleTapAction == PanelPreferences.ACTION_NONE &&
+                            panelPrefs.notchTripleTapAction == PanelPreferences.ACTION_NONE) {
+                            performAction(panelPrefs.notchTapAction)
+                        } else {
+                            tapCount++
+                            handler.removeCallbacks(tapRunnable)
+                            handler.postDelayed(tapRunnable, tapTimeoutMs)
+                        }
+                        performClick()
                     }
                 }
                 return true
@@ -125,6 +153,27 @@ class NotchHandleView @JvmOverloads constructor(
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+        /*
+        val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (isDebug) {
+            val paint = android.graphics.Paint().apply {
+                color = Color.RED
+                alpha = 80 // Semi-transparent red
+                style = android.graphics.Paint.Style.FILL
+            }
+            // Draw a rectangle covering the entire hit area
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        }
+        */
     }
 
     init {
