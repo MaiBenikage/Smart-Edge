@@ -6,6 +6,10 @@ import android.util.Log
 import com.bumptech.glide.Glide
 
 class SidePanelApp : Application() {
+    override fun attachBaseContext(base: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(base))
+    }
+
     override fun onCreate() {
         super.onCreate()
         

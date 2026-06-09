@@ -14,7 +14,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Appearance"
+            app:title="@string/section_appearance"
             app:navigationIcon="@drawable/ic_arrow_back"
             app:navigationIconTint="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
@@ -54,7 +54,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="App Theme"
+                            android:text="@string/app_theme"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
 
@@ -62,7 +62,7 @@
                             android:id="@+id/tvThemeModeValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Follow System"
+                            android:text="@string/theme_follow_system"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="14sp" />
                     </LinearLayout>
@@ -82,7 +82,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="UI Style Theme"
+                            android:text="@string/ui_style_theme"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
 
@@ -90,17 +90,17 @@
                             android:id="@+id/tvUIStyleValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="OriginOS (Rounded)"
+                            android:text="@string/theme_origin"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="14sp" />
                     </LinearLayout>
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_blur" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Glassmorphic Blur" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="May cause lag on budget devices (Android 12+ only)" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_blur" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="@string/blur_title" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/blur_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
                     <LinearLayout android:id="@+id/feature_blur_intensity" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="16dp">
                         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
-                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Blur Intensity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/blur_intensity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                             <ImageView android:id="@+id/btnResetBlur" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
                             <TextView android:id="@+id/tvBlurAmountValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="15" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                         </LinearLayout>
@@ -108,7 +108,7 @@
                             android:id="@+id/sbBlurAmount" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="5.0" android:valueTo="50.0" android:value="15.0" app:tickVisible="false" />
                     </LinearLayout>
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_hide_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="Invisible Background" android:textColor="?attr/colorOnSurface" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_hide_bg" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="@string/invisible_bg" android:textColor="?attr/colorOnSurface" />
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
 
@@ -125,7 +125,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Panel Columns"
+                            android:text="@string/panel_columns"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
 
@@ -143,7 +143,7 @@
 
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Icons &amp; Colors" />
+                android:text="@string/section_icons_colors" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -168,7 +168,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Icon Shape"
+                            android:text="@string/icon_shape"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
 
@@ -185,22 +185,22 @@
 
                     <LinearLayout android:id="@+id/feature_icon_pack" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
                         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
-                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Icon Pack" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
-                            <TextView android:id="@+id/tvCurrentIconPack" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="System Default" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/icon_pack" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
+                            <TextView android:id="@+id/tvCurrentIconPack" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/icon_pack_default" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         </LinearLayout>
                         <com.google.android.material.button.MaterialButton 
                             android:id="@+id/btnSelectIconPack" 
-                            style="@style/Widget.Material3.Button.TonalButton" 
+                            style="@style/Widget.Material3.Button" 
                             android:layout_width="wrap_content" 
                             android:layout_height="wrap_content" 
-                            android:text="Change" 
+                            android:text="@string/done" 
                             android:textSize="12sp"
                             app:cornerRadius="12dp" />
                     </LinearLayout>
 
                     <LinearLayout android:id="@+id/feature_icon_scale" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="16dp">
                         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
-                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Icon Scale" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/icon_scale" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
                             <ImageView android:id="@+id/btnResetIconScale" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
                             <TextView android:id="@+id/tvIconScaleValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1.0x" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                         </LinearLayout>
@@ -210,10 +210,10 @@
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_custom_accent" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Use Custom Accent Color" android:textColor="?attr/colorOnSurface" android:layout_marginBottom="12dp" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_custom_accent" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/custom_accent_title" android:textColor="?attr/colorOnSurface" android:layout_marginBottom="12dp" />
 
                     <LinearLayout android:id="@+id/feature_accent_color" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
-                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Accent Color" android:textColor="?attr/colorOnSurfaceVariant" />
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/accent_color" android:textColor="?attr/colorOnSurfaceVariant" />
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnPickAccent"
                             style="@style/App_Button_Tonal"
@@ -228,7 +228,7 @@
                     </LinearLayout>
 
                     <LinearLayout android:id="@+id/feature_bg_color" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:gravity="center_vertical">
-                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Panel Background" android:textColor="?attr/colorOnSurfaceVariant" />
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/panel_bg_color" android:textColor="?attr/colorOnSurfaceVariant" />
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnPickBg"
                             style="@style/App_Button_Tonal"
@@ -248,7 +248,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:layout_marginTop="16dp"
-                        android:text="Reset UI Colors"
+                        android:text="@string/btn_reset_ui_colors"
                         app:cornerRadius="@dimen/app_button_radius" />
 
                 </LinearLayout>
@@ -256,7 +256,7 @@
 
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Home Screen" />
+                android:text="@string/section_home_screen" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -281,7 +281,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Service Button Style"
+                            android:text="@string/service_button_style"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
 
@@ -289,7 +289,7 @@
                             android:id="@+id/tvHomeButtonStyleValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Modern Power Icon"
+                            android:text="@string/button_style_power"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="14sp" />
                     </LinearLayout>
@@ -298,7 +298,7 @@
 
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Layout Tuning" />
+                android:text="@string/section_layout_tuning" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -311,7 +311,7 @@
                     android:layout_height="wrap_content">
 
                     <LinearLayout android:id="@+id/feature_opacity" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
-                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Panel Opacity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/panel_opacity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetOpacity" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
                         <TextView android:id="@+id/tvOpacityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="100%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>
@@ -319,7 +319,7 @@
                         android:id="@+id/sbOpacity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="10.0" android:valueTo="100.0" android:value="100.0" app:tickVisible="false" android:layout_marginBottom="12dp" />
 
                     <LinearLayout android:id="@+id/feature_radius" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="4dp">
-                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Corner Radius" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/corner_radius" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetRadius" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
                         <TextView android:id="@+id/tvRadiusValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="28dp" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>
@@ -327,7 +327,7 @@
                         android:id="@+id/sbPanelRadius" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="0.0" android:valueTo="60.0" android:value="20.0" app:tickVisible="false" android:layout_marginBottom="12dp" />
 
                     <LinearLayout android:id="@+id/feature_max_height" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="4dp">
-                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Sidebar Max Height" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/sidebar_max_height" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetMaxHeight" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
                         <TextView android:id="@+id/tvMaxHeightValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="350dp" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>
@@ -335,7 +335,7 @@
                         android:id="@+id/sbMaxHeight" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="200.0" android:valueTo="800.0" android:value="350.0" app:tickVisible="false" android:layout_marginBottom="16dp" />
 
                     <LinearLayout android:id="@+id/feature_picker_max_height" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="4dp">
-                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Edit Panel Max Height" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/picker_max_height" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetPickerMaxHeight" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
                         <TextView android:id="@+id/tvPickerMaxHeightValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="450dp" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>

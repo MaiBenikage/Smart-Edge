@@ -21,6 +21,10 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsMiscBinding
     private lateinit var panelPrefs: PanelPreferences
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     private val importFilePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) return@registerForActivityResult
         try {
@@ -48,6 +52,9 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
 
         binding.toolbar.setNavigationOnClickListener { finish() }
 
+        updateLanguageLabel()
+        binding.featureLanguage.setOnClickListener { showLanguagePicker() }
+
         binding.btnExportSettings.setOnClickListener {
             exportSettingsToDownloads()
         }
@@ -55,6 +62,37 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
         binding.btnImportSettings.setOnClickListener {
             importFilePicker.launch("application/json")
         }
+    }
+
+    private fun updateLanguageLabel() {
+        binding.tvLanguageValue.text = when (panelPrefs.appLanguage) {
+            "es" -> "Español"
+            else -> "English"
+        }
+    }
+
+    private fun showLanguagePicker() {
+        val languages = arrayOf("English", "Español")
+        val codes = arrayOf("en", "es")
+        val currentIndex = codes.indexOf(panelPrefs.appLanguage).let { if (it == -1) 0 else it }
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Choose App Language")
+            .setSingleChoiceItems(languages, currentIndex) { dialog, which ->
+                val selected = codes[which]
+                if (selected != panelPrefs.appLanguage) {
+                    panelPrefs.appLanguage = selected
+                    LocaleHelper.setLocale(this, selected)
+                    
+                    // Restart app
+                    val intent = Intent(this, MainActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    startActivity(intent)
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun exportSettingsToDownloads() {

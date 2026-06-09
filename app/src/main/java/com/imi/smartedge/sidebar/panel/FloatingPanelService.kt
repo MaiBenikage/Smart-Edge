@@ -322,7 +322,7 @@ class FloatingPanelService : Service() {
             
             val newState = !isFlashlightOn
             manager.setTorchMode(cameraId, newState)
-            showIndicator(if (newState) "Flashlight ON" else "Flashlight OFF")
+            showIndicator(if (newState) getString(R.string.indicator_flashlight_on) else getString(R.string.indicator_flashlight_off))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to toggle flashlight", e)
         }
@@ -355,7 +355,7 @@ class FloatingPanelService : Service() {
             val current = android.provider.Settings.System.getInt(contentResolver, android.provider.Settings.System.ACCELEROMETER_ROTATION, 0)
             val newState = if (current == 1) 0 else 1
             android.provider.Settings.System.putInt(contentResolver, android.provider.Settings.System.ACCELEROMETER_ROTATION, newState)
-            showIndicator(if (newState == 1) "Auto-Rotation ON" else "Auto-Rotation OFF")
+            showIndicator(if (newState == 1) getString(R.string.indicator_rotation_on) else getString(R.string.indicator_rotation_off))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to toggle rotation", e)
         }

@@ -89,9 +89,9 @@ class SettingsMainActivity : AppCompatActivity() {
         }
 
         // Add static actions that aren't in standard layouts
-        allSettings.add(SettingItem("Manage Apps", "Choose which apps appear in sidebar", "General", "apps choose select picker manage add remove", AppPickerActivity::class.java))
-        allSettings.add(SettingItem("View Repository", "Check source code on GitHub", "Project", "github source code open repo smartedge", SettingsMainActivity::class.java, "btnGithubTop"))
-        allSettings.add(SettingItem("Reset to Defaults", "Reset all settings to factory state", "General", "reset all factory wipe restore settings", SettingsMainActivity::class.java, "btnReset"))
+        allSettings.add(SettingItem(getString(R.string.add_apps), getString(R.string.manage_apps_desc), getString(R.string.misc_section_general), "apps choose select picker manage add remove", AppPickerActivity::class.java))
+        allSettings.add(SettingItem(getString(R.string.view_repo_title), getString(R.string.view_repo_desc), "Project", "github source code open repo smartedge", SettingsMainActivity::class.java, "btnGithubTop"))
+        allSettings.add(SettingItem(getString(R.string.btn_reset), getString(R.string.reset_defaults_desc), getString(R.string.misc_section_general), "reset all factory wipe restore settings", SettingsMainActivity::class.java, "btnReset"))
     }
 
     private fun discoverSettingsInView(view: View, activityClass: Class<*>, layoutId: Int) {
@@ -234,14 +234,14 @@ class SettingsMainActivity : AppCompatActivity() {
 
         binding.btnReset.setOnClickListener {
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Reset All Settings?")
-                .setMessage("This will restore all configurations and your side panel apps to their original defaults.")
-                .setPositiveButton("Reset") { _, _ ->
+                .setTitle(R.string.dialog_reset_title)
+                .setMessage(R.string.dialog_reset_msg)
+                .setPositiveButton(R.string.btn_reset) { _, _ ->
                     panelPrefs.resetToDefaults()
                     applyGlobalRefresh()
-                    binding.root.showModernToast("Settings Reset Successfully")
+                    binding.root.showModernToast(getString(R.string.toast_reset_success))
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(android.R.string.cancel, null)
                 .show()
         }
 

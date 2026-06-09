@@ -22,6 +22,10 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private lateinit var binding: ActivityMainM3Binding
     private lateinit var panelPrefs: PanelPreferences
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -31,7 +35,9 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainM3Binding.inflate(layoutInflater)
+        android.util.Log.d("MainActivity", "Current Locale: ${java.util.Locale.getDefault().language}")
+        binding = com.imi.smartedge.sidebar.panel.databinding.ActivityMainM3Binding.inflate(layoutInflater)
+
         setContentView(binding.root)
 
         // Hide default action bar
@@ -167,7 +173,7 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
                 panelPrefs.useAutomationForGestures -> " (Service Stopped)"
                 else -> ""
             }
-            binding.tvStatus.text = if (automationActive) "Active$statusSuffix" else if (panelPrefs.useAutomationForGestures) "Automation Stopped" else "Service is Active"
+            binding.tvStatus.text = if (automationActive) "Active$statusSuffix" else if (panelPrefs.useAutomationForGestures) getString(R.string.status_automation_stopped) else getString(R.string.status_service_active)
             theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, typedValue, true)
             binding.tvStatus.setTextColor(typedValue.data)
             binding.statusDot.imageTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))

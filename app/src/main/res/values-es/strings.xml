@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Smart Edge</string>
     <string name="app_picker_title">Elegir Aplicaciones</string>
@@ -24,9 +25,101 @@
     <string name="auto_start_label">Inicio automático al arrancar</string>
     <string name="done">Listo</string>
     <string name="open">Abrir</string>
-    <string name="no_apps">Aún no hay aplicaciones.\nToca \"Administrar Apps\" para añadir algunas.</string>
+    <string name="no_apps">Aún no hay aplicaciones.\nToca "Administrar Apps" para añadir algunas.</string>
     <string name="panel_tip">Mantén presionado el borde derecho para abrir el panel</string>
     <string name="accessibility_service_description">Detecta gestos de navegación del sistema para cerrar automáticamente el panel flotante sin esfuerzo.</string>
+
+    <string name="section_appearance">Apariencia</string>
+    <string name="section_interaction">Interacción</string>
+    <string name="section_handle">Tirador y Píldora</string>
+    <string name="section_icons_colors">Iconos y Colores</string>
+    <string name="section_home_screen">Pantalla de Inicio</string>
+    <string name="section_layout_tuning">Ajuste de Diseño</string>
+    <string name="section_general">General</string>
+    <string name="section_advanced_options">Opciones Avanzadas</string>
+    
+    <string name="app_theme">Tema de la App</string>
+    <string name="theme_follow_system">Seguir el Sistema</string>
+    <string name="ui_style_theme">Estilo de Interfaz</string>
+    <string name="theme_origin">OriginOS (Redondeado)</string>
+    <string name="theme_hyperos">HyperOS (Cristal)</string>
+    <string name="theme_realme">Realme UI</string>
+    <string name="theme_rich">Rich UI (Resplandor)</string>
+    
+    <string name="blur_title">Desenfoque Glassmorphic</string>
+    <string name="blur_desc">Puede causar lag en dispositivos básicos (Android 12+)</string>
+    <string name="blur_intensity">Intensidad del desenfoque</string>
+    <string name="invisible_bg">Fondo Invisible</string>
+    <string name="panel_columns">Columnas del Panel</string>
+    <string name="icon_shape">Forma de Iconos</string>
+    <string name="icon_pack">Pack de Iconos</string>
+    <string name="icon_pack_default">Predeterminado</string>
+    <string name="icon_scale">Escala de Iconos</string>
+    
+    <string name="custom_accent_title">Usar color de acento personalizado</string>
+    <string name="accent_color">Color de Acento</string>
+    <string name="panel_bg_color">Fondo del Panel</string>
+    <string name="btn_reset_ui_colors">Restablecer Colores UI</string>
+    
+    <string name="service_button_style">Estilo del Botón de Inicio</string>
+    <string name="button_style_power">Icono de encendido moderno</string>
+    <string name="button_style_logo">Logotipo clásico</string>
+    
+    <string name="panel_opacity">Opacidad del Panel</string>
+    <string name="corner_radius">Radio de Esquinas</string>
+    <string name="sidebar_max_height">Altura Máx Barra Lateral</string>
+    <string name="picker_max_height">Altura Máx de Edición</string>
+    
+    <string name="visible_pill">Tirador de Píldora Visible</string>
+    <string name="visible_pill_desc">Muestra un indicador visual en el borde</string>
+    <string name="pill_color">Color de la Píldora</string>
+    <string name="pill_thickness">Grosor de la Píldora</string>
+    <string name="touch_area_width">Ancho del área táctil</string>
+    <string name="handle_height">Altura del tirador</string>
+    
+    <string name="edge_gestures">Gestos de deslizamiento</string>
+    <string name="edge_sensitivity">Sensibilidad de deslizamiento</string>
+    <string name="req_accessibility">Requiere Servicio de Accesibilidad</string>
+    <string name="tap_gestures">Gestos táctiles</string>
+    <string name="tap_gestures_desc">Añadir acciones al tocar el tirador</string>
+    <string name="haptic_feedback">Respuesta Háptica</string>
+    
+    <string name="edge_seek_title">Control de borde (Deslizar)</string>
+    <string name="edge_seek_desc">Desliza sobre el tirador para ajustes rápidos</string>
+    <string name="slide_brightness">Deslizar Brillo</string>
+    <string name="slide_volume">Deslizar Volumen</string>
+    <string name="seek_sensitivity">Sensibilidad de ajuste</string>
+    
+    <string name="automation_title">Automatización (Root/Shizuku)</string>
+    <string name="automation_desc">Usa llamadas de sistema para Atrás, Inicio, etc.</string>
+    <string name="fullscreen_protection">Protección de Pantalla Completa</string>
+    <string name="fullscreen_desc">Desactivar gestos en apps seleccionadas</string>
+    <string name="game_mode">Modo Juego</string>
+    <string name="game_mode_desc">Requiere deslizamientos precisos en juegos</string>
+
+    <string name="main_hero_subtitle">Centro de Control Fluido</string>
+    <string name="main_service_title">Servicio de Barra Lateral</string>
+    <string name="main_service_stopped">El servicio está detenido</string>
+    <string name="main_service_running">El servicio está activo</string>
+    <string name="main_test_sidebar">Probar Barra Lateral</string>
+    
+    <string name="alert_battery_title">Mejorar Estabilidad</string>
+    <string name="alert_battery_desc">Excluye Smart Edge de la optimización de batería para evitar que el sistema lo cierre en segundo plano.</string>
+    <string name="alert_battery_btn">Permitir uso en segundo plano</string>
+    
+    <string name="alert_freeform_title">Modo Multitarea</string>
+    <string name="alert_freeform_desc">El modo de ventana flotante está activado en los ajustes pero desactivado en las opciones de desarrollador de tu sistema.</string>
+    <string name="alert_freeform_btn">Corregir en Ajustes</string>
+    
+    <string name="alert_permission_title">Permiso Requerido</string>
+    <string name="alert_permission_desc">Por favor, permite "Mostrar sobre otras aplicaciones" para usar la barra lateral.</string>
+    <string name="alert_permission_btn">Conceder ahora</string>
+    
+    <string name="main_logs_title">Registros de Actividad</string>
+    <string name="main_settings_btn">Ajustes Avanzados</string>
+    <string name="main_how_to_use">Cómo usar</string>
+    <string name="main_tutorial_desc">Desliza desde el borde de la pantalla y mantén presionado un momento para revelar el panel flotante. También puedes tocar el tirador si está activado.</string>
+    <string name="main_sideload_note">Si el permiso está bloqueado: Ajustes → Aplicaciones → Permitir ajustes restringidos</string>
 
     <string name="only_on_home">Mostrar solo en el inicio</string>
     <string name="only_on_home_desc">Ocultar el tirador y los gestos cuando no estés en la pantalla de inicio/lanzador</string>
@@ -39,4 +132,97 @@
     <string name="action_camera">Cámara</string>
     <string name="action_rotation">Alternar Rotación Automática</string>
     <string name="action_fav_app">Abrir App Favorita</string>
+
+    <string name="indicator_flashlight_on">Linterna ENCENDIDA</string>
+    <string name="indicator_flashlight_off">Linterna APAGADA</string>
+    <string name="indicator_rotation_on">Rotación AUTO ACTIVA</string>
+    <string name="indicator_rotation_off">Rotación AUTO DESACTIVA</string>
+    
+    <string name="status_service_active">El servicio está activo</string>
+    <string name="status_automation_stopped">Automatización detenida</string>
+    <string name="apps_selected_singular">1 aplicación seleccionada</string>
+    <string name="apps_selected_plural">%d aplicaciones seleccionadas</string>
+
+    <string name="misc_section_general">General</string>
+    <string name="misc_app_language">Idioma de la App</string>
+    <string name="misc_section_backup">Copia de Seguridad</string>
+    <string name="misc_export_title">Exportar Ajustes</string>
+    <string name="misc_export_desc">Guardar configuración en el almacenamiento</string>
+    <string name="misc_import_title">Importar Ajustes</string>
+    <string name="misc_import_desc">Restaurar desde una copia JSON</string>
+
+    <string name="dialog_reset_title">¿Restablecer Ajustes?</string>
+    <string name="dialog_reset_msg">Esto restaurará todas las configuraciones y tus aplicaciones del panel a sus valores originales.</string>
+    <string name="btn_reset">Restablecer</string>
+    <string name="toast_reset_success">Ajustes restablecidos con éxito</string>
+    <string name="toast_browser_error">No se pudo abrir el navegador</string>
+    
+    <string name="manage_apps_desc">Elige qué aplicaciones aparecen en el panel</string>
+    <string name="view_repo_title">Ver Repositorio</string>
+    <string name="view_repo_desc">Ver el código fuente en GitHub</string>
+    <string name="reset_defaults_desc">Restaurar todo al estado de fábrica</string>
+    
+    <string name="search_settings_hint">Buscar Ajustes…</string>
+    <string name="main_menu_appearance_desc">Establecer modo oscuro, color y escala</string>
+    <string name="main_menu_interaction_desc">Gestos, vibración y lado del panel</string>
+    <string name="main_menu_handle_desc">Ajuste de tamaño y posición</string>
+    <string name="section_tools">Herramientas</string>
+    <string name="main_menu_tools_desc">Personalizar herramientas del panel</string>
+    <string name="section_misc">Misceláneo</string>
+    <string name="main_menu_misc_desc">Copia de seguridad y más</string>
+
+    <string name="tap_gestures_summary">Toque: %1$s, 2x: %2$s, 3x: %3$s, Hold: %4$s</string>
+    <string name="apps_selected_none">0 aplicaciones seleccionadas</string>
+    
+    <string name="freeform_mode_standard">Estándar (80%)</string>
+    <string name="freeform_mode_portrait">Retrato (Estrecho)</string>
+    <string name="freeform_mode_maximized">Maximizado</string>
+    <string name="freeform_mode_custom">Personalizado (%1$d%% × %2$d%%)</string>
+    
+    <string name="anim_feel_calm">Tranquilo (Lento)</string>
+    <string name="anim_feel_balanced">Equilibrado (Predet.)</string>
+    <string name="anim_feel_snappy">Rápido</string>
+    <string name="anim_feel_instant">Instantáneo</string>
+    <string name="anim_feel_disabled">Desactivado</string>
+    
+    <string name="dialog_automation_title">Automatización No Disponible</string>
+    <string name="dialog_automation_msg">Se requiere Root o Shizuku para esta función. Por favor, configura primero \'Automatización del Sistema\'.</string>
+    <string name="btn_setup">Configurar</string>
+    <string name="loading_apps">Cargando aplicaciones…</string>
+    <string name="please_wait_apps">Por favor espera mientras se cargan las apps.</string>
+    <string name="hint_search_apps">Buscar aplicaciones…</string>
+    <string name="btn_save">Guardar</string>
+    <string name="dialog_window_size">Tamaño de Ventana</string>
+    <string name="dialog_anim_feel">Sensación de Animación</string>
+    
+    <string name="picker_title_hide">Apps para ocultar barra</string>
+    <string name="picker_title_game">Apps de Modo Juego</string>
+    <string name="picker_title_favorite">Seleccionar App Favorita</string>
+    
+    <string name="toast_fav_app_unset">App favorita no establecida</string>
+    <string name="toast_app_not_found">App no encontrada</string>
+    <string name="toast_freeform_enabled">Modo de ventana flotante activado</string>
+    <string name="snackbar_freeform_disabled">El modo ventana flotante está desactivado en Opciones de Desarrollador</string>
+    <string name="btn_fix">CORREGIR</string>
+    
+    <string name="toast_shortcut_sent">Solicitud enviada. Revisa tu pantalla de inicio.</string>
+    <string name="toast_launcher_no_shortcut">El lanzador no admite accesos directos</string>
+    <string name="toast_shortcut_added">Acceso directo añadido</string>
+    <string name="label_toggle_sidebar">Alternar Barra Lateral</string>
+    
+    <string name="status_granted">Concedido</string>
+    <string name="status_not_granted">No concedido</string>
+    <string name="label_native_gesture">Gesto Nativo</string>
+
+    <string name="action_none">Desactivado</string>
+    <string name="action_launcher">Lanzador</string>
+    <string name="action_screenshot">Captura</string>
+    <string name="action_last_app">Última App</string>
+    <string name="action_back">Atrás</string>
+    <string name="action_home">Inicio</string>
+    <string name="action_recents">Recientes</string>
+    <string name="action_notifications">Notificaciones</string>
+    <string name="action_quick_settings">Ajustes Rápidos</string>
+    <string name="action_lock_screen">Bloqueo de Pantalla</string>
+    <string name="action_power_menu">Menú de Apagado</string>
 </resources>

@@ -14,7 +14,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Interaction"
+            app:title="@string/section_interaction"
             app:navigationIcon="@drawable/ic_arrow_back"
             app:navigationIconTint="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
@@ -31,11 +31,6 @@
             android:orientation="vertical"
             android:padding="@dimen/app_screen_padding">
 
-            <!-- SECTION 1: Edge Handle -->
-            <TextView
-                style="@style/App_SectionTitle"
-                android:text="Edge Handle" />
-
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
                 android:layout_width="match_parent"
@@ -46,20 +41,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Screen Side" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
-                    <RadioGroup
-                        android:id="@+id/feature_panel_side"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginTop="8dp">
-                        <RadioButton android:id="@+id/rbRight" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Right Side" android:textColor="?attr/colorOnSurfaceVariant" android:buttonTint="?attr/colorPrimary" />
-                        <RadioButton android:id="@+id/rbLeft" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Left Side" android:textColor="?attr/colorOnSurfaceVariant" android:buttonTint="?attr/colorPrimary" />
-                    </RadioGroup>
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Edge Swipe Gestures" android:textColor="?attr/colorOnSurface" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/edge_gestures" android:textColor="?attr/colorOnSurface" />
                     
                     <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_only_on_home" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/only_on_home" android:textColor="?attr/colorOnSurface" android:layout_marginTop="8dp" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/only_on_home_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
@@ -69,15 +51,13 @@
                         android:layout_width="match_parent" 
                         android:layout_height="wrap_content" 
                         android:orientation="vertical" 
-                        android:layout_marginTop="12dp">
+                        android:layout_marginTop="16dp">
                         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
-                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Swipe Sensitivity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
-                            <ImageView android:id="@+id/btnResetSwipeSensitivity" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                            <TextView android:id="@+id/tvSwipeSensitivityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="100%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/edge_sensitivity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                            <TextView android:id="@+id/tvSwipeSensitivityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="50%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                         </LinearLayout>
-                        <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
-                            android:id="@+id/sb_swipe_sensitivity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="10.0" android:valueTo="300.0" android:value="100.0" app:tickVisible="false" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="High sensitivity = shorter swipe required" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="10sp" />
+                        <com.google.android.material.slider.Slider style="@style/Widget.App.Slider"
+                            android:id="@+id/sbSwipeSensitivity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="1.0" android:valueTo="100.0" android:value="50.0" app:tickVisible="false" />
                     </LinearLayout>
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
@@ -95,7 +75,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Tap Gestures"
+                            android:text="@string/tap_gestures"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
 
@@ -104,19 +84,14 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="Disabled"
+                            android:text="@string/tap_gestures_desc"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="14sp" />
                     </LinearLayout>
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_automation_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Native Gesture" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:id="@+id/tvAutomationDesc" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Use Root or Shizuku for system gestures (Back, Home, etc.) to reduce resource usage. Requires 'System Automation' to be set up below." android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_haptic" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Haptic Feedback" android:textColor="?attr/colorOnSurface" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_haptic" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/haptic_feedback" android:textColor="?attr/colorOnSurface" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -172,7 +147,7 @@
             <!-- SECTION: Slide Brightness -->
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Edge Seek (Slide to Adjust)" />
+                android:text="@string/edge_seek_title" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -184,81 +159,30 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
-                    <com.google.android.material.materialswitch.MaterialSwitch 
-                        android:id="@+id/feature_slide_brightness" 
-                        android:layout_width="match_parent" 
-                        android:layout_height="wrap_content" 
-                        android:text="Slide Brightness Control" 
-                        android:textColor="?attr/colorOnSurface" />
-                    <TextView 
-                        android:layout_width="wrap_content" 
-                        android:layout_height="wrap_content" 
-                        android:text="Slide vertically on the handle to adjust screen brightness" 
-                        android:textColor="?attr/colorOnSurfaceVariant" 
-                        android:textSize="11sp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/edge_seek_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch 
-                        android:id="@+id/feature_slide_volume" 
-                        android:layout_width="match_parent" 
-                        android:layout_height="wrap_content" 
-                        android:text="Slide Volume Control" 
-                        android:textColor="?attr/colorOnSurface" />
-                    <TextView 
-                        android:layout_width="wrap_content" 
-                        android:layout_height="wrap_content" 
-                        android:text="Slide vertically on the handle to adjust media volume" 
-                        android:textColor="?attr/colorOnSurfaceVariant" 
-                        android:textSize="11sp" />
-
-                    <LinearLayout
-                        android:id="@+id/layout_slide_zones_hint"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:background="@drawable/bg_warning_card"
-                        android:backgroundTint="?attr/colorSurfaceVariant"
-                        android:padding="12dp"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:visibility="gone">
-                        <ImageView 
-                            android:layout_width="20dp" 
-                            android:layout_height="20dp" 
-                            android:src="@drawable/ic_test_directions" 
-                            app:tint="?attr/colorPrimary" />
-                        <TextView 
-                            android:layout_width="0dp" 
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="12dp"
-                            android:text="Both enabled: Top half controls Volume, Bottom half controls Brightness."
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="12sp" />
-                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_slide_brightness" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="@string/slide_brightness" android:textColor="?attr/colorOnSurface" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_slide_volume" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/slide_volume" android:textColor="?attr/colorOnSurface" />
 
                     <LinearLayout 
-                        android:id="@+id/layout_slide_sensitivity"
+                        android:id="@+id/layoutSlideSensitivity"
                         android:layout_width="match_parent" 
                         android:layout_height="wrap_content" 
                         android:orientation="vertical" 
                         android:layout_marginTop="16dp">
                         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
-                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Slide Sensitivity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
-                            <ImageView android:id="@+id/btnResetSlideSensitivity" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                            <TextView android:id="@+id/tvSlideSensitivityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="100%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/seek_sensitivity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                            <TextView android:id="@+id/tvSlideSensitivityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="50%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                         </LinearLayout>
-                        <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
-                            android:id="@+id/sb_slide_sensitivity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="1.0" android:valueTo="200.0" android:value="100.0" app:tickVisible="false" />
+                        <com.google.android.material.slider.Slider style="@style/Widget.App.Slider"
+                            android:id="@+id/sbSlideSensitivity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="1.0" android:valueTo="100.0" android:value="50.0" app:tickVisible="false" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- SECTION: Static Shortcut -->
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Shortcuts" />
+                android:text="Screen Edge Side" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -268,40 +192,39 @@
                 <LinearLayout
                     style="@style/App_CardContainer"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
 
-                    <LinearLayout
-                        android:id="@+id/btnCreateShortcut"
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/togglePanelSide"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp">
+                        app:singleSelection="true"
+                        app:selectionRequired="true">
 
-                        <TextView
-                            android:layout_width="wrap_content"
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSideLeft"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:text="Add Home Screen Shortcut"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="16sp" />
+                            android:layout_weight="1"
+                            android:text="Left" />
 
-                        <TextView
-                            android:layout_width="wrap_content"
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSideRight"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="Access side panel via a launcher icon"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="14sp" />
-                    </LinearLayout>
+                            android:layout_weight="1"
+                            android:text="Right" />
+
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- SECTION 2: Panel Experience -->
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Panel Experience" />
+                android:text="@string/section_advanced_options" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -313,405 +236,70 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_show_landscape" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Show Panel in Landscape" android:textColor="?attr/colorOnSurface" />
-                    
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_notification_apps" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Notification Apps Section" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Show apps with active notifications in the panel" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_remember_scroll" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Remember Scroll Position" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Restore last scroll position when opening sidebar" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_auto_show_keyboard" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Auto-Show Keyboard" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Automatically open keyboard when searching apps" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- SECTION 3: Multitasking & Windowing -->
-            <TextView
-                style="@style/App_SectionTitle"
-                android:text="Multitasking &amp; Windowing" />
-
-            <com.google.android.material.card.MaterialCardView
-                style="@style/App_Card_Section"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <LinearLayout
-                    style="@style/App_CardContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_drag_split" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Drag to Split-Screen" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Drag icons to top/bottom edge to launch in split mode" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_automation_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/automation_title" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/automation_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_freeform" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Freeform Window Mode" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Launch apps in floating windows (Requires system support)" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-
-                    <!-- Window size mode picker — only visible when freeform is ON -->
                     <LinearLayout
-                        android:id="@+id/layout_freeform_size"
+                        android:id="@+id/layoutFullscreenWhitelist"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
                         android:orientation="vertical"
                         android:clickable="true"
                         android:focusable="true"
                         android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp"
-                        android:paddingStart="4dp"
-                        android:visibility="gone">
+                        android:paddingVertical="8dp">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Window Size"
+                            android:text="@string/fullscreen_protection"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
 
                         <TextView
-                            android:id="@+id/tv_freeform_size_value"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Standard (80%)"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/fullscreen_desc"
                             android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <!-- Custom size sliders — only visible when Custom mode is selected -->
-                    <LinearLayout
-                        android:id="@+id/layout_freeform_custom"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:orientation="vertical"
-                        android:paddingStart="4dp"
-                        android:visibility="gone">
-
-                        <!-- Width slider -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:layout_marginBottom="2dp">
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="Width"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="12sp" />
-                            <ImageView
-                                android:id="@+id/btnResetFreeformW"
-                                android:layout_width="20dp"
-                                android:layout_height="20dp"
-                                android:src="@drawable/ic_restore"
-                                android:layout_marginEnd="8dp"
-                                android:background="?attr/selectableItemBackground"
-                                android:padding="2dp"
-                                app:tint="?attr/colorPrimary" />
-                            <TextView
-                                android:id="@+id/tv_freeform_custom_w"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="80%"
-                                android:textColor="?attr/colorPrimary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-                        <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider
-                            style="@style/Widget.App.Slider"
-                            android:id="@+id/sb_freeform_custom_w"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:valueFrom="10.0"
-                            android:valueTo="100.0"
-                            android:value="80.0"
-                            app:tickVisible="false"
-                            android:layout_marginBottom="8dp" />
-
-                        <!-- Height slider -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:layout_marginBottom="2dp">
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="Height"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="12sp" />
-                            <ImageView
-                                android:id="@+id/btnResetFreeformH"
-                                android:layout_width="20dp"
-                                android:layout_height="20dp"
-                                android:src="@drawable/ic_restore"
-                                android:layout_marginEnd="8dp"
-                                android:background="?attr/selectableItemBackground"
-                                android:padding="2dp"
-                                app:tint="?attr/colorPrimary" />
-                            <TextView
-                                android:id="@+id/tv_freeform_custom_h"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="80%"
-                                android:textColor="?attr/colorPrimary"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-                        <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider
-                            style="@style/Widget.App.Slider"
-                            android:id="@+id/sb_freeform_custom_h"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:valueFrom="10.0"
-                            android:valueTo="100.0"
-                            android:value="80.0"
-                            app:tickVisible="false"
-                            android:layout_marginBottom="4dp" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- SECTION 4: Advanced Handling -->
-            <TextView
-                style="@style/App_SectionTitle"
-                android:text="Advanced Handling (Full Screen &amp; Games)" />
-
-            <com.google.android.material.card.MaterialCardView
-                style="@style/App_Card_Section"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <LinearLayout
-                    style="@style/App_CardContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <com.google.android.material.materialswitch.MaterialSwitch 
-                        android:id="@+id/feature_auto_hide_fullscreen" 
-                        android:layout_width="match_parent" 
-                        android:layout_height="wrap_content" 
-                        android:text="Hide in Specific Apps" 
-                        android:textColor="?attr/colorOnSurface" />
-                    <TextView 
-                        android:layout_width="wrap_content" 
-                        android:layout_height="wrap_content" 
-                        android:text="Enable hiding the pill in manually selected apps" 
-                        android:textColor="?attr/colorOnSurfaceVariant" 
-                        android:textSize="11sp" />
-
-                    <LinearLayout
-                        android:id="@+id/feature_fullscreen_whitelist"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp"
-                        android:layout_marginTop="8dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Select Apps to Hide Sidebar"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="16sp" />
+                            android:textSize="12sp" />
 
                         <TextView
                             android:id="@+id/tvFullscreenWhitelistValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
                             android:text="0 apps selected"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="14sp" />
+                            android:textColor="?attr/colorPrimary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
 
-                    <com.google.android.material.materialswitch.MaterialSwitch 
-                        android:id="@+id/feature_deliberate_gesture_games" 
-                        android:layout_width="match_parent" 
-                        android:layout_height="wrap_content" 
-                        android:text="Deliberate Action in Games" 
-                        android:textColor="?attr/colorOnSurface" />
-                    <TextView 
-                        android:layout_width="wrap_content" 
-                        android:layout_height="wrap_content" 
-                        android:text="Require a deeper swipe and longer hold to open panel in games" 
-                        android:textColor="?attr/colorOnSurfaceVariant" 
-                        android:textSize="11sp" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_gameMode" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/game_mode" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/game_mode_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
                     <LinearLayout
-                        android:id="@+id/feature_game_apps_v2"
+                        android:id="@+id/layoutGameApps"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:clickable="true"
                         android:focusable="true"
                         android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp"
+                        android:paddingVertical="8dp"
                         android:layout_marginTop="8dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Manage Game Apps"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="16sp" />
-
-                        <TextView
-                            android:id="@+id/tvGameAppsValueV2"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0 apps selected"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- SECTION 5: System & Behavior -->
-            <TextView
-                style="@style/App_SectionTitle"
-                android:text="System &amp; Behavior" />
-
-            <com.google.android.material.card.MaterialCardView
-                style="@style/App_Card_Section"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <LinearLayout
-                    style="@style/App_CardContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_auto_start" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Auto-start on Boot" android:textColor="?attr/colorOnSurface" />
-                    
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
-                    
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_show_logs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Show Activity Logs on Home" android:textColor="?attr/colorOnSurface" />
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
-
-                    <LinearLayout
-                        android:id="@+id/feature_game_apps"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp"
-                        android:visibility="gone">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Game Mode Apps"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="16sp" />
 
                         <TextView
                             android:id="@+id/tvGameAppsValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0 apps selected"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" android:visibility="gone" />
-
-                    <LinearLayout
-                        android:id="@+id/feature_anim_feel"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Animation Feel"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="16sp" />
-
-                        <TextView
-                            android:id="@+id/tvAnimFeelValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Balanced (Default)"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="8dp" />
-
-                    <LinearLayout android:id="@+id/feature_picker_gap" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="8dp">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
-                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Picker Gap (Spacing)" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
-                            <ImageView android:id="@+id/btnResetPickerGap" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                            <TextView android:id="@+id/tvPickerGapValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="20dp" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
-                        </LinearLayout>
-                        <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
-                            android:id="@+id/sbPickerGap" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="0.0" android:valueTo="100.0" android:value="20.0" app:tickVisible="false" />
-                    </LinearLayout>
-                    
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
-
-                    <!-- PERSISTENT SYSTEM AUTOMATION ITEM -->
-                    <LinearLayout
-                        android:id="@+id/btnSecureSettings"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:background="?attr/selectableItemBackground"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:paddingVertical="8dp">
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="System Automation"
-                                android:textColor="?attr/colorOnSurface"
-                                android:textSize="16sp" />
-                            <TextView
-                                android:id="@+id/tvSecureSettingsDesc"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Automate tweaks via ADB or Root"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-
-                        <TextView
-                            android:id="@+id/tvSecureSettingsStatus"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Not Granted"
-                            android:textColor="?attr/colorError"
-                            android:textSize="12sp"
+                            android:textColor="?attr/colorPrimary"
+                            android:textSize="13sp"
                             android:textStyle="bold" />
                     </LinearLayout>
 

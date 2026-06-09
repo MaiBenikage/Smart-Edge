@@ -17,12 +17,14 @@ class InteractionSettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsInteractionBinding
     private lateinit var panelPrefs: PanelPreferences
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsInteractionBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-
 
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
@@ -51,35 +53,19 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 binding.root.offsetDescendantRectToMyCoords(targetView, rect)
                 binding.interactionScrollView.smoothScrollTo(0, rect.top - 200)
                 targetView.highlightView()
-                
-                // If fixing freeform from MainActivity, try direct toggle first
-                if (targetId == "feature_freeform" && !isFreeformEnabled()) {
-                    if (putGlobalSetting("freeform_window_management", 1)) {
-                        binding.root.showModernToast("System Freeform Mode Enabled")
-                        return@post
-                    }
-                    
-                    com.google.android.material.snackbar.Snackbar.make(
-                        binding.root,
-                        "System freeform mode is disabled in Developer Options",
-                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-                    ).setAction("FIX") {
-                        openFreeformDeveloperSettings()
-                    }.show()
-                }
             }
         }
     }
 
     private fun loadCurrentSettings() {
         updateSecureSettingsUI()
+        
         if (panelPrefs.panelSide == PanelPreferences.SIDE_LEFT) {
-            binding.featurePanelSide.check(R.id.rbLeft)
+            binding.togglePanelSide.check(R.id.btnSideLeft)
         } else {
-            binding.featurePanelSide.check(R.id.rbRight)
+            binding.togglePanelSide.check(R.id.btnSideRight)
         }
 
-        binding.featureAutoStart.isChecked = panelPrefs.autoStart
         binding.featureGestures.isChecked = panelPrefs.gesturesEnabled
         binding.featureOnlyOnHome.isChecked = panelPrefs.onlyOnHome
         binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
@@ -87,10 +73,10 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.tvSwipeSensitivityValue.text = "${panelPrefs.swipeSensitivity}%"
         binding.layoutSwipeSensitivity.visibility = if (panelPrefs.gesturesEnabled) View.VISIBLE else View.GONE
         
-        binding.tvTapGesturesValue.text = "Tap: ${actionLabel(panelPrefs.tapAction)}, 2x: ${actionLabel(panelPrefs.doubleTapAction)}, 3x: ${actionLabel(panelPrefs.tripleTapAction)}, Hold: ${actionLabel(panelPrefs.longPressAction)}"
+        binding.tvTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.tapAction), actionLabel(panelPrefs.doubleTapAction), actionLabel(panelPrefs.tripleTapAction), actionLabel(panelPrefs.longPressAction))
         
         binding.featureNotchGestures.isChecked = panelPrefs.notchGesturesEnabled
-        binding.tvNotchTapGesturesValue.text = "Tap: ${actionLabel(panelPrefs.notchTapAction)}, 2x: ${actionLabel(panelPrefs.notchDoubleTapAction)}, 3x: ${actionLabel(panelPrefs.notchTripleTapAction)}, Hold: ${actionLabel(panelPrefs.notchLongPressAction)}"
+        binding.tvNotchTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.notchTapAction), actionLabel(panelPrefs.notchDoubleTapAction), actionLabel(panelPrefs.notchTripleTapAction), actionLabel(panelPrefs.notchLongPressAction))
         binding.layoutNotchTapGestures.visibility = if (panelPrefs.notchGesturesEnabled) View.VISIBLE else View.GONE
 
         binding.featureHaptic.isChecked = panelPrefs.hapticEnabled
@@ -100,131 +86,33 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.tvSlideSensitivityValue.text = "${panelPrefs.slideSensitivity}%"
         updateSlideSeekUI()
 
-        binding.featureShowLandscape.isChecked = panelPrefs.showInLandscape
-        binding.featureFreeform.isChecked = panelPrefs.freeformEnabled
-        binding.featureNotificationApps.isChecked = panelPrefs.showNotificationApps
-        binding.featureDragSplit.isChecked = panelPrefs.dragToSplit
-        binding.featureRememberScroll.isChecked = panelPrefs.rememberScroll
-        binding.featureAutoShowKeyboard.isChecked = panelPrefs.autoShowKeyboard
-        binding.featureShowLogs.isChecked = panelPrefs.showLogs
-
-        binding.featureAutoHideFullscreen.isChecked = panelPrefs.autoHideInFullscreen
-        binding.featureDeliberateGestureGames.isChecked = panelPrefs.deliberateGestureInGames
-        
         val whitelistCount = panelPrefs.getFullscreenWhitelist().size
-        binding.tvFullscreenWhitelistValue.text = if (whitelistCount == 1) "1 app selected" else "$whitelistCount apps selected"
+        binding.tvFullscreenWhitelistValue.text = if (whitelistCount == 1) getString(R.string.apps_selected_singular) else getString(R.string.apps_selected_plural, whitelistCount)
 
         val gameAppsCount = panelPrefs.getGameApps().size
-        binding.tvGameAppsValue.text = if (gameAppsCount == 1) "1 app selected" else "$gameAppsCount apps selected"
-        binding.tvGameAppsValueV2.text = if (gameAppsCount == 1) "1 app selected" else "$gameAppsCount apps selected"
-
-        // Window size picker — visible only when freeform is on
-        val freeformOn = panelPrefs.freeformEnabled
-        binding.layoutFreeformSize.visibility = if (freeformOn) View.VISIBLE else View.GONE
-        binding.tvFreeformSizeValue.text = freeformModeLabel(panelPrefs.freeformWindowMode)
-
-        // Custom size sliders — only visible when Custom mode is active
-        val customVisible = freeformOn && panelPrefs.freeformWindowMode == PanelPreferences.FREEFORM_MODE_CUSTOM
-        binding.layoutFreeformCustom.visibility = if (customVisible) View.VISIBLE else View.GONE
-        binding.sbFreeformCustomW.value = panelPrefs.freeformCustomWidth.toFloat()
-        binding.sbFreeformCustomH.value = panelPrefs.freeformCustomHeight.toFloat()
-        binding.tvFreeformCustomW.text = "${panelPrefs.freeformCustomWidth}%"
-        binding.tvFreeformCustomH.text = "${panelPrefs.freeformCustomHeight}%"
-
-        val animSpeed = panelPrefs.animSpeed
-        binding.tvAnimFeelValue.text = when (animSpeed) {
-            200 -> "Calm (Slow)"
-            400 -> "Balanced (Default)"
-            700 -> "Snappy"
-            1000 -> "Instant"
-            0 -> "Disabled"
-            else -> "Balanced (Default)"
-        }
-
-        binding.sbPickerGap.value = panelPrefs.pickerGap.toFloat()
-        binding.tvPickerGapValue.text = "${panelPrefs.pickerGap}dp"
+        binding.tvGameAppsValue.text = if (gameAppsCount == 1) getString(R.string.apps_selected_singular) else getString(R.string.apps_selected_plural, gameAppsCount)
+        
+        binding.featureGameMode.isChecked = panelPrefs.deliberateGestureInGames
     }
 
     private fun updateSlideSeekUI() {
         val brightnessOn = panelPrefs.slideBrightnessEnabled
         val volumeOn = panelPrefs.slideVolumeEnabled
         val anyOn = brightnessOn || volumeOn
-
         binding.layoutSlideSensitivity.visibility = if (anyOn) View.VISIBLE else View.GONE
-        binding.layoutSlideZonesHint.visibility = if (brightnessOn && volumeOn) View.VISIBLE else View.GONE
-    }
-
-    private fun createSidebarShortcut() {
-        val shortcutIntent = Intent(this, ToggleActivity::class.java).apply {
-            action = ToggleActivity.ACTION_TOGGLE
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val shortcutManager = getSystemService(android.content.pm.ShortcutManager::class.java)
-            if (shortcutManager != null && shortcutManager.isRequestPinShortcutSupported) {
-                val pinShortcutInfo = android.content.pm.ShortcutInfo.Builder(this, "toggle_sidebar_homescreen")
-                    .setShortLabel("Toggle Sidebar")
-                    .setIcon(android.graphics.drawable.Icon.createWithResource(applicationContext, R.mipmap.ic_launcher))
-                    .setIntent(shortcutIntent)
-                    .build()
-
-                shortcutManager.requestPinShortcut(pinShortcutInfo, null)
-                Toast.makeText(applicationContext, "Shortcut request sent. Please check your home screen.", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(applicationContext, "Launcher does not support pinned shortcuts", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            // Legacy way for older Android versions
-            val addIntent = Intent().apply {
-                putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent)
-                putExtra(Intent.EXTRA_SHORTCUT_NAME, "Toggle Sidebar")
-                putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, Intent.ShortcutIconResource.fromContext(applicationContext, R.mipmap.ic_launcher))
-                action = "com.android.launcher.action.INSTALL_SHORTCUT"
-            }
-            sendBroadcast(addIntent)
-            Toast.makeText(applicationContext, "Shortcut added to home screen", Toast.LENGTH_SHORT).show()
-        }
     }
 
     private fun updateSecureSettingsUI() {
-        val hasPermission = checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (hasPermission) {
-            binding.tvSecureSettingsStatus.text = "Granted"
-            binding.tvSecureSettingsStatus.setTextColor(getColor(android.R.color.holo_green_dark))
-        } else {
-            binding.tvSecureSettingsStatus.text = "Not Granted"
-            binding.tvSecureSettingsStatus.setTextColor(getColor(android.R.color.holo_red_dark))
-        }
-        
-        // Update Native Gesture Label with status
-        val status = when {
-            AutomationManager.isRootAvailable() -> " (Root)"
-            AutomationManager.isShizukuAvailable() -> " (Shizuku)"
-            else -> ""
-        }
-        binding.featureAutomationGestures.text = "Native Gesture$status"
+        // Simple placeholder for M3 UI as it doesn't have a specific status TextView currently visible in the provided layout
     }
 
     private fun setupListeners() {
-        binding.btnSecureSettings.setOnClickListener {
-            SecureSettingsDialog.show(this) {
-                updateSecureSettingsUI()
+        binding.togglePanelSide.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) {
+                panelPrefs.panelSide = if (checkedId == R.id.btnSideLeft)
+                    PanelPreferences.SIDE_LEFT else PanelPreferences.SIDE_RIGHT
+                applyOnly()
             }
-        }
-
-        binding.btnCreateShortcut.setOnClickListener {
-            createSidebarShortcut()
-        }
-
-        binding.featurePanelSide.setOnCheckedChangeListener { _, checkedId ->
-            panelPrefs.panelSide = if (checkedId == R.id.rbLeft)
-                PanelPreferences.SIDE_LEFT else PanelPreferences.SIDE_RIGHT
-            applyAndShow()
-        }
-
-        binding.featureAutoStart.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.autoStart = isChecked
         }
 
         binding.featureGestures.setOnCheckedChangeListener { _, isChecked ->
@@ -240,7 +128,6 @@ class InteractionSettingsActivity : AppCompatActivity() {
 
         binding.featureAutomationGestures.setOnCheckedChangeListener { buttonView, isChecked ->
             if (isChecked && !AutomationManager.isAutomationPossible()) {
-                // Try to auto-detect root first
                 AutomationManager.checkRootAndRequestPermission(this) { success ->
                     runOnUiThread {
                         if (success) {
@@ -256,18 +143,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 return@setOnCheckedChangeListener
             }
             panelPrefs.useAutomationForGestures = isChecked
-            
-            // If disabled and accessibility is also not enabled, the service shouldn't stay active
-            // as it has no way to perform system actions (though it could still open the panel).
-            // However, to keep it consistent with MainActivity's logic:
-            if (!isChecked && !isAccessibilityServiceEnabled()) {
-                if (panelPrefs.serviceEnabled) {
-                    panelPrefs.toggleService(this, false)
-                    binding.root.showModernToast("Service disabled: No gesture method active")
-                }
-            } else {
-                applyOnly()
-            }
+            applyOnly()
         }
 
         binding.sbSwipeSensitivity.addOnChangeListener { _, value, fromUser ->
@@ -284,18 +160,10 @@ class InteractionSettingsActivity : AppCompatActivity() {
             }
         })
 
-        binding.btnResetSwipeSensitivity.setOnClickListener {
-            val default = 100
-            panelPrefs.swipeSensitivity = default
-            binding.sbSwipeSensitivity.value = default.toFloat()
-            binding.tvSwipeSensitivityValue.text = "$default%"
-            applyOnly()
-        }
-
         binding.layoutTapGestures.setOnClickListener {
             val mainOptions = arrayOf("Single Tap Action", "Double Tap Action", "Triple Tap Action", "Long Press Action")
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Tap Gestures")
+                .setTitle(R.string.tap_gestures)
                 .setItems(mainOptions) { _, which ->
                     when (which) {
                         0 -> showActionPicker("Single Tap", panelPrefs.tapAction) { panelPrefs.tapAction = it }
@@ -304,20 +172,20 @@ class InteractionSettingsActivity : AppCompatActivity() {
                         3 -> showActionPicker("Long Press", panelPrefs.longPressAction) { panelPrefs.longPressAction = it }
                     }
                 }
-                .setNegativeButton("Close", null)
+                .setNegativeButton(android.R.string.cancel, null)
                 .show()
         }
 
         binding.featureNotchGestures.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.notchGesturesEnabled = isChecked
             binding.layoutNotchTapGestures.visibility = if (isChecked) View.VISIBLE else View.GONE
-            applyAndShow() // Recreate service to add/remove notch handle
+            applyOnly()
         }
 
         binding.layoutNotchTapGestures.setOnClickListener {
             val mainOptions = arrayOf("Single Tap Action", "Double Tap Action", "Triple Tap Action", "Long Press Action")
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Notch Tap Gestures")
+                .setTitle(R.string.notch_tap_gestures)
                 .setItems(mainOptions) { _, which ->
                     when (which) {
                         0 -> showActionPicker("Notch Single Tap", panelPrefs.notchTapAction) { panelPrefs.notchTapAction = it }
@@ -326,7 +194,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
                         3 -> showActionPicker("Notch Long Press", panelPrefs.notchLongPressAction) { panelPrefs.notchLongPressAction = it }
                     }
                 }
-                .setNegativeButton("Close", null)
+                .setNegativeButton(android.R.string.cancel, null)
                 .show()
         }
 
@@ -360,239 +228,33 @@ class InteractionSettingsActivity : AppCompatActivity() {
             }
         })
 
-        binding.btnResetSlideSensitivity.setOnClickListener {
-            val default = 100
-            panelPrefs.slideSensitivity = default
-            binding.sbSlideSensitivity.value = default.toFloat()
-            binding.tvSlideSensitivityValue.text = "$default%"
-            applyOnly()
-        }
-
-        binding.featureShowLandscape.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.showInLandscape = isChecked
-            applyOnly()
-        }
-
-        binding.featureFreeform.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.freeformEnabled = isChecked
-            binding.layoutFreeformSize.visibility = if (isChecked) View.VISIBLE else View.GONE
-            // Hide custom sliders when freeform is turned off
-            if (!isChecked) binding.layoutFreeformCustom.visibility = View.GONE
-            if (isChecked && !isFreeformEnabled()) {
-                // 1. Try direct toggle (requires WRITE_SECURE_SETTINGS)
-                val success1 = putGlobalSetting("freeform_window_management", 1)
-                val success2 = putGlobalSetting("force_resizable_activities", 1)
-
-                if (success1 || success2) {
-                    binding.root.showModernToast("System Freeform Mode Enabled")
-                    return@setOnCheckedChangeListener
-                }
-
-                // 2. Fallback to Deep-link
-                com.google.android.material.snackbar.Snackbar.make(
-                    binding.root,
-                    "System freeform mode is disabled in Developer Options",
-                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-                ).setAction("FIX") {
-                    openFreeformDeveloperSettings()
-                }.show()
-            }
-        }
-
-        binding.featureNotificationApps.setOnCheckedChangeListener { buttonView, isChecked ->
-            if (isChecked) {
-                val enabledListeners = android.provider.Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-                if (enabledListeners?.contains(packageName) != true) {
-                    buttonView.isChecked = false
-                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                        .setTitle("Permission Required")
-                        .setMessage("Smart Edge needs Notification Access to see which apps have active notifications so they can be shown in the panel.")
-                        .setPositiveButton("Grant") { _, _ ->
-                            try {
-                                val intent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                                    android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).apply {
-                                        putExtra(
-                                            android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-                                            android.content.ComponentName(this@InteractionSettingsActivity, NotificationTrackingService::class.java).flattenToString()
-                                        )
-                                    }
-                                } else {
-                                    android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
-                                }
-                                startActivity(intent)
-                            } catch (e: Exception) {
-                                // Fallback just in case OEM broke the detail intent
-                                startActivity(android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
-                            }
-                        }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-                    return@setOnCheckedChangeListener
-                }
-            }
-            panelPrefs.showNotificationApps = isChecked
-            applyOnly()
-        }
-
-        binding.featureDragSplit.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.dragToSplit = isChecked
-            applyOnly()
-        }
-
-        binding.featureRememberScroll.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.rememberScroll = isChecked
-            applyOnly()
-        }
-
-        binding.featureAutoShowKeyboard.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.autoShowKeyboard = isChecked
-            applyOnly()
-        }
-
-        binding.layoutFreeformSize.setOnClickListener {
-            val options = arrayOf("Standard (80%)", "Portrait (Narrow)", "Maximized", "Custom…")
-            val values = arrayOf(
-                PanelPreferences.FREEFORM_MODE_STANDARD,
-                PanelPreferences.FREEFORM_MODE_PORTRAIT,
-                PanelPreferences.FREEFORM_MODE_MAXIMIZED,
-                PanelPreferences.FREEFORM_MODE_CUSTOM
-            )
-            val selectedIndex = values.indexOf(panelPrefs.freeformWindowMode).coerceAtLeast(0)
-
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Window Size")
-                .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
-                    val mode = values[which]
-                    panelPrefs.freeformWindowMode = mode
-                    binding.tvFreeformSizeValue.text = freeformModeLabel(mode)
-                    // Show/hide custom sliders immediately
-                    val isCustom = mode == PanelPreferences.FREEFORM_MODE_CUSTOM
-                    binding.layoutFreeformCustom.visibility = if (isCustom) View.VISIBLE else View.GONE
-                    dialog.dismiss()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
-        // Custom Width slider
-        binding.sbFreeformCustomW.addOnChangeListener { _, value, fromUser ->
-            if (fromUser) {
-                val pct = value.toInt()
-                panelPrefs.freeformCustomWidth = pct
-                binding.tvFreeformCustomW.text = "$pct%"
-                // Refresh the subtitle so it reflects the new size
-                binding.tvFreeformSizeValue.text = freeformModeLabel(PanelPreferences.FREEFORM_MODE_CUSTOM)
-            }
-        }
-        binding.btnResetFreeformW.setOnClickListener {
-            val default = 80
-            panelPrefs.freeformCustomWidth = default
-            binding.sbFreeformCustomW.value = default.toFloat()
-            binding.tvFreeformCustomW.text = "$default%"
-            binding.tvFreeformSizeValue.text = freeformModeLabel(PanelPreferences.FREEFORM_MODE_CUSTOM)
-        }
-
-        // Custom Height slider
-        binding.sbFreeformCustomH.addOnChangeListener { _, value, fromUser ->
-            if (fromUser) {
-                val pct = value.toInt()
-                panelPrefs.freeformCustomHeight = pct
-                binding.tvFreeformCustomH.text = "$pct%"
-                binding.tvFreeformSizeValue.text = freeformModeLabel(PanelPreferences.FREEFORM_MODE_CUSTOM)
-            }
-        }
-        binding.btnResetFreeformH.setOnClickListener {
-            val default = 80
-            panelPrefs.freeformCustomHeight = default
-            binding.sbFreeformCustomH.value = default.toFloat()
-            binding.tvFreeformCustomH.text = "$default%"
-            binding.tvFreeformSizeValue.text = freeformModeLabel(PanelPreferences.FREEFORM_MODE_CUSTOM)
-        }
-
-        binding.featureShowLogs.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.showLogs = isChecked
-        }
-
-        binding.featureAnimFeel.setOnClickListener {
-            val options = arrayOf("Calm (Slow)", "Balanced (Default)", "Snappy", "Instant", "Disabled")
-            val values = intArrayOf(200, 400, 700, 1000, 0)
-            
-            var selectedIndex = values.indexOf(panelPrefs.animSpeed)
-            if (selectedIndex == -1) selectedIndex = 1 // Default to Balanced
-
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Animation Feel")
-                .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
-                    panelPrefs.animSpeed = values[which]
-                    binding.tvAnimFeelValue.text = options[which]
-                    applyOnly()
-                    dialog.dismiss()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
-        binding.sbPickerGap.addOnChangeListener { _, value, fromUser ->
-            if (fromUser) {
-                val gap = value.toInt()
-                panelPrefs.pickerGap = gap
-                binding.tvPickerGapValue.text = "${gap}dp"
-            }
-        }
-        binding.sbPickerGap.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
-            override fun onStartTrackingTouch(slider: com.google.android.material.slider.Slider) {}
-            override fun onStopTrackingTouch(slider: com.google.android.material.slider.Slider) {
-                applyOnly()
-            }
-        })
-
-        binding.featureAutoHideFullscreen.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.autoHideInFullscreen = isChecked
-            applyOnly()
-        }
-
-        binding.featureDeliberateGestureGames.setOnCheckedChangeListener { _, isChecked ->
+        binding.featureGameMode.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.deliberateGestureInGames = isChecked
             applyOnly()
         }
 
-        binding.featureFullscreenWhitelist.setOnClickListener {
-            showAppMultiPicker("Select Apps to Hide Sidebar", panelPrefs.getFullscreenWhitelist()) { newWhitelist ->
+        binding.layoutFullscreenWhitelist.setOnClickListener {
+            showAppMultiPicker(getString(R.string.picker_title_hide), panelPrefs.getFullscreenWhitelist()) { newWhitelist ->
                 panelPrefs.setFullscreenWhitelist(newWhitelist)
-                binding.tvFullscreenWhitelistValue.text = if (newWhitelist.size == 1) "1 app selected" else "${newWhitelist.size} apps selected"
+                binding.tvFullscreenWhitelistValue.text = if (newWhitelist.size == 1) getString(R.string.apps_selected_singular) else getString(R.string.apps_selected_plural, newWhitelist.size)
                 applyOnly()
             }
         }
 
-        binding.featureGameAppsV2.setOnClickListener {
-            showAppMultiPicker("Select Game Mode Apps", panelPrefs.getGameApps()) { newGames ->
+        binding.layoutGameApps.setOnClickListener {
+            showAppMultiPicker(getString(R.string.picker_title_game), panelPrefs.getGameApps()) { newGames ->
                 panelPrefs.setGameApps(newGames)
-                binding.tvGameAppsValue.text = if (newGames.size == 1) "1 app selected" else "${newGames.size} apps selected"
-                binding.tvGameAppsValueV2.text = if (newGames.size == 1) "1 app selected" else "${newGames.size} apps selected"
+                binding.tvGameAppsValue.text = if (newGames.size == 1) getString(R.string.apps_selected_singular) else getString(R.string.apps_selected_plural, newGames.size)
                 applyOnly()
-            }
-        }
-
-        binding.btnResetPickerGap.setOnClickListener {
-            val default = 20
-            panelPrefs.pickerGap = default
-            binding.sbPickerGap.value = default.toFloat()
-            binding.tvPickerGapValue.text = "${default}dp"
-            applyOnly()
-        }
-
-        binding.btnSecureSettings.setOnClickListener {
-            SecureSettingsDialog.show(this) {
-                updateSecureSettingsUI()
             }
         }
     }
 
     private fun showAutomationSetupDialog(buttonView: android.widget.CompoundButton) {
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("Automation Unavailable")
-            .setMessage("Root or Shizuku is required to use this feature. Please set up 'System Automation' first.")
-            .setPositiveButton("Setup") { _, _ ->
+            .setTitle(R.string.dialog_automation_title)
+            .setMessage(R.string.dialog_automation_msg)
+            .setPositiveButton(R.string.btn_setup) { _, _ ->
                 SecureSettingsDialog.show(this) {
                     updateSecureSettingsUI()
                     if (AutomationManager.isAutomationPossible()) {
@@ -600,15 +262,15 @@ class InteractionSettingsActivity : AppCompatActivity() {
                     }
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
     private fun showAppMultiPicker(title: String, currentSelected: List<String>, onSave: (List<String>) -> Unit) {
         lifecycleScope.launch(Dispatchers.Main) {
             val loadingDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this@InteractionSettingsActivity)
-                .setTitle("Loading Apps...")
-                .setMessage("Please wait while apps are being loaded.")
+                .setTitle(R.string.loading_apps)
+                .setMessage(R.string.please_wait_apps)
                 .setCancelable(false)
                 .show()
 
@@ -618,8 +280,6 @@ class InteractionSettingsActivity : AppCompatActivity() {
             val sortedApps = allApps.sortedBy { it.appName.lowercase() }
             val selectedPkgs = currentSelected.toMutableSet()
             
-            var displayApps = sortedApps
-            
             val density = resources.displayMetrics.density
             val container = android.widget.LinearLayout(this@InteractionSettingsActivity).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
@@ -627,24 +287,14 @@ class InteractionSettingsActivity : AppCompatActivity() {
             }
 
             val searchBar = com.google.android.material.textfield.TextInputEditText(this@InteractionSettingsActivity).apply {
-                hint = "Search apps..."
+                hint = getString(R.string.hint_search_apps)
                 setSingleLine()
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                )
             }
-            
-            val textInputLayout = com.google.android.material.textfield.TextInputLayout(this@InteractionSettingsActivity).apply {
+            container.addView(com.google.android.material.textfield.TextInputLayout(this@InteractionSettingsActivity).apply {
                 boxBackgroundMode = com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE
                 setBoxCornerRadii(12 * density, 12 * density, 12 * density, 12 * density)
                 addView(searchBar)
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (10 * density).toInt() }
-            }
-            container.addView(textInputLayout)
+            })
 
             val listView = android.widget.ListView(this@InteractionSettingsActivity).apply {
                 choiceMode = android.widget.ListView.CHOICE_MODE_MULTIPLE
@@ -655,18 +305,17 @@ class InteractionSettingsActivity : AppCompatActivity() {
             }
             container.addView(listView)
 
+            var displayApps = sortedApps
             fun updateList(query: String) {
                 displayApps = if (query.isEmpty()) sortedApps
                 else sortedApps.filter { it.appName.contains(query, ignoreCase = true) }
                 
-                val adapter = android.widget.ArrayAdapter(
+                listView.adapter = android.widget.ArrayAdapter(
                     this@InteractionSettingsActivity,
                     android.R.layout.simple_list_item_multiple_choice,
                     displayApps.map { it.appName }.toTypedArray()
                 )
-                listView.adapter = adapter
                 
-                // Restore checked states
                 displayApps.forEachIndexed { index, app ->
                     listView.setItemChecked(index, selectedPkgs.contains(app.packageName))
                 }
@@ -675,12 +324,8 @@ class InteractionSettingsActivity : AppCompatActivity() {
             updateList("")
 
             listView.setOnItemClickListener { _, _, position, _ ->
-                val app = displayApps[position]
-                if (listView.isItemChecked(position)) {
-                    selectedPkgs.add(app.packageName)
-                } else {
-                    selectedPkgs.remove(app.packageName)
-                }
+                val pkg = displayApps[position].packageName
+                if (listView.isItemChecked(position)) selectedPkgs.add(pkg) else selectedPkgs.remove(pkg)
             }
 
             searchBar.addTextChangedListener(object : android.text.TextWatcher {
@@ -693,11 +338,9 @@ class InteractionSettingsActivity : AppCompatActivity() {
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this@InteractionSettingsActivity)
                 .setTitle(title)
-                .setView(container as android.view.View)
-                .setPositiveButton("Save") { _, _ ->
-                    onSave(selectedPkgs.toList())
-                }
-                .setNegativeButton("Cancel", null)
+                .setView(container)
+                .setPositiveButton(R.string.btn_save) { _, _ -> onSave(selectedPkgs.toList()) }
+                .setNegativeButton(android.R.string.cancel, null)
                 .show()
         }
     }
@@ -705,8 +348,8 @@ class InteractionSettingsActivity : AppCompatActivity() {
     private fun showAppSinglePicker(title: String, onSelect: (String) -> Unit) {
         lifecycleScope.launch(Dispatchers.Main) {
             val loadingDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this@InteractionSettingsActivity)
-                .setTitle("Loading Apps...")
-                .setMessage("Please wait...")
+                .setTitle(R.string.loading_apps)
+                .setMessage(R.string.please_wait_apps)
                 .setCancelable(false)
                 .show()
 
@@ -714,7 +357,6 @@ class InteractionSettingsActivity : AppCompatActivity() {
             loadingDialog.dismiss()
 
             val sortedApps = allApps.sortedBy { it.appName.lowercase() }
-            
             val density = resources.displayMetrics.density
             val container = android.widget.LinearLayout(this@InteractionSettingsActivity).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
@@ -722,7 +364,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
             }
 
             val searchBar = com.google.android.material.textfield.TextInputEditText(this@InteractionSettingsActivity).apply {
-                hint = "Search apps..."
+                hint = getString(R.string.hint_search_apps)
                 setSingleLine()
             }
             container.addView(com.google.android.material.textfield.TextInputLayout(this@InteractionSettingsActivity).apply {
@@ -743,19 +385,15 @@ class InteractionSettingsActivity : AppCompatActivity() {
             fun updateList(query: String) {
                 displayApps = if (query.isEmpty()) sortedApps
                 else sortedApps.filter { it.appName.contains(query, ignoreCase = true) }
-                
-                listView.adapter = android.widget.ArrayAdapter(
-                    this@InteractionSettingsActivity,
-                    android.R.layout.simple_list_item_1,
-                    displayApps.map { it.appName }.toTypedArray()
-                )
+                listView.adapter = android.widget.ArrayAdapter(this@InteractionSettingsActivity, android.R.layout.simple_list_item_1, displayApps.map { it.appName }.toTypedArray())
             }
+
             updateList("")
 
             val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this@InteractionSettingsActivity)
                 .setTitle(title)
                 .setView(container)
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(android.R.string.cancel, null)
                 .show()
 
             listView.setOnItemClickListener { _, _, position, _ ->
@@ -765,9 +403,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
 
             searchBar.addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    updateList(s.toString())
-                }
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { updateList(s.toString()) }
                 override fun afterTextChanged(s: android.text.Editable?) {}
             })
         }
@@ -780,39 +416,19 @@ class InteractionSettingsActivity : AppCompatActivity() {
         startService(intent)
     }
 
-    private fun applyAndShow() {
-        val stop = Intent(this, FloatingPanelService::class.java).apply {
-            action = FloatingPanelService.ACTION_STOP
-        }
-        startService(stop)
-        binding.root.postDelayed({
-            val start = Intent(this, FloatingPanelService::class.java).apply {
-                action = FloatingPanelService.ACTION_SHOW_TEMP
-            }
-            startForegroundService(start)
-        }, 300)
-    }
-
-    private fun freeformModeLabel(mode: String): String = when (mode) {
-        PanelPreferences.FREEFORM_MODE_PORTRAIT  -> "Portrait (Narrow)"
-        PanelPreferences.FREEFORM_MODE_MAXIMIZED -> "Maximized"
-        PanelPreferences.FREEFORM_MODE_CUSTOM    -> "Custom (${panelPrefs.freeformCustomWidth}% × ${panelPrefs.freeformCustomHeight}%)"
-        else                                      -> "Standard (80%)"
-    }
-
     private fun showActionPicker(title: String, current: Int, onSelect: (Int) -> Unit) {
         val options = arrayOf(
-            "Disabled",
-            "Open Launcher",
-            "Take Screenshot",
-            "Switch to Last App",
-            "Back",
-            "Home",
-            "Recent Apps",
-            "Show Notifications",
-            "Show Quick Settings",
-            "Lock Screen",
-            "Power Menu",
+            getString(R.string.action_none),
+            getString(R.string.action_launcher),
+            getString(R.string.action_screenshot),
+            getString(R.string.action_last_app),
+            getString(R.string.action_back),
+            getString(R.string.action_home),
+            getString(R.string.action_recents),
+            getString(R.string.action_notifications),
+            getString(R.string.action_quick_settings),
+            getString(R.string.action_lock_screen),
+            getString(R.string.action_power_menu),
             getString(R.string.action_flashlight),
             getString(R.string.action_camera),
             getString(R.string.action_rotation),
@@ -843,7 +459,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 val selectedAction = values[which]
                 if (selectedAction == PanelPreferences.ACTION_OPEN_FAVORITE_APP) {
                     dialog.dismiss()
-                    showAppSinglePicker("Select Favorite App") { pkg ->
+                    showAppSinglePicker(getString(R.string.picker_title_favorite)) { pkg ->
                         panelPrefs.favoriteAppPackage = pkg
                         onSelect(selectedAction)
                         loadCurrentSettings()
@@ -851,30 +467,30 @@ class InteractionSettingsActivity : AppCompatActivity() {
                     }
                 } else {
                     onSelect(selectedAction)
-                    loadCurrentSettings() // Refresh summary
+                    loadCurrentSettings()
                     applyOnly()
                     dialog.dismiss()
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
     private fun actionLabel(action: Int): String = when (action) {
-        PanelPreferences.ACTION_OPEN_LAUNCHER -> "Launcher"
-        PanelPreferences.ACTION_SCREENSHOT -> "Screenshot"
-        PanelPreferences.ACTION_PREVIOUS_APP -> "Last App"
-        PanelPreferences.ACTION_BACK -> "Back"
-        PanelPreferences.ACTION_HOME -> "Home"
-        PanelPreferences.ACTION_RECENTS -> "Recents"
-        PanelPreferences.ACTION_NOTIFICATIONS -> "Notifications"
-        PanelPreferences.ACTION_QUICK_SETTINGS -> "Quick Settings"
-        PanelPreferences.ACTION_LOCK_SCREEN -> "Lock Screen"
-        PanelPreferences.ACTION_POWER_MENU -> "Power Menu"
+        PanelPreferences.ACTION_OPEN_LAUNCHER -> getString(R.string.action_launcher)
+        PanelPreferences.ACTION_SCREENSHOT -> getString(R.string.action_screenshot)
+        PanelPreferences.ACTION_PREVIOUS_APP -> getString(R.string.action_last_app)
+        PanelPreferences.ACTION_BACK -> getString(R.string.action_back)
+        PanelPreferences.ACTION_HOME -> getString(R.string.action_home)
+        PanelPreferences.ACTION_RECENTS -> getString(R.string.action_recents)
+        PanelPreferences.ACTION_NOTIFICATIONS -> getString(R.string.action_notifications)
+        PanelPreferences.ACTION_QUICK_SETTINGS -> getString(R.string.action_quick_settings)
+        PanelPreferences.ACTION_LOCK_SCREEN -> getString(R.string.action_lock_screen)
+        PanelPreferences.ACTION_POWER_MENU -> getString(R.string.action_power_menu)
         PanelPreferences.ACTION_FLASHLIGHT -> getString(R.string.action_flashlight)
         PanelPreferences.ACTION_CAMERA -> getString(R.string.action_camera)
-        PanelPreferences.ACTION_AUTO_ROTATION -> "Rotation"
+        PanelPreferences.ACTION_AUTO_ROTATION -> getString(R.string.action_rotation)
         PanelPreferences.ACTION_OPEN_FAVORITE_APP -> "Fav: ${panelPrefs.favoriteAppPackage.substringAfterLast(".").take(10)}"
-        else -> "Off"
+        else -> getString(R.string.action_none)
     }
 }

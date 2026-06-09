@@ -679,6 +679,10 @@ class PanelPreferences(context: Context) {
         get() = prefs.getString(KEY_FAVORITE_APP, "") ?: ""
         set(value) = prefs.edit { putString(KEY_FAVORITE_APP, value) }
 
+    var appLanguage: String
+        get() = prefs.getString("Locale.Helper.Selected.Language", java.util.Locale.getDefault().language) ?: "en"
+        set(value) = prefs.edit { putString("Locale.Helper.Selected.Language", value) }
+
     var notchGesturesEnabled: Boolean
         get() = prefs.getBoolean(KEY_NOTCH_GESTURES_ENABLED, false)
         set(value) = prefs.edit { putBoolean(KEY_NOTCH_GESTURES_ENABLED, value) }

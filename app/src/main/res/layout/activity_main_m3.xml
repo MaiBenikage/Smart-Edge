@@ -37,7 +37,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Smart Edge"
+                    android:text="@string/app_name"
                     android:textColor="?attr/colorOnSurface"
                     android:textSize="32sp"
                     android:fontFamily="sans-serif-medium"
@@ -46,7 +46,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Fluid Control Center"
+                    android:text="@string/main_hero_subtitle"
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:textSize="14sp"
                     android:alpha="0.7"
@@ -83,7 +83,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Sidebar Service"
+                                android:text="@string/main_service_title"
                                 android:textColor="?attr/colorOnSurface"
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
@@ -107,7 +107,7 @@
                                     android:id="@+id/tvStatus"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Service is Stopped"
+                                    android:text="@string/main_service_stopped"
                                     android:textColor="?attr/colorOnSurfaceVariant"
                                     android:textSize="14sp" />
                             </LinearLayout>
@@ -139,7 +139,7 @@
                             android:layout_height="54dp"
                             android:layout_alignParentEnd="true"
                             android:layout_centerVertical="true"
-                            android:text="Start"
+                            android:text="@string/start_panel"
                             app:backgroundTint="?attr/colorPrimary"
                             android:textColor="?attr/colorOnPrimary"
                             android:visibility="gone" />
@@ -157,7 +157,7 @@
                         style="@style/App_Button_Continue"
                         android:layout_width="match_parent"
                         android:layout_height="64dp"
-                        android:text="Test Sidebar Now"
+                        android:text="@string/main_test_sidebar"
                         android:textSize="16sp"
                         app:icon="@drawable/ic_test_directions"
                         app:iconGravity="textStart"
@@ -189,7 +189,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Improve Stability"
+                        android:text="@string/alert_battery_title"
                         android:textColor="#2ECC71"
                         android:textStyle="bold"
                         android:textSize="15sp" />
@@ -198,7 +198,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="Exclude SidePanel from battery optimization to prevent the system from killing it in the background."
+                        android:text="@string/alert_battery_desc"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:textSize="12sp" />
 
@@ -209,7 +209,7 @@
                         android:layout_height="48dp"
                         android:layout_marginTop="16dp"
                         app:backgroundTint="#2ECC71"
-                        android:text="Allow Background Use"
+                        android:text="@string/alert_battery_btn"
                         android:textColor="#FFFFFF" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -234,7 +234,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Multitasking Mode"
+                        android:text="@string/alert_freeform_title"
                         android:textColor="?attr/colorSecondary"
                         android:textStyle="bold"
                         android:textSize="15sp" />
@@ -243,7 +243,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="Freeform Window Mode is enabled in settings but disabled in your system Developer Options."
+                        android:text="@string/alert_freeform_desc"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:textSize="12sp" />
 
@@ -254,7 +254,7 @@
                         android:layout_height="48dp"
                         android:layout_marginTop="16dp"
                         app:backgroundTint="?attr/colorSecondary"
-                        android:text="Fix in Settings"
+                        android:text="@string/alert_freeform_btn"
                         android:textColor="?attr/colorOnSecondary" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -279,7 +279,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Permission Required"
+                        android:text="@string/alert_permission_title"
                         android:textColor="?attr/colorError"
                         android:textStyle="bold"
                         android:textSize="15sp" />
@@ -288,7 +288,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="Please allow 'Display over other apps' to use the sidebar."
+                        android:text="@string/alert_permission_desc"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:textSize="12sp" />
 
@@ -299,7 +299,7 @@
                         android:layout_height="48dp"
                         android:layout_marginTop="16dp"
                         app:backgroundTint="?attr/colorError"
-                        android:text="Grant Now"
+                        android:text="@string/alert_permission_btn"
                         android:textColor="?attr/colorOnError" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -336,7 +336,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginStart="16dp"
-                        android:text="System Activity Logs"
+                        android:text="@string/main_logs_title"
                         android:textColor="?attr/colorOnSurface"
                         android:textSize="15sp"
                         android:textStyle="bold" />
@@ -380,7 +380,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginStart="16dp"
-                        android:text="Advanced Settings"
+                        android:text="@string/main_settings_btn"
                         android:textColor="?attr/colorOnSurface"
                         android:textSize="15sp"
                         android:textStyle="bold" />
@@ -393,13 +393,12 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- TUTORIAL SECTION -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnHowToUse"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
-                android:text="How to use"
+                android:text="@string/main_how_to_use"
                 android:layout_marginBottom="12dp"
                 app:icon="@android:drawable/ic_menu_help"
                 app:iconGravity="textStart"
@@ -444,7 +443,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
-                            android:text="Swipe from the screen edge and hold for a moment to reveal your floating panel. You can also tap the pill if enabled in settings."
+                            android:text="@string/main_tutorial_desc"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="13sp"
                             android:lineSpacingExtra="4dp" />
@@ -452,13 +451,12 @@
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
 
-            <!-- Sideload note -->
             <TextView
                 android:id="@+id/tvSideloadNote"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text='If permission is blocked: Settings → Apps → Allow restricted settings'
+                android:text="@string/main_sideload_note"
                 android:textColor="?attr/colorOutline"
                 android:textSize="11sp"
                 android:layout_marginBottom="24dp"

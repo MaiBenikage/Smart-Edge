@@ -28,6 +28,98 @@
     <string name="panel_tip">Long press the right edge to open the panel</string>
     <string name="accessibility_service_description">Detects system navigation gestures to effortlessly auto-close the floating panel.</string>
 
+    <string name="section_appearance">Appearance</string>
+    <string name="section_interaction">Interaction</string>
+    <string name="section_handle">Handle &amp; Pill</string>
+    <string name="section_icons_colors">Icons &amp; Colors</string>
+    <string name="section_home_screen">Home Screen</string>
+    <string name="section_layout_tuning">Layout Tuning</string>
+    <string name="section_general">General</string>
+    <string name="section_advanced_options">Advanced Options</string>
+    
+    <string name="app_theme">App Theme</string>
+    <string name="theme_follow_system">Follow System</string>
+    <string name="ui_style_theme">UI Style Theme</string>
+    <string name="theme_origin">OriginOS (Rounded)</string>
+    <string name="theme_hyperos">HyperOS (Glass)</string>
+    <string name="theme_realme">Realme UI</string>
+    <string name="theme_rich">Rich UI (Glow)</string>
+    
+    <string name="blur_title">Glassmorphic Blur</string>
+    <string name="blur_desc">May cause lag on budget devices (Android 12+ only)</string>
+    <string name="blur_intensity">Blur Intensity</string>
+    <string name="invisible_bg">Invisible Background</string>
+    <string name="panel_columns">Panel Columns</string>
+    <string name="icon_shape">Icon Shape</string>
+    <string name="icon_pack">Icon Pack</string>
+    <string name="icon_pack_default">System Default</string>
+    <string name="icon_scale">Icon Scale</string>
+    
+    <string name="custom_accent_title">Use Custom Accent Color</string>
+    <string name="accent_color">Accent Color</string>
+    <string name="panel_bg_color">Panel Background</string>
+    <string name="btn_reset_ui_colors">Reset UI Colors</string>
+    
+    <string name="service_button_style">Service Button Style</string>
+    <string name="button_style_power">Modern Power Icon</string>
+    <string name="button_style_logo">Classic Logo</string>
+    
+    <string name="panel_opacity">Panel Opacity</string>
+    <string name="corner_radius">Corner Radius</string>
+    <string name="sidebar_max_height">Sidebar Max Height</string>
+    <string name="picker_max_height">Edit Panel Max Height</string>
+    
+    <string name="visible_pill">Visible Pill Handle</string>
+    <string name="visible_pill_desc">Shows a visual indicator at the edge of the screen</string>
+    <string name="pill_color">Pill Color</string>
+    <string name="pill_thickness">Pill Thickness</string>
+    <string name="touch_area_width">Touch Area Width</string>
+    <string name="handle_height">Handle Height</string>
+    
+    <string name="edge_gestures">Edge Swipe Gestures</string>
+    <string name="edge_sensitivity">Edge Swipe Sensitivity</string>
+    <string name="req_accessibility">Requires Accessibility Service</string>
+    <string name="tap_gestures">Tap Gestures</string>
+    <string name="tap_gestures_desc">Add actions to tapping or holding the handle</string>
+    <string name="haptic_feedback">Haptic Feedback</string>
+    
+    <string name="edge_seek_title">Edge Seek (Slide to Adjust)</string>
+    <string name="edge_seek_desc">Slide on the handle while the panel is closed</string>
+    <string name="slide_brightness">Slide Brightness</string>
+    <string name="slide_volume">Slide Volume</string>
+    <string name="seek_sensitivity">Seek Sensitivity</string>
+    
+    <string name="automation_title">System Automation (Root/Shizuku)</string>
+    <string name="automation_desc">Use system calls for Back, Home, and Recents</string>
+    <string name="fullscreen_protection">Fullscreen Protection</string>
+    <string name="fullscreen_desc">Prevent gestures in selected apps</string>
+    <string name="game_mode">Game Mode</string>
+    <string name="game_mode_desc">Require deliberate swipes in selected apps</string>
+
+    <string name="main_hero_subtitle">Fluid Control Center</string>
+    <string name="main_service_title">Sidebar Service</string>
+    <string name="main_service_stopped">Service is Stopped</string>
+    <string name="main_service_running">Service is Active</string>
+    <string name="main_test_sidebar">Test Sidebar Now</string>
+    
+    <string name="alert_battery_title">Improve Stability</string>
+    <string name="alert_battery_desc">Exclude SidePanel from battery optimization to prevent the system from killing it in the background.</string>
+    <string name="alert_battery_btn">Allow Background Use</string>
+    
+    <string name="alert_freeform_title">Multitasking Mode</string>
+    <string name="alert_freeform_desc">Freeform Window Mode is enabled in settings but disabled in your system Developer Options.</string>
+    <string name="alert_freeform_btn">Fix in Settings</string>
+    
+    <string name="alert_permission_title">Permission Required</string>
+    <string name="alert_permission_desc">Please allow \'Display over other apps\' to use the sidebar.</string>
+    <string name="alert_permission_btn">Grant Now</string>
+    
+    <string name="main_logs_title">System Activity Logs</string>
+    <string name="main_settings_btn">Advanced Settings</string>
+    <string name="main_how_to_use">How to use</string>
+    <string name="main_tutorial_desc">Swipe from the screen edge and hold for a moment to reveal your floating panel. You can also tap the pill if enabled in settings.</string>
+    <string name="main_sideload_note">If permission is blocked: Settings → Apps → Allow restricted settings</string>
+
     <string name="only_on_home">Show Only on Home Screen</string>
     <string name="only_on_home_desc">Hide the handle and gestures when not on the home screen/launcher</string>
     <string name="notch_gestures">Notch Gestures</string>
@@ -39,4 +131,97 @@
     <string name="action_camera">Camera</string>
     <string name="action_rotation">Toggle Auto-Rotation</string>
     <string name="action_fav_app">Open Favorite App</string>
+
+    <string name="indicator_flashlight_on">Flashlight ON</string>
+    <string name="indicator_flashlight_off">Flashlight OFF</string>
+    <string name="indicator_rotation_on">Auto-Rotation ON</string>
+    <string name="indicator_rotation_off">Auto-Rotation OFF</string>
+    
+    <string name="status_service_active">Service is Active</string>
+    <string name="status_automation_stopped">Automation Stopped</string>
+    <string name="apps_selected_singular">1 app selected</string>
+    <string name="apps_selected_plural">%d apps selected</string>
+
+    <string name="misc_section_general">General</string>
+    <string name="misc_app_language">App Language</string>
+    <string name="misc_section_backup">Backup &amp; Restore</string>
+    <string name="misc_export_title">Export Settings</string>
+    <string name="misc_export_desc">Save setup to internal storage</string>
+    <string name="misc_import_title">Import Settings</string>
+    <string name="misc_import_desc">Restore from a previous JSON backup</string>
+
+    <string name="dialog_reset_title">Reset All Settings?</string>
+    <string name="dialog_reset_msg">This will restore all configurations and your side panel apps to their original defaults.</string>
+    <string name="btn_reset">Reset</string>
+    <string name="toast_reset_success">Settings Reset Successfully</string>
+    <string name="toast_browser_error">Could not open browser</string>
+    
+    <string name="manage_apps_desc">Choose which apps appear in sidebar</string>
+    <string name="view_repo_title">View Repository</string>
+    <string name="view_repo_desc">Check source code on GitHub</string>
+    <string name="reset_defaults_desc">Reset all settings to factory state</string>
+    
+    <string name="search_settings_hint">Search Settings…</string>
+    <string name="main_menu_appearance_desc">Set dark mode, adjust the color and scale</string>
+    <string name="main_menu_interaction_desc">Gestures, haptics, side choice</string>
+    <string name="main_menu_handle_desc">Size and position adjustment</string>
+    <string name="section_tools">Dashboard Tools</string>
+    <string name="main_menu_tools_desc">Customize the tools panel</string>
+    <string name="section_misc">Miscellaneous</string>
+    <string name="main_menu_misc_desc">Backup, restore and more</string>
+
+    <string name="tap_gestures_summary">Tap: %1$s, 2x: %2$s, 3x: %3$s, Hold: %4$s</string>
+    <string name="apps_selected_none">0 apps selected</string>
+    
+    <string name="freeform_mode_standard">Standard (80%)</string>
+    <string name="freeform_mode_portrait">Portrait (Narrow)</string>
+    <string name="freeform_mode_maximized">Maximized</string>
+    <string name="freeform_mode_custom">Custom (%1$d%% × %2$d%%)</string>
+    
+    <string name="anim_feel_calm">Calm (Slow)</string>
+    <string name="anim_feel_balanced">Balanced (Default)</string>
+    <string name="anim_feel_snappy">Snappy</string>
+    <string name="anim_feel_instant">Instant</string>
+    <string name="anim_feel_disabled">Disabled</string>
+    
+    <string name="dialog_automation_title">Automation Unavailable</string>
+    <string name="dialog_automation_msg">Root or Shizuku is required to use this feature. Please set up \'System Automation\' first.</string>
+    <string name="btn_setup">Setup</string>
+    <string name="loading_apps">Loading Apps…</string>
+    <string name="please_wait_apps">Please wait while apps are being loaded.</string>
+    <string name="hint_search_apps">Search apps…</string>
+    <string name="btn_save">Save</string>
+    <string name="dialog_window_size">Window Size</string>
+    <string name="dialog_anim_feel">Animation Feel</string>
+    
+    <string name="picker_title_hide">Select Apps to Hide Sidebar</string>
+    <string name="picker_title_game">Select Game Mode Apps</string>
+    <string name="picker_title_favorite">Select Favorite App</string>
+    
+    <string name="toast_fav_app_unset">Favorite app not set</string>
+    <string name="toast_app_not_found">App not found</string>
+    <string name="toast_freeform_enabled">System Freeform Mode Enabled</string>
+    <string name="snackbar_freeform_disabled">System freeform mode is disabled in Developer Options</string>
+    <string name="btn_fix">FIX</string>
+    
+    <string name="toast_shortcut_sent">Shortcut request sent. Please check your home screen.</string>
+    <string name="toast_launcher_no_shortcut">Launcher does not support pinned shortcuts</string>
+    <string name="toast_shortcut_added">Shortcut added to home screen</string>
+    <string name="label_toggle_sidebar">Toggle Sidebar</string>
+    
+    <string name="status_granted">Granted</string>
+    <string name="status_not_granted">Not Granted</string>
+    <string name="label_native_gesture">Native Gesture</string>
+
+    <string name="action_none">Disabled</string>
+    <string name="action_launcher">Launcher</string>
+    <string name="action_screenshot">Screenshot</string>
+    <string name="action_last_app">Last App</string>
+    <string name="action_back">Back</string>
+    <string name="action_home">Home</string>
+    <string name="action_recents">Recents</string>
+    <string name="action_notifications">Notifications</string>
+    <string name="action_quick_settings">Quick Settings</string>
+    <string name="action_lock_screen">Lock Screen</string>
+    <string name="action_power_menu">Power Menu</string>
 </resources>

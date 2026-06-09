@@ -31,10 +31,56 @@
             android:orientation="vertical"
             android:padding="@dimen/app_screen_padding">
 
-            <!-- Backup & Restore -->
+            <!-- Section: General -->
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Backup &amp; Restore" />
+                android:text="@string/misc_section_general" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/App_Card_Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    style="@style/App_CardContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <!-- Language Selector -->
+                    <LinearLayout
+                        android:id="@+id/feature_language"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground"
+                        android:paddingVertical="12dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/misc_app_language"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="16sp" />
+
+                        <TextView
+                            android:id="@+id/tvLanguageValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="English"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Section: Backup & Restore -->
+            <TextView
+                style="@style/App_SectionTitle"
+                android:text="@string/misc_section_backup"
+                android:layout_marginTop="24dp" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -48,45 +94,28 @@
 
                     <!-- Export row -->
                     <LinearLayout
-                        android:id="@+id/rowExport"
+                        android:id="@+id/btnExportSettings"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
+                        android:orientation="vertical"
                         android:clickable="true"
                         android:focusable="true"
                         android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="14dp">
+                        android:paddingVertical="12dp">
 
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Export Settings"
-                                android:textColor="?attr/colorOnSurface"
-                                android:textSize="16sp" />
-
-                            <TextView
-                                android:id="@+id/tvExportDesc"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Save all settings to Downloads/SidePanel/"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnExportSettings"
-                            style="@style/Widget.Material3.Button.TonalButton"
+                        <TextView
                             android:layout_width="wrap_content"
-                            android:layout_height="40dp"
-                            android:text="Export"
-                            app:cornerRadius="12dp" />
+                            android:layout_height="wrap_content"
+                            android:text="@string/misc_export_title"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="16sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/misc_export_desc"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="14sp" />
                     </LinearLayout>
 
                     <View
@@ -97,44 +126,28 @@
 
                     <!-- Import row -->
                     <LinearLayout
-                        android:id="@+id/rowImport"
+                        android:id="@+id/btnImportSettings"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
+                        android:orientation="vertical"
                         android:clickable="true"
                         android:focusable="true"
                         android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="14dp">
+                        android:paddingVertical="12dp">
 
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Import Settings"
-                                android:textColor="?attr/colorOnSurface"
-                                android:textSize="16sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Restore settings from a JSON backup file"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnImportSettings"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                        <TextView
                             android:layout_width="wrap_content"
-                            android:layout_height="40dp"
-                            android:text="Import"
-                            app:cornerRadius="12dp" />
+                            android:layout_height="wrap_content"
+                            android:text="@string/misc_import_title"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="16sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/misc_import_desc"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="14sp" />
                     </LinearLayout>
 
                 </LinearLayout>
