@@ -224,4 +224,5 @@
     <string name="action_quick_settings">Quick Settings</string>
     <string name="action_lock_screen">Lock Screen</string>
     <string name="action_power_menu">Power Menu</string>
+    <string name="action_move_handle">Move Handle (Drag)</string>
 </resources>

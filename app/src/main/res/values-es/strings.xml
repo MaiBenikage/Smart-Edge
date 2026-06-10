@@ -225,4 +225,5 @@
     <string name="action_quick_settings">Ajustes Rápidos</string>
     <string name="action_lock_screen">Bloqueo de Pantalla</string>
     <string name="action_power_menu">Menú de Apagado</string>
+    <string name="action_move_handle">Mover tirador (Arrastrar)</string>
 </resources>

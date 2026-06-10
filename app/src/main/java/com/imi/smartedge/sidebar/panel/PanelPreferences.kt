@@ -112,6 +112,7 @@ class PanelPreferences(context: Context) {
         const val ACTION_CAMERA = 12
         const val ACTION_AUTO_ROTATION = 13
         const val ACTION_OPEN_FAVORITE_APP = 14
+        const val ACTION_MOVE_HANDLE = 15
 
         const val ANIM_TYPE_SLIDE = "slide"
         const val ANIM_TYPE_POPUP = "popup"
@@ -552,7 +553,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putInt(KEY_TRIPLE_TAP_ACTION, value) }
 
     var longPressAction: Int
-        get() = prefs.getInt(KEY_LONG_PRESS_ACTION, ACTION_NONE)
+        get() = prefs.getInt(KEY_LONG_PRESS_ACTION, ACTION_MOVE_HANDLE)
         set(value) = prefs.edit { putInt(KEY_LONG_PRESS_ACTION, value) }
 
     var gesturesEnabled: Boolean

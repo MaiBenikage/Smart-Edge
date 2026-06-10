@@ -81,8 +81,11 @@ class EdgeHandleView @JvmOverloads constructor(
         if (panelPrefs.longPressAction != PanelPreferences.ACTION_NONE) {
             performAction(panelPrefs.longPressAction)
             isTriggered = true
-            vibrateHaptic(40)
-            animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+            // If we didn't enter drag mode, vibrate and reset scale
+            if (!isDragMode) {
+                vibrateHaptic(40)
+                animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+            }
         }
     }
 
@@ -137,7 +140,15 @@ class EdgeHandleView @JvmOverloads constructor(
             PanelPreferences.ACTION_CAMERA -> triggerServiceAction(FloatingPanelService.ACTION_LAUNCH_CAMERA)
             PanelPreferences.ACTION_AUTO_ROTATION -> triggerServiceAction(FloatingPanelService.ACTION_TOGGLE_ROTATION)
             PanelPreferences.ACTION_OPEN_FAVORITE_APP -> triggerServiceAction(FloatingPanelService.ACTION_OPEN_FAV_APP)
+            PanelPreferences.ACTION_MOVE_HANDLE -> enterDragMode()
         }
+    }
+
+    private fun enterDragMode() {
+        isDragMode = true
+        vibrateHaptic(40)
+        // Grow the pill slightly to signal drag mode
+        animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).start()
     }
 
     private fun triggerServiceAction(action: String) {
