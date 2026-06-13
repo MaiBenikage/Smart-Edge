@@ -65,43 +65,17 @@ class NotchHandleView @JvmOverloads constructor(
     }
 
     private fun performAction(actionId: Int) {
-        if (actionId == PanelPreferences.ACTION_NONE) return
-        
-        vibrateHaptic()
-        val intent = Intent(context, FloatingPanelService::class.java).apply {
-            when (actionId) {
-                PanelPreferences.ACTION_OPEN_LAUNCHER -> action = FloatingPanelService.ACTION_OPEN
-                PanelPreferences.ACTION_SCREENSHOT -> action = FloatingPanelService.ACTION_SCREENSHOT
-                PanelPreferences.ACTION_FLASHLIGHT -> action = FloatingPanelService.ACTION_TOGGLE_FLASHLIGHT
-                PanelPreferences.ACTION_CAMERA -> action = FloatingPanelService.ACTION_LAUNCH_CAMERA
-                PanelPreferences.ACTION_AUTO_ROTATION -> action = FloatingPanelService.ACTION_TOGGLE_ROTATION
-                PanelPreferences.ACTION_OPEN_FAVORITE_APP -> action = FloatingPanelService.ACTION_OPEN_FAV_APP
-                else -> {
-                    // Forward to Accessibility Service for system actions
-                    val accAction = when (actionId) {
-                        PanelPreferences.ACTION_BACK -> PanelAccessibilityService.ACTION_BACK
-                        PanelPreferences.ACTION_HOME -> PanelAccessibilityService.ACTION_HOME
-                        PanelPreferences.ACTION_RECENTS -> PanelAccessibilityService.ACTION_RECENTS
-                        PanelPreferences.ACTION_NOTIFICATIONS -> PanelAccessibilityService.ACTION_NOTIFICATIONS
-                        PanelPreferences.ACTION_QUICK_SETTINGS -> PanelAccessibilityService.ACTION_QUICK_SETTINGS
-                        PanelPreferences.ACTION_LOCK_SCREEN -> PanelAccessibilityService.ACTION_LOCK_SCREEN
-                        PanelPreferences.ACTION_POWER_MENU -> PanelAccessibilityService.ACTION_SHOW_POWER_MENU
-                        PanelPreferences.ACTION_PREVIOUS_APP -> PanelAccessibilityService.ACTION_PREVIOUS_APP
-                        else -> null
-                    }
-                    if (accAction != null) {
-                        val accIntent = Intent(context, PanelAccessibilityService::class.java).apply {
-                            action = accAction
-                        }
-                        context.startService(accIntent)
-                        return
-                    }
+        ActionDispatcher.performAction(
+            context = context,
+            actionId = actionId,
+            panelPrefs = panelPrefs,
+            onTriggerPanel = {
+                val intent = Intent(context, FloatingPanelService::class.java).apply {
+                    action = FloatingPanelService.ACTION_OPEN
                 }
+                context.startService(intent)
             }
-        }
-        if (intent.action != null) {
-            context.startService(intent)
-        }
+        )
     }
 
     private fun vibrateHaptic(durationMs: Long = 25) {

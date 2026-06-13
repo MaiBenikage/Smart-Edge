@@ -225,4 +225,31 @@
     <string name="action_lock_screen">Lock Screen</string>
     <string name="action_power_menu">Power Menu</string>
     <string name="action_move_handle">Move Handle (Drag)</string>
+
+    <!-- Interaction Settings: Panel Experience -->
+    <string name="section_panel_experience">Panel Experience</string>
+    <string name="feature_landscape_label">Show Panel in Landscape</string>
+    <string name="feature_landscape_desc">Allow the side panel to be opened when the device is in landscape mode</string>
+    <string name="feature_notification_apps_label">Notification Apps Section</string>
+    <string name="feature_notification_apps_desc">Show recently notified apps in a dedicated section at the top</string>
+    <string name="feature_remember_scroll_label">Remember Scroll Position</string>
+    <string name="feature_remember_scroll_desc">Restore last scroll position when reopening the sidebar or picker</string>
+    <string name="feature_auto_show_keyboard_label">Auto-show Keyboard</string>
+    <string name="feature_auto_show_keyboard_desc">Automatically focus search bar and show keyboard when opening app picker</string>
+
+    <!-- Interaction Settings: System & Behavior -->
+    <string name="section_system_behavior">System &amp; Behavior</string>
+    <string name="feature_auto_start_label">Auto-start on Boot</string>
+    <string name="feature_auto_start_desc">Automatically start the side panel service after device restarts</string>
+    <string name="feature_show_logs_label">Enable Debug Logs</string>
+    <string name="feature_show_logs_desc">Show internal process logs within the panel for troubleshooting</string>
+
+    <string name="feature_anim_feel_label">Animation Feel</string>
+    <string name="feature_picker_gap_label">Picker Spacing (Gap)</string>
+    <string name="feature_picker_gap_desc">Horizontal space between the sidebar and the app picker panel</string>
+
+    <!-- Interaction Settings: Desktop Shortcuts -->
+    <string name="section_desktop_shortcuts">Desktop Shortcuts</string>
+    <string name="feature_add_shortcut_label">Add Toggle Shortcut</string>
+    <string name="feature_add_shortcut_desc">Pin a shortcut to your home screen to quickly toggle the sidebar</string>
 </resources>

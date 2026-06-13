@@ -60,6 +60,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
     private fun loadCurrentSettings() {
         updateSecureSettingsUI()
         
+        // 1. MAIN TRIGGER & GESTURES
         if (panelPrefs.panelSide == PanelPreferences.SIDE_LEFT) {
             binding.togglePanelSide.check(R.id.btnSideLeft)
         } else {
@@ -74,46 +75,64 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.layoutSwipeSensitivity.visibility = if (panelPrefs.gesturesEnabled) View.VISIBLE else View.GONE
         
         binding.tvTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.tapAction), actionLabel(panelPrefs.doubleTapAction), actionLabel(panelPrefs.tripleTapAction), actionLabel(panelPrefs.longPressAction))
-        
-        binding.featureNotchGestures.isChecked = panelPrefs.notchGesturesEnabled
-        binding.tvNotchTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.notchTapAction), actionLabel(panelPrefs.notchDoubleTapAction), actionLabel(panelPrefs.notchTripleTapAction), actionLabel(panelPrefs.notchLongPressAction))
-        binding.layoutNotchTapGestures.visibility = if (panelPrefs.notchGesturesEnabled) View.VISIBLE else View.GONE
-
         binding.featureHaptic.isChecked = panelPrefs.hapticEnabled
+
+        // 2. SPECIALIZED INTERACTION
         binding.featureSlideBrightness.isChecked = panelPrefs.slideBrightnessEnabled
         binding.featureSlideVolume.isChecked = panelPrefs.slideVolumeEnabled
         binding.sbSlideSensitivity.value = panelPrefs.slideSensitivity.toFloat()
         binding.tvSlideSensitivityValue.text = "${panelPrefs.slideSensitivity}%"
         updateSlideSeekUI()
 
+        binding.featureNotchGestures.isChecked = panelPrefs.notchGesturesEnabled
+        binding.tvNotchTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.notchTapAction), actionLabel(panelPrefs.notchDoubleTapAction), actionLabel(panelPrefs.notchTripleTapAction), actionLabel(panelPrefs.notchLongPressAction))
+        binding.layoutNotchTapGestures.visibility = if (panelPrefs.notchGesturesEnabled) View.VISIBLE else View.GONE
+
+        // 3. PANEL EXPERIENCE
+        binding.featureShowLandscape.isChecked = panelPrefs.showInLandscape
+        binding.featureNotificationApps.isChecked = panelPrefs.showNotificationApps
+        binding.featureRememberScroll.isChecked = panelPrefs.rememberScroll
+        binding.featureAutoShowKeyboard.isChecked = panelPrefs.autoShowKeyboard
+
+        // 4. MULTITASKING & WINDOWING
+        binding.featureDragSplit.isChecked = panelPrefs.dragToSplit
+        binding.featureFreeform.isChecked = panelPrefs.freeformEnabled
+        binding.layoutFreeformSize.visibility = if (panelPrefs.freeformEnabled) View.VISIBLE else View.GONE
+        val sizeModeStr = when(panelPrefs.freeformWindowMode) {
+            PanelPreferences.FREEFORM_MODE_STANDARD -> "Standard (80%)"
+            PanelPreferences.FREEFORM_MODE_PORTRAIT -> "Portrait (Narrow)"
+            PanelPreferences.FREEFORM_MODE_MAXIMIZED -> "Maximized"
+            PanelPreferences.FREEFORM_MODE_CUSTOM -> "Custom (${panelPrefs.freeformCustomWidth}x${panelPrefs.freeformCustomHeight})"
+            else -> "Standard (80%)"
+        }
+        binding.tvFreeformSizeValue.text = sizeModeStr
+
+        // 5. SHORTCUTS & AUTOMATION
+        binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
+
+        // 6. ADVANCED OPTIONS
         val whitelistCount = panelPrefs.getFullscreenWhitelist().size
         binding.tvFullscreenWhitelistValue.text = if (whitelistCount == 1) getString(R.string.apps_selected_singular) else getString(R.string.apps_selected_plural, whitelistCount)
 
         val gameAppsCount = panelPrefs.getGameApps().size
         binding.tvGameAppsValue.text = if (gameAppsCount == 1) getString(R.string.apps_selected_singular) else getString(R.string.apps_selected_plural, gameAppsCount)
-        
         binding.featureGameMode.isChecked = panelPrefs.deliberateGestureInGames
-        
-        // Add Multitasking Options
-        val dragSplitSwitch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.feature_drag_split)
-        val freeformSwitch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.feature_freeform)
-        val freeformSizeLayout = findViewById<android.view.View>(R.id.layout_freeform_size)
-        val tvFreeformSizeValue = findViewById<android.widget.TextView>(R.id.tvFreeformSizeValue)
-        
-        if (dragSplitSwitch != null) dragSplitSwitch.isChecked = panelPrefs.dragToSplit
-        if (freeformSwitch != null) freeformSwitch.isChecked = panelPrefs.freeformEnabled
-        
-        if (freeformSizeLayout != null) {
-            freeformSizeLayout.visibility = if (panelPrefs.freeformEnabled) android.view.View.VISIBLE else android.view.View.GONE
-            val sizeModeStr = when(panelPrefs.freeformWindowMode) {
-                PanelPreferences.FREEFORM_MODE_STANDARD -> "Standard (80%)"
-                PanelPreferences.FREEFORM_MODE_PORTRAIT -> "Portrait (Narrow)"
-                PanelPreferences.FREEFORM_MODE_MAXIMIZED -> "Maximized"
-                PanelPreferences.FREEFORM_MODE_CUSTOM -> "Custom (${panelPrefs.freeformCustomWidth}x${panelPrefs.freeformCustomHeight})"
-                else -> "Standard (80%)"
-            }
-            tvFreeformSizeValue?.text = sizeModeStr
+
+        // 7. SYSTEM & BEHAVIOR
+        binding.featureAutoStart.isChecked = panelPrefs.autoStart
+        binding.featureShowLogs.isChecked = panelPrefs.showLogs
+
+        binding.tvAnimFeelValue.text = when (panelPrefs.animSpeed) {
+            200 -> "Calm (Slow)"
+            400 -> "Balanced (Default)"
+            700 -> "Snappy"
+            1000 -> "Instant"
+            0 -> "Disabled"
+            else -> "Balanced (Default)"
         }
+
+        binding.sbPickerGap.value = panelPrefs.pickerGap.toFloat()
+        binding.tvPickerGapValue.text = "${panelPrefs.pickerGap}dp"
     }
 
     private fun updateSlideSeekUI() {
@@ -165,6 +184,15 @@ class InteractionSettingsActivity : AppCompatActivity() {
             }
             panelPrefs.useAutomationForGestures = isChecked
             applyOnly()
+        }
+
+        findViewById<android.view.View>(R.id.btnAutomationSettings)?.setOnClickListener {
+            SecureSettingsDialog.show(this) {
+                updateSecureSettingsUI()
+                if (AutomationManager.isAutomationPossible()) {
+                    binding.featureAutomationGestures.isChecked = true
+                }
+            }
         }
 
         binding.sbSwipeSensitivity.addOnChangeListener { _, value, fromUser ->
@@ -222,6 +250,69 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.featureHaptic.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.hapticEnabled = isChecked
         }
+
+        // Panel Experience Listeners
+        binding.featureShowLandscape.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.showInLandscape = isChecked
+            applyOnly()
+        }
+        binding.featureNotificationApps.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.showNotificationApps = isChecked
+            applyOnly()
+        }
+        binding.featureRememberScroll.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.rememberScroll = isChecked
+            applyOnly()
+        }
+        binding.featureAutoShowKeyboard.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.autoShowKeyboard = isChecked
+            applyOnly()
+        }
+
+        // System & Behavior Listeners
+        binding.featureAutoStart.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.autoStart = isChecked
+        }
+        binding.featureShowLogs.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.showLogs = isChecked
+            applyOnly()
+        }
+
+        binding.featureAddShortcut.setOnClickListener {
+            pinShortcut()
+        }
+
+        binding.featureAnimFeel.setOnClickListener {
+            val options = arrayOf("Calm (Slow)", "Balanced (Default)", "Snappy", "Instant", "Disabled")
+            val values = intArrayOf(200, 400, 700, 1000, 0)
+            var selectedIndex = values.indexOf(panelPrefs.animSpeed)
+            if (selectedIndex == -1) selectedIndex = 1
+
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Animation Feel")
+                .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
+                    panelPrefs.animSpeed = values[which]
+                    binding.tvAnimFeelValue.text = options[which]
+                    applyOnly()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+
+        binding.sbPickerGap.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                val gap = value.toInt()
+                panelPrefs.pickerGap = gap
+                binding.tvPickerGapValue.text = "${gap}dp"
+            }
+        }
+        binding.sbPickerGap.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: com.google.android.material.slider.Slider) {}
+            override fun onStopTrackingTouch(slider: com.google.android.material.slider.Slider) {
+                applyOnly()
+            }
+        })
 
         binding.featureSlideBrightness.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.slideBrightnessEnabled = isChecked
@@ -467,6 +558,41 @@ class InteractionSettingsActivity : AppCompatActivity() {
             action = FloatingPanelService.ACTION_REFRESH
         }
         startService(intent)
+    }
+
+    private fun pinShortcut() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val shortcutManager = getSystemService(android.content.pm.ShortcutManager::class.java)
+            if (shortcutManager.isRequestPinShortcutSupported) {
+                val pinIntent = Intent(this, ToggleActivity::class.java).apply {
+                    action = ToggleActivity.ACTION_TOGGLE
+                }
+                val pinShortcutInfo = android.content.pm.ShortcutInfo.Builder(this, "toggle_sidebar_pinned")
+                    .setShortLabel(getString(R.string.label_toggle_sidebar))
+                    .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
+                    .setIntent(pinIntent)
+                    .build()
+
+                shortcutManager.requestPinShortcut(pinShortcutInfo, null)
+                Toast.makeText(this, R.string.toast_shortcut_sent, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, R.string.toast_launcher_no_shortcut, Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            // Legacy way for Android < 8.0
+            val shortcutIntent = Intent(this, ToggleActivity::class.java).apply {
+                action = ToggleActivity.ACTION_TOGGLE
+            }
+            val addIntent = Intent().apply {
+                putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent)
+                putExtra(Intent.EXTRA_SHORTCUT_NAME, getString(R.string.label_toggle_sidebar))
+                val iconResource = Intent.ShortcutIconResource.fromContext(this@InteractionSettingsActivity, R.mipmap.ic_launcher)
+                putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, iconResource)
+                action = "com.android.launcher.action.INSTALL_SHORTCUT"
+            }
+            sendBroadcast(addIntent)
+            Toast.makeText(this, R.string.toast_shortcut_added, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showActionPicker(title: String, current: Int, onSelect: (Int) -> Unit) {

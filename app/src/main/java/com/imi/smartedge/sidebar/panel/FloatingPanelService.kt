@@ -550,7 +550,11 @@ class FloatingPanelService : Service() {
                                 panelPrefs.doubleTapToOpen || 
                                 panelPrefs.tripleTapToOpen
 
-        if (!anyTriggerEnabled || (panelPrefs.onlyOnHome && !isCurrentPackageLauncher())) {
+        // --- MANDATORY ENGINE CHECK ---
+        // If neither Accessibility is ON nor Native Automation is POSSIBLE, we must NOT show the handle.
+        val hasActiveEngine = isAccessibilityServiceEnabled() || (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible())
+
+        if (!anyTriggerEnabled || (panelPrefs.onlyOnHome && !isCurrentPackageLauncher()) || !hasActiveEngine) {
             removeView(edgeHandleView)
             edgeHandleView = null
             return

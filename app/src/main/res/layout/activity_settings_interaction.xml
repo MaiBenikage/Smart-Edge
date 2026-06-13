@@ -19,7 +19,7 @@
             app:navigationIconTint="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <ScrollView
+    <androidx.core.widget.NestedScrollView
         android:id="@+id/interactionScrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -31,6 +31,11 @@
             android:orientation="vertical"
             android:padding="@dimen/app_screen_padding">
 
+            <!-- 1. MAIN TRIGGER & GESTURES -->
+            <TextView
+                style="@style/App_SectionTitle"
+                android:text="Main Trigger &amp; Gestures" />
+
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
                 android:layout_width="match_parent"
@@ -40,6 +45,33 @@
                     style="@style/App_CardContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Screen Edge Side" android:textColor="?attr/colorOnSurface" android:textSize="14sp" android:textStyle="bold" android:layout_marginBottom="8dp"/>
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/togglePanelSide"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:singleSelection="true"
+                        app:selectionRequired="true"
+                        android:layout_marginBottom="16dp">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSideLeft"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Left" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSideRight"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Right" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
 
                     <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/edge_gestures" android:textColor="?attr/colorOnSurface" />
                     
@@ -70,7 +102,7 @@
                         android:clickable="true"
                         android:focusable="true"
                         android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp">
+                        android:paddingVertical="8dp">
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -95,10 +127,10 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- SECTION: Notch Gestures -->
+            <!-- 2. SPECIALIZED INTERACTION -->
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="@string/notch_gestures" />
+                android:text="Specialized Interaction" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -110,10 +142,30 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_notch_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/enable_notch_gestures" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/notch_gestures_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/edge_seek_title" android:textColor="?attr/colorOnSurface" android:textSize="14sp" android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/edge_seek_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" android:layout_marginBottom="8dp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_slide_brightness" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/slide_brightness" android:textColor="?attr/colorOnSurface" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_slide_volume" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/slide_volume" android:textColor="?attr/colorOnSurface" />
+
+                    <LinearLayout 
+                        android:id="@+id/layoutSlideSensitivity"
+                        android:layout_width="match_parent" 
+                        android:layout_height="wrap_content" 
+                        android:orientation="vertical" 
+                        android:layout_marginTop="16dp">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/seek_sensitivity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                            <TextView android:id="@+id/tvSlideSensitivityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="50%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                        </LinearLayout>
+                        <com.google.android.material.slider.Slider style="@style/Widget.App.Slider"
+                            android:id="@+id/sbSlideSensitivity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="1.0" android:valueTo="100.0" android:value="50.0" app:tickVisible="false" />
+                    </LinearLayout>
 
                     <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_notch_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/enable_notch_gestures" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/notch_gestures_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
                     <LinearLayout
                         android:id="@+id/layoutNotchTapGestures"
@@ -123,7 +175,8 @@
                         android:clickable="true"
                         android:focusable="true"
                         android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="12dp">
+                        android:paddingVertical="8dp"
+                        android:layout_marginTop="8dp">
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -144,10 +197,10 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- SECTION: Slide Brightness -->
+            <!-- 3. PANEL EXPERIENCE -->
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="@string/edge_seek_title" />
+                android:text="@string/section_panel_experience" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -159,27 +212,28 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/edge_seek_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_show_landscape" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/feature_landscape_label" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/feature_landscape_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_slide_brightness" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="@string/slide_brightness" android:textColor="?attr/colorOnSurface" />
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_slide_volume" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/slide_volume" android:textColor="?attr/colorOnSurface" />
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
 
-                    <LinearLayout 
-                        android:id="@+id/layoutSlideSensitivity"
-                        android:layout_width="match_parent" 
-                        android:layout_height="wrap_content" 
-                        android:orientation="vertical" 
-                        android:layout_marginTop="16dp">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
-                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/seek_sensitivity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
-                            <TextView android:id="@+id/tvSlideSensitivityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="50%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
-                        </LinearLayout>
-                        <com.google.android.material.slider.Slider style="@style/Widget.App.Slider"
-                            android:id="@+id/sbSlideSensitivity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="1.0" android:valueTo="100.0" android:value="50.0" app:tickVisible="false" />
-                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_notification_apps" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/feature_notification_apps_label" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/feature_notification_apps_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_remember_scroll" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/feature_remember_scroll_label" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/feature_remember_scroll_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_auto_show_keyboard" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/feature_auto_show_keyboard_label" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/feature_auto_show_keyboard_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 4. MULTITASKING & WINDOWING -->
             <TextView
                 style="@style/App_SectionTitle"
                 android:text="Multitasking &amp; Windowing" />
@@ -235,9 +289,10 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 5. SHORTCUTS & AUTOMATION -->
             <TextView
                 style="@style/App_SectionTitle"
-                android:text="Screen Edge Side" />
+                android:text="Shortcuts &amp; Automation" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/App_Card_Section"
@@ -247,36 +302,68 @@
                 <LinearLayout
                     style="@style/App_CardContainer"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:layout_height="wrap_content">
 
-                    <com.google.android.material.button.MaterialButtonToggleGroup
-                        android:id="@+id/togglePanelSide"
+                    <LinearLayout
+                        android:id="@+id/feature_add_shortcut"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        app:singleSelection="true"
-                        app:selectionRequired="true">
+                        android:orientation="vertical"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground"
+                        android:paddingVertical="8dp">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSideLeft"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/feature_add_shortcut_label"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="16sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/feature_add_shortcut_desc"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        
+                        <com.google.android.material.materialswitch.MaterialSwitch 
+                            android:id="@+id/feature_automation_gestures" 
+                            android:layout_width="0dp" 
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Left" />
+                            android:text="@string/automation_title" 
+                            android:textColor="?attr/colorOnSurface" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSideRight"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Right" />
+                        <ImageView
+                            android:id="@+id/btnAutomationSettings"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginStart="8dp"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_settings"
+                            android:tint="?attr/colorPrimary"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:focusable="true" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/automation_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
-                    </com.google.android.material.button.MaterialButtonToggleGroup>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 6. ADVANCED OPTIONS -->
             <TextView
                 style="@style/App_SectionTitle"
                 android:text="@string/section_advanced_options" />
@@ -290,11 +377,6 @@
                     style="@style/App_CardContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_automation_gestures" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/automation_title" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/automation_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
 
                     <LinearLayout
                         android:id="@+id/layoutFullscreenWhitelist"
@@ -357,10 +439,81 @@
                             android:textSize="13sp"
                             android:textStyle="bold" />
                     </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 7. SYSTEM & BEHAVIOR -->
+            <TextView
+                style="@style/App_SectionTitle"
+                android:text="@string/section_system_behavior" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/App_Card_Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    style="@style/App_CardContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_auto_start" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/feature_auto_start_label" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/feature_auto_start_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_show_logs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/feature_show_logs_label" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/feature_show_logs_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="12dp" />
+
+                    <LinearLayout
+                        android:id="@+id/feature_anim_feel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground"
+                        android:paddingVertical="12dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/feature_anim_feel_label"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="16sp" />
+
+                        <TextView
+                            android:id="@+id/tvAnimFeelValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Balanced (Default)"
+                            android:textColor="?attr/colorPrimary"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="4dp" />
+
+                    <LinearLayout
+                        android:id="@+id/layout_picker_gap"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/feature_picker_gap_label" android:textColor="?attr/colorOnSurface" android:textSize="16sp" />
+                            <TextView android:id="@+id/tvPickerGapValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="20dp" android:textColor="?attr/colorPrimary" android:textSize="13sp" android:textStyle="bold" />
+                        </LinearLayout>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/feature_picker_gap_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" android:layout_marginBottom="8dp" />
+                        <com.google.android.material.slider.Slider style="@style/Widget.App.Slider"
+                            android:id="@+id/sbPickerGap" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="0.0" android:valueTo="100.0" android:value="20.0" app:tickVisible="false" />
+                    </LinearLayout>
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
         </LinearLayout>
-    </ScrollView>
+    </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
@@ -417,6 +418,18 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         if (isAutomationPossible) {
             onPermissionGranted?.invoke()
         }
+        
+        // Notify background service to re-evaluate engine status
+        applyOnly()
+    }
+
+    private fun applyOnly() {
+        try {
+            val intent = Intent(requireContext(), FloatingPanelService::class.java).apply {
+                action = FloatingPanelService.ACTION_REFRESH
+            }
+            requireContext().startService(intent)
+        } catch (e: Exception) {}
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): android.app.Dialog {

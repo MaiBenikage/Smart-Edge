@@ -127,70 +127,28 @@ class EdgeHandleView @JvmOverloads constructor(
     }
 
     private fun performAction(actionId: Int) {
-        when (actionId) {
-            PanelPreferences.ACTION_OPEN_LAUNCHER -> triggerPanel()
-            PanelPreferences.ACTION_SCREENSHOT -> triggerScreenshot()
-            PanelPreferences.ACTION_PREVIOUS_APP -> triggerPreviousApp()
-            PanelPreferences.ACTION_BACK -> triggerAccessibilityAction(PanelAccessibilityService.ACTION_BACK)
-            PanelPreferences.ACTION_HOME -> triggerAccessibilityAction(PanelAccessibilityService.ACTION_HOME)
-            PanelPreferences.ACTION_RECENTS -> triggerAccessibilityAction(PanelAccessibilityService.ACTION_RECENTS)
-            PanelPreferences.ACTION_NOTIFICATIONS -> triggerAccessibilityAction(PanelAccessibilityService.ACTION_NOTIFICATIONS)
-            PanelPreferences.ACTION_QUICK_SETTINGS -> triggerAccessibilityAction(PanelAccessibilityService.ACTION_QUICK_SETTINGS)
-            PanelPreferences.ACTION_LOCK_SCREEN -> triggerAccessibilityAction(PanelAccessibilityService.ACTION_LOCK_SCREEN)
-            PanelPreferences.ACTION_POWER_MENU -> triggerAccessibilityAction(PanelAccessibilityService.ACTION_SHOW_POWER_MENU)
-            PanelPreferences.ACTION_FLASHLIGHT -> triggerServiceAction(FloatingPanelService.ACTION_TOGGLE_FLASHLIGHT)
-            PanelPreferences.ACTION_CAMERA -> triggerServiceAction(FloatingPanelService.ACTION_LAUNCH_CAMERA)
-            PanelPreferences.ACTION_AUTO_ROTATION -> triggerServiceAction(FloatingPanelService.ACTION_TOGGLE_ROTATION)
-            PanelPreferences.ACTION_OPEN_FAVORITE_APP -> triggerServiceAction(FloatingPanelService.ACTION_OPEN_FAV_APP)
-            PanelPreferences.ACTION_MOVE_HANDLE -> enterDragMode()
-        }
+        ActionDispatcher.performAction(
+            context = context,
+            actionId = actionId,
+            panelPrefs = panelPrefs,
+            onTriggerPanel = { triggerPanel() },
+            onDragHandle = { enterDragMode() }
+        )
     }
 
     private fun enterDragMode() {
         isDragMode = true
         vibrateHaptic(40)
-        
+
         val params = layoutParams as? WindowManager.LayoutParams
         if (params != null) {
             dragStartWindowY = params.y.toFloat()
             dragStartRawY = lastMoveRawY
             dragStartRawX = lastMoveRawX
         }
-        
+
         // Grow the pill slightly to signal drag mode
         animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).start()
-    }
-
-    private fun triggerServiceAction(action: String) {
-        vibrateHaptic()
-        val intent = Intent(context, FloatingPanelService::class.java).apply {
-            this.action = action
-        }
-        context.startService(intent)
-    }
-
-    private fun triggerAccessibilityAction(action: String) {
-        vibrateHaptic()
-        
-        if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
-            val success = when (action) {
-                PanelAccessibilityService.ACTION_BACK -> AutomationManager.performBack()
-                PanelAccessibilityService.ACTION_HOME -> AutomationManager.performHome()
-                PanelAccessibilityService.ACTION_RECENTS -> AutomationManager.performRecents()
-                PanelAccessibilityService.ACTION_NOTIFICATIONS -> AutomationManager.performNotifications()
-                PanelAccessibilityService.ACTION_QUICK_SETTINGS -> AutomationManager.performQuickSettings()
-                PanelAccessibilityService.ACTION_SPLIT_SCREEN -> AutomationManager.performSplitScreen()
-                PanelAccessibilityService.ACTION_LOCK_SCREEN -> { AutomationManager.performLockScreen(); true }
-                PanelAccessibilityService.ACTION_SHOW_POWER_MENU -> AutomationManager.performPowerMenu()
-                else -> false
-            }
-            if (success) return
-        }
-
-        val intent = Intent(context, PanelAccessibilityService::class.java).apply {
-            this.action = action
-        }
-        context.startService(intent)
     }
 
     private fun triggerPanel() {
@@ -198,36 +156,7 @@ class EdgeHandleView @JvmOverloads constructor(
         onTrigger?.invoke()
     }
 
-    private fun triggerScreenshot() {
-        vibrateHaptic()
-        
-        if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
-            AutomationManager.takeScreenshot()
-            return
-        }
-
-        val intent = Intent(context, PanelAccessibilityService::class.java).apply {
-            action = PanelAccessibilityService.ACTION_TAKE_SCREENSHOT
-        }
-        context.startService(intent)
-    }
-
-    private fun triggerPreviousApp() {
-        vibrateHaptic()
-
-        if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
-            AutomationManager.performPreviousApp()
-            return
-        }
-
-        val intent = Intent(context, PanelAccessibilityService::class.java).apply {
-            action = PanelAccessibilityService.ACTION_PREVIOUS_APP
-        }
-        context.startService(intent)
-    }
-
-    private fun handleTap() {
-        tapCount++
+    private fun handleTap() {        tapCount++
         handler.removeCallbacks(tapRunnable)
 
         // If user reached triple tap, trigger immediately if configured
