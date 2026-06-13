@@ -32,45 +32,11 @@ class AppIconDataFetcher(private val context: Context, private val request: AppI
     override fun loadData(priority: Priority, callback: DataFetcher.DataCallback<in Drawable>) {
         try {
             val repository = AppRepository(context)
-            val icon = repository.loadIconForAppSync(request.packageName)
+            val processedIcon = repository.getProcessedIcon(request.packageName, request.appearanceKey)
             
-            if (icon == null) {
+            if (processedIcon == null) {
                 callback.onLoadFailed(Exception("Icon null for ${request.packageName}"))
                 return
-            }
-
-            // --- THE NUCLEAR OPTION: Convert to Static Bitmap ---
-            // This removes all adaptive logic, masking, and state conflicts.
-            val processedIcon = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && icon is AdaptiveIconDrawable) {
-                try {
-                    val density = context.resources.displayMetrics.density
-                    // Double the size for 2x super-sampling (ensures perfectly smooth edges)
-                    val size = (144 * density).toInt().coerceAtLeast(256)
-                    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                    val canvas = Canvas(bitmap)
-                    
-                    // To draw 108dp unclipped layers into a 72dp bitmap:
-                    // The layers must be 1.5x larger than the bitmap.
-                    val layerSize = (size * 1.5f).toInt()
-                    val offset = (size - layerSize) / 2
-                    val layerBounds = Rect(offset, offset, offset + layerSize, offset + layerSize)
-                    
-                    icon.background?.mutate()?.let {
-                        it.bounds = layerBounds
-                        it.draw(canvas)
-                    }
-                    icon.foreground?.mutate()?.let {
-                        it.bounds = layerBounds
-                        it.draw(canvas)
-                    }
-                    
-                    BitmapDrawable(context.resources, bitmap)
-                } catch (e: Exception) {
-                    Log.e("AppIconDataFetcher", "Bitmap conversion failed", e)
-                    icon.mutate() 
-                }
-            } else {
-                icon.mutate()
             }
 
             callback.onDataReady(processedIcon)

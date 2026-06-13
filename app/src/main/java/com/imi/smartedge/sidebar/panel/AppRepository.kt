@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * Loads metadata for all user-installed, launchable apps from the PackageManager.
@@ -18,9 +20,57 @@ class AppRepository(context: Context) {
     private val iconPackManager = IconPackManager(appContext)
 
     companion object {
+        // Aggressive memory cache for fully processed static bitmap icons to ensure buttery smooth scrolling
+        val iconCache = android.util.LruCache<String, android.graphics.drawable.Drawable>(300)
+
         fun clearSystemIconCache(packageName: String? = null) {
-            // Memory cache disabled for icon stability
+            iconCache.evictAll()
         }
+    }
+
+    /**
+     * Loads, processes, and caches the icon for a single app.
+     * Uses the "Nuclear Option" to convert Adaptive Icons to static BitmapDrawables.
+     */
+    fun getProcessedIcon(packageName: String, appearanceKey: String): android.graphics.drawable.Drawable? {
+        val cacheKey = "pkg:$packageName|state:$appearanceKey"
+        iconCache.get(cacheKey)?.let { return it }
+
+        val rawIcon = loadIconForAppSync(packageName) ?: return null
+
+        val processedIcon = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && rawIcon is android.graphics.drawable.AdaptiveIconDrawable) {
+            try {
+                val density = appContext.resources.displayMetrics.density
+                // Double the size for 2x super-sampling (ensures perfectly smooth edges)
+                val size = (144 * density).toInt().coerceAtLeast(256)
+                val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bitmap)
+
+                // To draw 108dp unclipped layers into a 72dp bitmap:
+                // The layers must be 1.5x larger than the bitmap.
+                val layerSize = (size * 1.5f).toInt()
+                val offset = (size - layerSize) / 2
+                val layerBounds = android.graphics.Rect(offset, offset, offset + layerSize, offset + layerSize)
+
+                rawIcon.background?.mutate()?.let {
+                    it.bounds = layerBounds
+                    it.draw(canvas)
+                }
+                rawIcon.foreground?.mutate()?.let {
+                    it.bounds = layerBounds
+                    it.draw(canvas)
+                }
+
+                android.graphics.drawable.BitmapDrawable(appContext.resources, bitmap)
+            } catch (e: Exception) {
+                rawIcon.mutate()
+            }
+        } else {
+            rawIcon.mutate()
+        }
+
+        iconCache.put(cacheKey, processedIcon)
+        return processedIcon
     }
 
     /**
@@ -87,7 +137,16 @@ class AppRepository(context: Context) {
         val oneHandPkg = "smartedge.shortcut.one_hand"
         list.add(AppInfo(oneHandPkg, "One-Handed Mode", panelIdentifiers.contains(oneHandPkg), AppInfo.Type.SHORTCUT))
         
-        list.sortedBy { it.appName.lowercase() }
+        val sortedList = list.sortedBy { it.appName.lowercase() }
+
+        // Aggressively pre-load icons into the memory cache in the background
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            sortedList.take(50).forEach { appInfo ->
+                getProcessedIcon(appInfo.packageName, appInfo.appearanceKey ?: "")
+            }
+        }
+
+        sortedList
     }
 
     /**
@@ -134,7 +193,16 @@ class AppRepository(context: Context) {
             // Ignore
         }
 
-        return@withContext allActivities.sortedBy { it.appName.lowercase() }
+        val sortedList = allActivities.sortedBy { it.appName.lowercase() }
+        
+        // Aggressively pre-load icons into the memory cache in the background
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            sortedList.take(50).forEach { appInfo ->
+                getProcessedIcon(appInfo.packageName, appInfo.appearanceKey ?: "")
+            }
+        }
+
+        return@withContext sortedList
     }
 
     /**
