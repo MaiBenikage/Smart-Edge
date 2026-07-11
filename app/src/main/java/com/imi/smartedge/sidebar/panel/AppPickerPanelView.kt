@@ -195,7 +195,10 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
         rvPickerGrid.setHasFixedSize(false)
         rvPickerGrid.setItemViewCacheSize(0)
-        rvPickerGrid.setDrawingCacheEnabled(false)
+        // setDrawingCacheEnabled() is no longer recommended by Android (deprecated
+        // since API 28). Hardware-accelerated rendering (which is the default
+        // since API 14) is the supported replacement; passing `false` here was
+        // already a no-op because RecyclerView is HW-accelerated by default.
         rvPickerGrid.recycledViewPool.setMaxRecycledViews(0, 0)
         rvPickerGrid.adapter = adapter
 

@@ -1,5 +1,6 @@
 package com.imi.smartedge.sidebar.panel
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
@@ -127,16 +128,21 @@ class PanelTileService : TileService() {
         // No shade collapse here, making the toggle seamless for the user!
     }
 
+    /**
+     * Collapse the Quick Settings shade and launch an activity, in one call.
+     *
+     * Uses the modern [TileService.startActivityAndCollapse] PendingIntent overload
+     * (available since API 26). This replaces two deprecated paths that were
+     * previously forked by API level:
+     *   - [TileService.startActivityAndCollapse] taking an [Intent] (deprecated API 26)
+     *   - `sendBroadcast(ACTION_CLOSE_SYSTEM_DIALOGS)` to collapse the shade
+     *     (deprecated since Android N; the system no longer honors it for non-system apps)
+     * [PendingIntent.FLAG_IMMUTABLE] is required by API 31+ for any PIs we create.
+     */
     private fun startAction(intent: Intent) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // For Android 14+, use the official way to collapse and start activity
-            startActivityAndCollapse(intent)
-        } else {
-            // Legacy collapse
-            @Suppress("DEPRECATION")
-            sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
-            startActivity(intent)
-        }
+        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        val pending = PendingIntent.getActivity(this, 0, intent, flags)
+        startActivityAndCollapse(pending)
     }
 
     private fun triggerHapticFeedback() {
