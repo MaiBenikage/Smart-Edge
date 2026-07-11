@@ -147,6 +147,8 @@ class PanelTileService : TileService() {
 
     private fun triggerHapticFeedback() {
         try {
+            // VibratorManager is API 31+ (S). Pre-S devices (Android 8-11) still
+            // exist in the wild, so the legacy VIBRATOR_SERVICE branch stays.
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager
                 vibratorManager.defaultVibrator
@@ -155,13 +157,9 @@ class PanelTileService : TileService() {
                 getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // Short light tap for tactile feel
-                vibrator.vibrate(android.os.VibrationEffect.createOneShot(10, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(10)
-            }
+            // minSdk = 26, so the SDK_INT >= O fork is always true. The pre-O
+            // Vibrator.vibrate(long) overload is deprecated in API 26 and unreachable.
+            vibrator.vibrate(android.os.VibrationEffect.createOneShot(10, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
         } catch (e: Exception) {
             // Ignore if vibrator fails
         }

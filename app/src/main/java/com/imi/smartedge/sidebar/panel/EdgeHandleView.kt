@@ -566,12 +566,9 @@ class EdgeHandleView @JvmOverloads constructor(
     private fun vibrateHaptic(durationMs: Long = 25) {
         if (!panelPrefs.hapticEnabled) return
         val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            v.vibrate(durationMs)
-        }
+        // minSdk = 26, so the SDK_INT >= O fork is always true. The pre-O
+        // Vibrator.vibrate(long) overload is deprecated in API 26 and unreachable.
+        v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {

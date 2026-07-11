@@ -77,12 +77,10 @@ object ActionDispatcher {
         try {
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
             if (vibrator?.hasVibrator() == true) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(duration)
-                }
+                // minSdk = 26 (Android 8.0), so the SDK_INT >= O fork is always true.
+                // The pre-O Vibrator.vibrate(long) overload was deprecated in API 26
+                // and is dead code under our minSdk.
+                vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
             }
         } catch (e: Exception) {
             // Ignore

@@ -311,12 +311,10 @@ class PanelAppsAdapter(
                 val clipData = android.content.ClipData.newPlainText("pkg", app.packageName)
                 val shadow = View.DragShadowBuilder(holder.ivIcon)
                 
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                    holder.itemView.startDragAndDrop(clipData, shadow, app.packageName, 0)
-                } else {
-                    @Suppress("DEPRECATION")
-                    holder.itemView.startDrag(clipData, shadow, app.packageName, 0)
-                }
+                // minSdk = 26, so the SDK_INT >= N (API 24) fork is always true.
+                // View.startDrag is deprecated in API 24; the modern startDragAndDrop
+                // (API 24+) is the only reachable path.
+                holder.itemView.startDragAndDrop(clipData, shadow, app.packageName, 0)
                 
                 true
             }
