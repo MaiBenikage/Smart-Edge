@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Custom Intents/URLs row used by the URLs tab in AppPickerPanelView.
+    Layout (left to right):
+      [drag handle] | [title / content] | [edit/save button]
+    The handle is the drag initiator (ItemTouchHelper.startDrag on ACTION_DOWN).
+    The whole row is swipeable left/right to delete (ItemTouchHelper.onSwiped).
+    In edit mode, the title & content TextViews become EditTexts and the edit icon
+    becomes a checkmark; the drag handle is dimmed/disabled to prevent focus loss.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/customRowRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_close_btn"
+    android:backgroundTint="#0DFFFFFF"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="10dp"
+    android:paddingVertical="10dp"
+    android:layout_marginBottom="6dp"
+    android:minHeight="64dp">
+
+    <!-- Drag handle (left). ACTION_DOWN on this view starts ItemTouchHelper.startDrag(). -->
+    <ImageView
+        android:id="@+id/ivCustomDragHandle"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:contentDescription="Drag to reorder"
+        android:padding="2dp"
+        android:src="@drawable/ic_drag_handle"
+        android:tint="#80FFFFFF" />
+
+    <!-- Middle column: title + content (read mode) OR etTitle + etContent (edit mode) -->
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp">
+
+        <!-- Read mode: two stacked TextViews -->
+        <LinearLayout
+            android:id="@+id/customReadMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvCustomTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:text="Title"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tvCustomContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif"
+                android:maxLines="1"
+                android:text="content"
+                android:textColor="#B3FFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Edit mode: two stacked EditTexts -->
+        <LinearLayout
+            android:id="@+id/customEditMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/etCustomTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                android:fontFamily="sans-serif-medium"
+                android:hint="Title"
+                android:imeOptions="actionNext"
+                android:inputType="text"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#66FFFFFF"
+                android:textSize="13sp" />
+
+            <EditText
+                android:id="@+id/etCustomContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                android:fontFamily="sans-serif"
+                android:hint="URL or intent:#Intent;…end"
+                android:imeOptions="actionDone"
+                android:inputType="textUri"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#66FFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Right column: edit/save button -->
+    <ImageButton
+        android:id="@+id/btnCustomEdit"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/bg_close_btn"
+        android:backgroundTint="#1AFFFFFF"
+        android:contentDescription="Edit"
+        android:padding="8dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_edit"
+        android:tint="#FFFFFF" />
+
+</LinearLayout>

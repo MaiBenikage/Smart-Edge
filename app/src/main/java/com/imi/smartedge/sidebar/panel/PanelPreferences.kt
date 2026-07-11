@@ -94,7 +94,11 @@ class PanelPreferences(context: Context) {
         private const val KEY_DOUBLE_TAP_ACTION = "double_tap_action"
         private const val KEY_TRIPLE_TAP_ACTION = "triple_tap_action"
         private const val KEY_LONG_PRESS_ACTION = "long_press_action"
-        
+
+        // --- Custom Intents/URLs (user-added sidebar items) ---
+        private const val KEY_CUSTOM_ITEMS = "custom_items_json"
+        const val CUSTOM_ID_PREFIX = "smartedge.custom."
+
         private const val DELIMITER = ","
 
         const val ACTION_NONE = 0
@@ -182,7 +186,7 @@ class PanelPreferences(context: Context) {
         const val DEFAULT_SLIDE_BRIGHTNESS = true
         const val DEFAULT_SLIDE_VOLUME = true
         const val DEFAULT_SLIDE_SENSITIVITY = 100
-        const val DEFAULT_SWIPE_SENSITIVITY = 100
+        const        val DEFAULT_SWIPE_SENSITIVITY = 100
     }
 
     fun resetUIColors() {
@@ -774,6 +778,92 @@ class PanelPreferences(context: Context) {
     }
 
     fun isInPanel(identifier: String): Boolean = getPanelApps().contains(identifier)
+
+    // =====================================================================================
+    //                                Custom Intents/URLs storage
+    // =====================================================================================
+    // Stored as a JSON array under KEY_CUSTOM_ITEMS. Each element is {id, isUrl, title, content}.
+    // The corresponding sidebar identifier is "smartedge.custom.<id>" — added to `panelApps`
+    // on creation and removed on delete. The sidebar resolves these via
+    // AppRepository.getAppsForIdentifiers().
+
+    /**
+     * Read the persisted list of [CustomItem]s in insertion order.
+     * Returns an empty list if the pref is missing, blank, or malformed.
+     */
+    fun getCustomItems(): List<CustomItem> {
+        val raw = prefs.getString(KEY_CUSTOM_ITEMS, null) ?: return emptyList()
+        if (raw.isBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val id = o.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                CustomItem(
+                    id = id,
+                    isUrl = o.optBoolean("isUrl", false),
+                    title = o.optString("title", ""),
+                    content = o.optString("content", "")
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Atomically overwrite the custom items list.
+     * The list order is preserved as the user-specified display order.
+     */
+    fun setCustomItems(items: List<CustomItem>) {
+        val arr = org.json.JSONArray()
+        items.forEach { item ->
+            val o = org.json.JSONObject()
+            o.put("id", item.id)
+            o.put("isUrl", item.isUrl)
+            o.put("title", item.title)
+            o.put("content", item.content)
+            arr.put(o)
+        }
+        prefs.edit { putString(KEY_CUSTOM_ITEMS, arr.toString()) }
+    }
+
+    /** Add a new custom item. Caller is responsible for also adding the corresponding
+     *  `smartedge.custom.<id>` identifier to the panel via [addApp]. */
+    fun addCustomItem(item: CustomItem) {
+        val current = getCustomItems().toMutableList()
+        // Defensive: de-duplicate by id, then append.
+        current.removeAll { it.id == item.id }
+        current.add(item)
+        setCustomItems(current)
+    }
+
+    /** Replace an existing custom item in-place (matched by id). */
+    fun updateCustomItem(item: CustomItem) {
+        val current = getCustomItems().toMutableList()
+        val idx = current.indexOfFirst { it.id == item.id }
+        if (idx >= 0) {
+            current[idx] = item
+            setCustomItems(current)
+        } else {
+            addCustomItem(item)
+        }
+    }
+
+    /** Remove a custom item by id. Returns the removed item, or null if not found. */
+    fun removeCustomItem(id: String): CustomItem? {
+        val current = getCustomItems().toMutableList()
+        val idx = current.indexOfFirst { it.id == id }
+        if (idx < 0) return null
+        val removed = current.removeAt(idx)
+        setCustomItems(current)
+        return removed
+    }
+
+    /** Reorder the list of custom items (must contain the same ids). */
+    fun reorderCustomItems(items: List<CustomItem>) {
+        setCustomItems(items)
+    }
 
     var panelSide: String
         get() = prefs.getString(KEY_PANEL_SIDE, DEFAULT_SIDE) ?: DEFAULT_SIDE

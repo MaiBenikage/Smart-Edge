@@ -705,7 +705,28 @@ class FloatingPanelService : Service() {
                     refreshApps()
                 }
             }
-            visibility = View.GONE 
+            // Custom Intents/URLs (URLS tab) sync hooks
+            onAddCustomItem = { item ->
+                // Item is already in the picker's local list. Persist it + register
+                // the corresponding smartedge.custom.<id> identifier in panelApps so
+                // the sidebar shows it immediately.
+                panelPrefs.addCustomItem(item)
+                val sidebarId = PanelPreferences.CUSTOM_ID_PREFIX + item.id
+                panelPrefs.addApp(sidebarId)
+                refreshApps()
+            }
+            onUpdateCustomItem = { item ->
+                panelPrefs.updateCustomItem(item)
+                // Identifier unchanged; sidebar needs to re-resolve to pick up new title.
+                refreshApps()
+            }
+            onRemoveCustomItem = { id ->
+                panelPrefs.removeCustomItem(id)
+                val sidebarId = PanelPreferences.CUSTOM_ID_PREFIX + id
+                panelPrefs.removeApp(sidebarId)
+                refreshApps()
+            }
+            visibility = View.GONE
         }
     }
 

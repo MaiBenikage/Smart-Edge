@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Tree-style per-package header row used by the activities & shortcuts tabs.
+    Layout (left to right): app icon, app name (weight=1), child count badge, expand/collapse chevron.
+    The whole row is clickable to toggle expand/collapse.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/headerRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_close_btn"
+    android:backgroundTint="#0DFFFFFF"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="10dp"
+    android:layout_marginBottom="6dp">
+
+    <ImageView
+        android:id="@+id/ivHeaderIcon"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:contentDescription="App icon" />
+
+    <TextView
+        android:id="@+id/tvHeaderName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp"
+        android:ellipsize="end"
+        android:fontFamily="sans-serif-medium"
+        android:maxLines="1"
+        android:text="App name"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/tvHeaderCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:fontFamily="sans-serif-medium"
+        android:textColor="#80FFFFFF"
+        android:textSize="11sp"
+        android:text="0" />
+
+    <ImageView
+        android:id="@+id/ivHeaderChevron"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:contentDescription="Expand"
+        android:src="@drawable/ic_chevron_right"
+        android:tint="#80FFFFFF" />
+
+</LinearLayout>
