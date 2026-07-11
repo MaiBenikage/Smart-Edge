@@ -88,6 +88,13 @@ class AppPickerPanelView @JvmOverloads constructor(
     private val expandedPackages = linkedSetOf<String>()
     private var editingItemId: String? = null
 
+    // In-progress edit cache, keyed by item id. A TextWatcher on each
+    // CustomRow's etTitle/etContent writes here on every keystroke so that
+    // [saveEditingItem] can recover the user's typed text even when the row
+    // has scrolled offscreen and its ViewHolder has been recycled (in which
+    // case [findViewHolderForAdapterPosition] returns null).
+    private val pendingCustomEdits = mutableMapOf<String, Pair<String, String>>()
+
     // Lazy data for each tab. Populated on first switch.
     private var allApps: List<AppInfo> = emptyList()
     private var activitiesByPackage: List<Pair<String, List<AppInfo>>> = emptyList()
@@ -272,7 +279,8 @@ class AppPickerPanelView @JvmOverloads constructor(
         if (event.action == android.view.KeyEvent.ACTION_UP &&
             event.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
             if (editingItemId != null) {
-                saveEditingItem()  // commit + exit edit mode
+                val saved = saveEditingItem()
+                if (!saved) showInvalidCustomUriToast()
                 return true
             }
             onClose?.invoke()
@@ -287,9 +295,11 @@ class AppPickerPanelView @JvmOverloads constructor(
     private fun switchTab(newTab: PickerTab) {
         if (newTab == activeTab) return
 
-        // Save any pending edit before switching (URLS only)
+        // Save any pending edit before switching (URLS only). forceDiscard=true
+        // so an invalid (e.g. file://) edit is silently dropped instead of
+        // blocking the tab switch — matches the spec of "tab switch cancels edit".
         if (activeTab == PickerTab.CUSTOM && editingItemId != null) {
-            saveEditingItem()
+            saveEditingItem(forceDiscard = true)
         }
 
         activeTab = newTab
@@ -543,6 +553,10 @@ class AppPickerPanelView @JvmOverloads constructor(
     //                                Custom item operations
     // ====================================================================================
     private fun addNewCustomItem() {
+        // Save any in-progress edit on the previous row before opening a fresh row.
+        // Without this, typing content into row A then clicking "+ ADD" silently
+        // discards row A's edits because we'd switch editingItemId without commit.
+        if (editingItemId != null) saveEditingItem(forceDiscard = true)
         val newItem = CustomItem(
             id = java.util.UUID.randomUUID().toString(),
             isUrl = true,
@@ -566,45 +580,83 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
     }
 
-    /** Persist the current edit-mode row. If it was an unsaved empty new item, drop it. */
-    private fun saveEditingItem() {
-        val id = editingItemId ?: return
+    /**
+     * Persist the current edit-mode row. Returns true if the edit cleared
+     * (saved, dropped-as-empty, or [forceDiscard] honored), false if rejected
+     * for invalid content (user stays in edit mode to fix it).
+     *
+     * The latest typed text is read from [pendingCustomEdits] first (populated
+     * by TextWatchers on every keystroke), then falls back to the live EditTexts
+     * on the visible ViewHolder, then to the original stored values. This is
+     * what makes the save work for rows that have been scrolled offscreen and
+     * recycled out of the ViewHolder pool.
+     */
+    private fun saveEditingItem(forceDiscard: Boolean = false): Boolean {
+        val id = editingItemId ?: return false
+
+        val cached = pendingCustomEdits[id]
         val holder = rvPickerGrid.findViewHolderForAdapterPosition(adapter.currentList.indexOfFirst {
             (it is PickerItem.CustomRow) && it.item.id == id
         }) as? PickerAdapter.CustomViewHolder
-        if (holder == null) {
-            editingItemId = null
-            return
-        }
-        val newTitle = holder.etTitle.text.toString()
-        val newContent = holder.etContent.text.toString()
+        val stored = customItems.firstOrNull { it.id == id }
+        val newTitle: String = cached?.first
+            ?: holder?.etTitle?.text?.toString()
+            ?: stored?.title
+            ?: ""
+        val newContent: String = cached?.second
+            ?: holder?.etContent?.text?.toString()
+            ?: stored?.content
+            ?: ""
+
         val idx = customItems.indexOfFirst { it.id == id }
         if (idx < 0) {
             editingItemId = null
-            return
+            pendingCustomEdits.remove(id)
+            return false
         }
         val original = customItems[idx]
+
+        // Always drop brand-new empty items (the user pressed + ADD then never
+        // typed anything or canceled by switching away).
+        val isEmptyNew = original.title.isBlank() && original.content.isBlank() &&
+            newTitle.isBlank() && newContent.isBlank()
+        if (isEmptyNew) {
+            customItems.removeAt(idx)
+            editingItemId = null
+            pendingCustomEdits.remove(id)
+            rebuildAndSubmit()
+            return true
+        }
+
+        // Reject invalid content unless the caller explicitly asked to discard.
+        if (!forceDiscard && !isValidCustom(newTitle, newContent)) {
+            Log.w(
+                "AppPickerPanelView",
+                "saveEditingItem rejected: invalid custom uri (id=$id, content='${newContent.take(64)}')"
+            )
+            return false
+        }
+
         // Detect URL vs intent from current content (best effort)
         val isUrl = !newContent.trim().startsWith("intent:")
         val updated = original.copy(title = newTitle, content = newContent, isUrl = isUrl)
-
-        // Discard if it's a brand-new empty item (never edited)
-        if (original.title.isBlank() && original.content.isBlank() &&
-            newTitle.isBlank() && newContent.isBlank()
-        ) {
-            customItems.removeAt(idx)
-            editingItemId = null
-            rebuildAndSubmit()
-            return
-        }
-
         customItems[idx] = updated
         if (original.title != newTitle || original.content != newContent || original.isUrl != isUrl) {
             onUpdateCustomItem?.invoke(updated)
         }
         panelPrefs.updateCustomItem(updated)
         editingItemId = null
+        pendingCustomEdits.remove(id)
         rebuildAndSubmit()
+        return true
+    }
+
+    private fun showInvalidCustomUriToast() {
+        android.widget.Toast.makeText(
+            context,
+            "Must start with intent:, http://, or https://  (max 64 / 2048 chars)",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun removeCustomItem(id: String) {
@@ -612,6 +664,7 @@ class AppPickerPanelView @JvmOverloads constructor(
         if (idx < 0) return
         customItems.removeAt(idx)
         panelPrefs.removeCustomItem(id)
+        pendingCustomEdits.remove(id)
         onRemoveCustomItem?.invoke(id)
         if (editingItemId == id) editingItemId = null
         rebuildAndSubmit()
@@ -1017,8 +1070,12 @@ class AppPickerPanelView @JvmOverloads constructor(
             holder.tvName.setTextColor(textColor)
             holder.tvPackage?.setTextColor(subTextColor)
 
-            Glide.with(holder.itemView.context).clear(holder.ivIcon)
-            Glide.with(holder.itemView.context)
+            // Glide.with(applicationContext) — picker views live inside a Service
+            // WindowManager overlay, so view.context is the Service. Pin Glide's
+            // lifecycle to the Application to avoid any chance of the view
+            // holding a reference past its native destruction.
+            Glide.with(holder.itemView.context.applicationContext).clear(holder.ivIcon)
+            Glide.with(holder.itemView.context.applicationContext)
                 .load(AppIconRequest(app.packageName, panelPrefs.appearanceKey))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
@@ -1105,8 +1162,8 @@ class AppPickerPanelView @JvmOverloads constructor(
             holder.tvName.text = item.appName
             holder.tvCount.text = item.childCount.toString()
             holder.ivChevron.rotation = if (item.isExpanded) 90f else 0f
-            Glide.with(holder.itemView.context).clear(holder.ivIcon)
-            Glide.with(holder.itemView.context)
+            Glide.with(holder.itemView.context.applicationContext).clear(holder.ivIcon)
+            Glide.with(holder.itemView.context.applicationContext)
                 .load(AppIconRequest(item.packageName, panelPrefs.appearanceKey))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
@@ -1119,10 +1176,50 @@ class AppPickerPanelView @JvmOverloads constructor(
         // --- CUSTOM ---
         private fun bindCustom(holder: CustomViewHolder, item: PickerItem.CustomRow) {
             val ci = item.item
+            val itemId = ci.id
             if (item.isEditing) {
                 holder.readMode.visibility = View.GONE
                 holder.editMode.visibility = View.VISIBLE
-                // Populate EditTexts only on the very first bind of edit mode
+
+                // Attach TextWatchers BEFORE the setText below. Two reasons:
+                //  (a) any user keystroke after this bind lands in pendingCustomEdits,
+                //      so saveEditingItem() can recover text on recycled/off-screen rows.
+                //  (b) the setText itself fires the watcher once, self-seeding the cache
+                //      with the freshly-populated ci.title / ci.content values.
+                val titleWatcher = object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: Editable?) {
+                        val t = holder.etTitle.text?.toString().orEmpty()
+                        val c = holder.etContent.text?.toString().orEmpty()
+                        pendingCustomEdits[itemId] = t to c
+                    }
+                }
+                val contentWatcher = object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: Editable?) {
+                        val t = holder.etTitle.text?.toString().orEmpty()
+                        val c = holder.etContent.text?.toString().orEmpty()
+                        pendingCustomEdits[itemId] = t to c
+                    }
+                }
+                // Detach any watcher left over from a prior bind of this same
+                // ViewHolder (RecyclerView recycles holders) so old ids don't
+                // leak into the cache on subsequent bindings.
+                (holder.etTitle.getTag(R.id.etCustomTitle) as? TextWatcher)?.let {
+                    holder.etTitle.removeTextChangedListener(it)
+                }
+                (holder.etContent.getTag(R.id.etCustomContent) as? TextWatcher)?.let {
+                    holder.etContent.removeTextChangedListener(it)
+                }
+                holder.etTitle.addTextChangedListener(titleWatcher)
+                holder.etTitle.setTag(R.id.etCustomTitle, titleWatcher)
+                holder.etContent.addTextChangedListener(contentWatcher)
+                holder.etContent.setTag(R.id.etCustomContent, contentWatcher)
+
+                // Populate EditTexts. Watchers fire and self-seed pendingCustomEdits
+                // with (ci.title, ci.content).
                 if (holder.etTitle.text.toString() != ci.title) holder.etTitle.setText(ci.title)
                 if (holder.etContent.text.toString() != ci.content) holder.etContent.setText(ci.content)
                 // Edit-text hint: detect URL vs intent from content
@@ -1209,6 +1306,25 @@ class AppPickerPanelView @JvmOverloads constructor(
         const val VT_HEADER = 1
         const val VT_CUSTOM = 2
         const val VT_EMPTY = 3
+        // Length caps to prevent an abusive pref string (custom-item JSON is
+        // persisted to SharedPreferences; ungated text could OOM the read).
+        const val MAX_CUSTOM_TITLE_LEN = 64
+        const val MAX_CUSTOM_CONTENT_LEN = 2048
+        // Allowlist of URI schemes the content may use. Anything else is
+        // rejected on save — e.g. file://, content://, javascript: are blocked.
+        // Power users can still reach those via raw intent:#Intent;… URIs.
+        val ALLOWED_CUSTOM_SCHEMES = listOf("intent:", "http://", "https://")
+    }
+
+    /**
+     * Scheme + length validation for a custom URL/intent the user is editing.
+     * Returns true if the inputs are acceptable to persist.
+     */
+    private fun isValidCustom(title: String, content: String): Boolean {
+        if (title.length > MAX_CUSTOM_TITLE_LEN) return false
+        if (content.length > MAX_CUSTOM_CONTENT_LEN) return false
+        val s = content.trim().lowercase()
+        return ALLOWED_CUSTOM_SCHEMES.any { s.startsWith(it) }
     }
 
     // ====================================================================================
@@ -1234,8 +1350,8 @@ class AppPickerPanelView @JvmOverloads constructor(
             }
             h.tvName.textSize = 10f * scale
             h.tvName.text = app.appName
-            Glide.with(h.itemView.context).clear(h.ivIcon)
-            Glide.with(h.itemView.context)
+            Glide.with(h.itemView.context.applicationContext).clear(h.ivIcon)
+            Glide.with(h.itemView.context.applicationContext)
                 .load(AppIconRequest(app.packageName, panelPrefs.appearanceKey))
                 .placeholder(android.R.drawable.sym_def_app_icon)
                 .into(h.ivIcon)

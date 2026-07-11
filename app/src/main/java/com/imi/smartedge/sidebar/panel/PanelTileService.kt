@@ -4,11 +4,14 @@ import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import android.util.Log
 
 class PanelTileService : TileService() {
     
     companion object {
-        private var isProcessingToggle = false
+        // @Volatile: this flag is checked/written by onClick (main thread) and
+        // cleared from the background Thread + postDelayed in onClick below.
+        @Volatile private var isProcessingToggle = false
     }
 
     override fun onStartListening() {
@@ -82,7 +85,7 @@ class PanelTileService : TileService() {
 
         val prefs = PanelPreferences(this)
         val isEnabled = prefs.serviceEnabled
-        
+
         // 2. Immediate Haptic Feedback
         triggerHapticFeedback()
 
@@ -100,24 +103,27 @@ class PanelTileService : TileService() {
         val targetState = !isEnabled
         updateTileOptimistic(targetState)
 
-        // 5. Background Execution to prevent blocking Tile UI
-        Thread {
+        // 5. Centralized Toggle Logic — must run on the MAIN thread because
+        //    startForegroundService throws ForegroundServiceStartNotAllowedException
+        //    on Android 12+ when invoked from a non-main Thread. We previously
+        //    ran this inside a raw Thread { ... }.start() which crashed.
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        mainHandler.post {
             try {
-                // Centralized Toggle Logic with explicit target state
                 prefs.toggleService(this@PanelTileService, forcedState = targetState)
-                
-                // Keep the debounce active for a short while to prevent system-retriggering 
-                // and allow the service to actually start/stop.
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                mainHandler.postDelayed({
                     updateTile()
                     isProcessingToggle = false
                 }, 800)
             } catch (e: Exception) {
-                e.printStackTrace()
+                // background-foreground policy violations, etc. — fall back to
+                // plain toggle without animating optimistic UI back.
+                Log.e("PanelTileService", "toggle failed", e)
+                updateTile()
                 isProcessingToggle = false
             }
-        }.start()
-        
+        }
+
         // No shade collapse here, making the toggle seamless for the user!
     }
 

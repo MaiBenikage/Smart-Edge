@@ -110,7 +110,11 @@ class PanelAppsAdapter(
             VIEW_TYPE_APP, VIEW_TYPE_FOLDER, VIEW_TYPE_TOOL -> {
                 val layoutId = if (panelPrefs.uiTheme == PanelPreferences.THEME_RICH)
                     R.layout.item_panel_app_rich else R.layout.item_panel_app
-                
+
+                // Use applicationContext for Glide — the service-context host
+                // outlives the holder, and Glide tracks lifecycle via the app
+                // anyway, so this avoids any chance of holding a reference past
+                // the view's natural destruction.
                 val view = LayoutInflater.from(parent.context)
                     .inflate(layoutId, parent, false)
                 AppViewHolder(view)
@@ -165,7 +169,7 @@ class PanelAppsAdapter(
             val app = if (position < mutableApps.size) mutableApps[position] else return
             
             if (app.type == AppInfo.Type.FOLDER || app.type == AppInfo.Type.TOOL || app.packageName.startsWith("smartedge.shortcut.")) {
-                Glide.with(context).clear(holder.ivIcon)
+                Glide.with(context.applicationContext).clear(holder.ivIcon)
                 val iconRes = when {
                     app.type == AppInfo.Type.FOLDER -> R.drawable.ic_section_tools
                     app.packageName == "smartedge.tool.screenshot" -> android.R.drawable.ic_menu_camera
@@ -196,19 +200,19 @@ class PanelAppsAdapter(
                     holder.ivIcon.clipToOutline = true
                 }
             } else {
-                Glide.with(context).clear(holder.ivIcon)
+                Glide.with(context.applicationContext).clear(holder.ivIcon)
                 holder.ivIcon.imageTintList = null
                 holder.ivIcon.background = null
                 holder.ivIcon.setPadding(0, 0, 0, 0)
-                
-                Glide.with(context)
+
+                Glide.with(context.applicationContext)
                     .load(AppIconRequest(app.packageName, panelPrefs.appearanceKey))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(android.R.drawable.sym_def_app_icon)
                     .error(android.R.drawable.sym_def_app_icon)
                     .override((120 * scale).toInt(), (120 * scale).toInt())
                     .into(holder.ivIcon)
-                    
+
                 IconShapeHelper.applyShape(holder.ivIcon, panelPrefs.iconShape)
             }
                 

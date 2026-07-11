@@ -185,7 +185,16 @@ class FloatingPanelService : Service() {
             addAction(Intent.ACTION_PACKAGE_REPLACED)
             addDataScheme("package")
         }
-        registerReceiver(packageReceiver, pkgFilter)
+        // Android 13+ requires explicit exported flag for receivers. ACTION_PACKAGE_*
+        // are protected system broadcasts but the platform still requires the
+        // RECEIVER_EXPORTED declaration to suppress strict-mode warnings and to
+        // future-proof against background-receiver policy changes.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(packageReceiver, pkgFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(packageReceiver, pkgFilter)
+        }
 
         serviceScope.launch {
             if (panelPrefs.getPanelApps().isEmpty()) {
