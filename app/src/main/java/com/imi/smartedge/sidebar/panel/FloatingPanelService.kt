@@ -464,10 +464,16 @@ class FloatingPanelService : Service() {
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
-        
-        // Always close panel on orientation change to prevent layout corruption
+
+        // Audit M6: instead of slamming the panel closed on rotation, reflow its
+        // layout in place via updateStyles() + updateSideLayout(). screenHeightPx
+        // changes are re-read inside updateSideLayout(), so column counts, max
+        // recycler height, and gravity all recompute correctly. The handle is
+        // re-added below to keep WindowManager bounds in sync with the new
+        // orientation.
         if (isPanelOpen) {
-            closePanel(immediate = true)
+            sidePanelView?.updateStyles()
+            sidePanelView?.updateSideLayout()
         }
 
         if (panelPrefs.serviceEnabled) {
@@ -475,9 +481,9 @@ class FloatingPanelService : Service() {
             if (isLandscape && !panelPrefs.showInLandscape) {
                 edgeHandleView?.visibility = View.GONE
             } else {
-                // Re-add the handle to guarantee WindowManager bounds are perfectly mapped to the new orientation
+                // Re-add the handle to guarantee WindowManager bounds are perfectly mapped to the new orientation.
                 addEdgeHandle()
-                edgeHandleView?.visibility = View.VISIBLE
+                edgeHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
             }
         }
     }
@@ -686,10 +692,6 @@ class FloatingPanelService : Service() {
             onToolClick = { toolId ->
                 when (toolId) {
                     "smartedge.tool.screenshot" -> triggerScreenshot()
-                    "smartedge.tool.volume_up" -> adjustVolume(android.media.AudioManager.ADJUST_RAISE)
-                    "smartedge.tool.volume_down" -> adjustVolume(android.media.AudioManager.ADJUST_LOWER)
-                    "smartedge.tool.brightness_up" -> adjustBrightness(15)
-                    "smartedge.tool.brightness_down" -> adjustBrightness(-15)
                 }
             }
             visibility = View.GONE 
@@ -991,9 +993,23 @@ class FloatingPanelService : Service() {
     }
 
     private fun togglePicker(enableEditMode: Boolean = true) {
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastPickerToggleTime < 600) return
-        lastPickerToggleTime = currentTime
+        // Audit M5: only the OPEN↔CLOSE state flip needs the 600ms debounce. Interior
+        // state changes (e.g. user double-tapping EDIT while picker is OPEN to enter
+        // edit mode, or DONE to leave it) must NOT be swallowed silently — that was
+        // a real interaction bug. We classify the click as a "toggle" only if it would
+        // actually flip the picker presence, otherwise it's an intra-state edit-mode
+        // toggle and we let it through immediately.
+        val wouldFlipPresence =
+            !isPickerOpen ||
+            !enableEditMode ||
+            (pickerPanelView?.isEditMode == true)
+
+        if (wouldFlipPresence) {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastPickerToggleTime < 600) return
+            lastPickerToggleTime = currentTime
+        }
+
         if (isPickerOpen) {
             val currentModeIsEdit = pickerPanelView?.isEditMode ?: false
             if (enableEditMode && !currentModeIsEdit) {
@@ -1093,19 +1109,14 @@ class FloatingPanelService : Service() {
                 when (currentFolderId) {
                     "smartedge.folder.tools" -> {
                         val tools = mutableListOf<AppInfo>()
-                        
+
                         // Always include screenshot in the folder if the folder is active
                         tools.add(AppInfo("smartedge.tool.screenshot", "Screenshot", type = AppInfo.Type.TOOL))
-                        
-                        // Add Volume tools
-                        tools.add(AppInfo("smartedge.tool.volume_up", "Volume +", type = AppInfo.Type.TOOL))
-                        tools.add(AppInfo("smartedge.tool.volume_down", "Volume -", type = AppInfo.Type.TOOL))
-                        
-                        // Add Brightness tools
-                        tools.add(AppInfo("smartedge.tool.brightness_up", "Brightness +", type = AppInfo.Type.TOOL))
-                        tools.add(AppInfo("smartedge.tool.brightness_down", "Brightness -", type = AppInfo.Type.TOOL))
-                        
-                        // Always include power menu in the folder if the folder is active
+
+                        // Always include power menu in the folder if the folder is active.
+                        // The volume / brightness tools were removed in v1.3.7 audit fix
+                        // (Audit M2) — users now use the two drag handles in the panel,
+                        // which provide a richer drag-up / drag-down experience.
                         tools.add(AppInfo("smartedge.shortcut.reboot", "Power Menu", type = AppInfo.Type.SHORTCUT))
                         
                         tools

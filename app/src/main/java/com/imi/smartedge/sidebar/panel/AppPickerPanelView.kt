@@ -301,7 +301,18 @@ class AppPickerPanelView @JvmOverloads constructor(
         // Save any pending edit before switching (URLS only). forceDiscard=true
         // so an invalid (e.g. file://) edit is silently dropped instead of
         // blocking the tab switch — matches the spec of "tab switch cancels edit".
+        // Audit U1: surface a toast on discard so the user knows their edit was
+        // dropped, not silently lost.
         if (activeTab == PickerTab.CUSTOM && editingItemId != null) {
+            val id = editingItemId
+            if (id != null) {
+                val cached = pendingCustomEdits[id]
+                val item = customItems.firstOrNull { it.id == id }
+                val candidateContent = cached?.second ?: item?.content.orEmpty()
+                if (candidateContent.isNotBlank() && !isValidCustom(cached?.first ?: item?.title.orEmpty(), candidateContent)) {
+                    showInvalidCustomUriToast()
+                }
+            }
             saveEditingItem(forceDiscard = true)
         }
 
@@ -1135,10 +1146,25 @@ class AppPickerPanelView @JvmOverloads constructor(
                 app.type == AppInfo.Type.CUSTOM -> {
                     try {
                         if (app.intentUri.orEmpty().startsWith("intent:")) {
-                            android.content.Intent.parseUri(app.intentUri, android.content.Intent.URI_INTENT_SCHEME)
+                            val parsed = android.content.Intent.parseUri(app.intentUri, android.content.Intent.URI_INTENT_SCHEME)
+                            // SECURITY (Audit S2): `intent:#Intent;component=…` can target ANY
+                            // component, including exported=false internal activities or
+                            // sensitive external ones the user did not intend. Refuse the
+                            // launch unless the explicit component is in our own package
+                            // (i.e. the custom URL is launching one of our own routes or a
+                            // scheme-resolved intent with no explicit component).
+                            if (parsed.component != null && parsed.component!!.packageName != context.packageName) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Custom URL points to a different app — launch blocked",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                                return
+                            }
+                            parsed.apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
                         } else {
-                            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(app.intentUri))
-                        }.apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
+                            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(app.intentUri)).apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
+                        }
                     } catch (e: Exception) { null }
                 }
                 app.intentUri != null -> try {

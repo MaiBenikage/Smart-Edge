@@ -256,14 +256,15 @@ class SidePanelView @JvmOverloads constructor(
                 dragState = volumeDragState,
                 tickDistanceDp = 14f,
                 onTap = {
-                    performVolumeTick(android.media.AudioManager.ADJUST_RAISE)
+                    // Tap → small +3% bump. Single-shot IPC.
+                    adjustVolumeByPercent(3)
                     showVolumeIndicator()
                 },
                 onStep = { direction ->
-                    performVolumeTick(
-                        if (direction > 0) android.media.AudioManager.ADJUST_RAISE
-                        else android.media.AudioManager.ADJUST_LOWER
-                    )
+                    // Each drag tick asks for ±3% relative to current — one IPC per
+                    // coalesced tick (the previous code called adjustStreamVolume in a
+                    // repeat-abs-loop, spamming N binder calls per frame).
+                    adjustVolumeByPercent(direction * 3)
                     showVolumeIndicator()
                 }
             )
@@ -274,11 +275,11 @@ class SidePanelView @JvmOverloads constructor(
                 event = event,
                 dragState = brightnessDragState,
                 tickDistanceDp = 6f,
-                onTap = { performBrightnessTick(15); showBrightnessIndicator() },
+                onTap = { adjustBrightnessByPercent(6); showBrightnessIndicator() },
                 onStep = { direction ->
                     // 5% per drag tick so a full screen-height of finger travel covers
-                    // the [0..255] range. The tap path pumps +15 for a single bump.
-                    performBrightnessTick(direction * 5)
+                    // the [0..255] brightness range. The tap path bumps +6%.
+                    adjustBrightnessByPercent(direction * 5)
                     showBrightnessIndicator()
                 }
             )
@@ -645,16 +646,36 @@ class SidePanelView @JvmOverloads constructor(
         } catch (e: Exception) {}
     }
 
-    private fun performVolumeTick(direction: Int) {
+    /**
+     * Set media volume to an absolute percentage in [0..100]. Single-shot IPC.
+     * Replaces the legacy `adjustStreamVolume`-in-a-loop pattern that produced N
+     * synchronous binder calls per drag frame.
+     */
+    private fun setVolumePercent(percent: Int) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        audioManager.adjustStreamVolume(
-            android.media.AudioManager.STREAM_MUSIC,
-            direction,
-            0
-        )
+        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+        if (max <= 0) return
+        val target = ((percent.coerceIn(0, 100) / 100f) * max).toInt()
+        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0)
     }
 
-    private fun performBrightnessTick(delta: Int) {
+    /**
+     * Adjust media volume by `delta` percent (sign indicates direction). One IPC.
+     */
+    private fun adjustVolumeByPercent(delta: Int) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+        if (max <= 0) return
+        val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+        val currentPercent = (current * 100) / max
+        setVolumePercent(currentPercent + delta)
+    }
+
+    /**
+     * Adjust screen brightness by `deltaPercent` percent (sign indicates direction).
+     * One Settings.System.putInt call.
+     */
+    private fun adjustBrightnessByPercent(deltaPercent: Int) {
         try {
             if (!android.provider.Settings.System.canWrite(context)) {
                 android.widget.Toast.makeText(
@@ -675,12 +696,13 @@ class SidePanelView @JvmOverloads constructor(
                 android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
                 android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
             )
-            var brightness = android.provider.Settings.System.getInt(
+            val current = android.provider.Settings.System.getInt(
                 cResolver,
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
                 125
             )
-            brightness = (brightness + delta).coerceIn(0, 255)
+            val deltaUnits = (deltaPercent * 255) / 100
+            val brightness = (current + deltaUnits).coerceIn(0, 255)
             android.provider.Settings.System.putInt(
                 cResolver,
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,

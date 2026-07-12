@@ -8,6 +8,11 @@ import android.os.Build
 /**
  * Listens for BOOT_COMPLETED and auto-starts FloatingPanelService
  * if the user has enabled "Auto-start on boot" in settings.
+ *
+ * Audit U4: `exported=true` is a REQUIREMENT here, not a smell — BOOT_COMPLETED
+ * and QUICKBOOT_POWERON are protected system broadcasts; only the system can
+ * fire them at us, regardless of our `exported` flag. Android requires the flag
+ * to be explicit since target SDK 31. Do not "fix" this to exported=false.
  */
 class BootReceiver : BroadcastReceiver() {
 

@@ -99,6 +99,12 @@ class PanelPreferences(context: Context) {
         private const val KEY_CUSTOM_ITEMS = "custom_items_json"
         const val CUSTOM_ID_PREFIX = "smartedge.custom."
 
+        // Audit U3: UUID v4 `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (8-4-4-4-12 hex
+        // with fixed-position hyphens). Anything else is rejected on addCustomItem
+        // so corrupt prefs or future caller bugs can't smuggle arbitrary bytes
+        // into sidebar identifiers.
+        private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\$")
+
         private const val DELIMITER = ","
 
         const val ACTION_NONE = 0
@@ -282,8 +288,13 @@ class PanelPreferences(context: Context) {
     /**
      * Imports settings from a JSON string. Returns true on success, false on parse error.
      * Unknown keys are silently ignored for forward-compatibility.
+     *
+     * Audit U2: a malicious or corrupt Settings export could be arbitrarily large.
+     * SharedPreferences has a per-key value cap, and reading a multi-MB blob into
+     * RAM while parsing would jank or OOM. Cap incoming JSON at 512 KiB.
      */
     fun importFromJson(json: String): Boolean {
+        if (json.length > 524288) return false
         return try {
             val obj = org.json.JSONObject(json)
             prefs.edit {
@@ -710,7 +721,12 @@ class PanelPreferences(context: Context) {
 
     var serviceEnabled: Boolean
         get() = prefs.getBoolean("service_enabled", true)
-        set(value) = setServiceEnabled(value, false)
+        // Audit M3: original setter used commit=false (async apply) while the
+        // Quick-Settings Tile path uses commit=true. Asymmetric persist means a
+        // process-kill between the write and the next read could leave the tile
+        // and the actual service state out of sync. Use commit=true everywhere
+        // — the write rate is tiny and the cost is negligible.
+        set(value) = setServiceEnabled(value, true)
 
     fun setServiceEnabled(enabled: Boolean, commit: Boolean = false) {
         prefs.edit(commit = commit) {
@@ -829,8 +845,15 @@ class PanelPreferences(context: Context) {
     }
 
     /** Add a new custom item. Caller is responsible for also adding the corresponding
-     *  `smartedge.custom.<id>` identifier to the panel via [addApp]. */
+     *  `smartedge.custom.<id>` identifier to the panel via [addApp].
+     *
+     *  Audit U3: validate that [item] id looks like an asset-safe identifier before
+     *  persisting it. Picker-generated ids are [java.util.UUID.randomUUID] (36 chars
+     *  with hyphens); reject anything else so a corrupt SharedPreferences blob or a
+     *  future caller bug can't smuggle arbitrary bytes into the sidebar identifiers
+     *  that show up in AppInfo lookups. */
     fun addCustomItem(item: CustomItem) {
+        if (!UUID_PATTERN.matches(item.id)) return
         val current = getCustomItems().toMutableList()
         // Defensive: de-duplicate by id, then append.
         current.removeAll { it.id == item.id }
