@@ -1,5 +1,6 @@
 package com.imi.smartedge.sidebar.panel
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -38,7 +39,7 @@ class SidePanelView @JvmOverloads constructor(
     private val panelPrefs = PanelPreferences(context)
     private var currentCols = 1
     private var isPickerOpenInternal = false
-    
+
     // Track folder navigation
     private val navigationStack = java.util.ArrayDeque<String>()
 
@@ -55,6 +56,35 @@ class SidePanelView @JvmOverloads constructor(
             updateHandler.postDelayed(this, 3000)
         }
     }
+
+    // ── Drag-to-adjust buttons (Volume + Brightness) ──
+    //
+    // STATE MUST be declared BEFORE [init] so Kotlin's class-property init order
+    // sees them initialized before [init] captures them via the lambda bodies
+    // of the two touch listeners below. The pure helper functions
+    // (handleDragTouch, performVolumeTick, showVolumeIndicator, syncToolsGridColumns)
+    // are intentionally left AFTER [init] - function references resolve at
+    // compile time and don't impose an init-order constraint.
+    //
+    // Per-button scratchpad reused across touches. Indices:
+    //   [0] = anchored rawY on ACTION_DOWN
+    //   [1] = last rawY at which onStep fired (delta is computed relative to this)
+    //   [2] = start rawY for tap-vs-drag classification on ACTION_UP
+    private val volumeDragState = FloatArray(3)
+    private val brightnessDragState = FloatArray(3)
+
+    // Dedicated handler + transient indicator used by the drag buttons. Distinct
+    // from [updateHandler] / [updateRunnable] (which drive the periodic system-info
+    // refresh).
+    private val panelHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var panelIndicatorText: android.widget.TextView? = null
+    private var panelIndicatorFadeRunnable: Runnable? = null
+
+    @SuppressLint("ClickableViewAccessibility")
+    private lateinit var btnVolumeDragTouchListener: View.OnTouchListener
+
+    @SuppressLint("ClickableViewAccessibility")
+    private lateinit var btnBrightnessDragTouchListener: View.OnTouchListener
 
     private fun updateSystemInfo() {
         if (!panelPrefs.showSysInfo) return
@@ -148,7 +178,7 @@ class SidePanelView @JvmOverloads constructor(
         })
 
         val itemTouchHelper = androidx.recyclerview.widget.ItemTouchHelper(object : androidx.recyclerview.widget.ItemTouchHelper.SimpleCallback(
-            androidx.recyclerview.widget.ItemTouchHelper.UP or androidx.recyclerview.widget.ItemTouchHelper.DOWN or 
+            androidx.recyclerview.widget.ItemTouchHelper.UP or androidx.recyclerview.widget.ItemTouchHelper.DOWN or
             androidx.recyclerview.widget.ItemTouchHelper.LEFT or androidx.recyclerview.widget.ItemTouchHelper.RIGHT,
             0
         ) {
@@ -164,15 +194,15 @@ class SidePanelView @JvmOverloads constructor(
                 if (viewHolder is PanelAppsAdapter.AddViewHolder) return false
                 val from = viewHolder.bindingAdapterPosition
                 var to = target.bindingAdapterPosition
-                
+
                 if (target is PanelAppsAdapter.AddViewHolder) {
                     // Snap to the last available app position
                     to = adapter.itemCount - 2
                 }
-                
+
                 if (from == androidx.recyclerview.widget.RecyclerView.NO_POSITION || to == androidx.recyclerview.widget.RecyclerView.NO_POSITION) return false
                 if (from == to) return false
-                
+
                 adapter.moveItem(from, to)
                 return true
             }
@@ -183,7 +213,7 @@ class SidePanelView @JvmOverloads constructor(
                 super.clearView(recyclerView, viewHolder)
                 val apps = adapter.getApps()
                 val identifiers = apps.map { it.identifier }
-                
+
                 panelPrefs.setPanelApps(identifiers)
                 updateSideLayout()
             }
@@ -208,168 +238,60 @@ class SidePanelView @JvmOverloads constructor(
             onScreenshot?.invoke()
         }
 
-        val handler = android.os.Handler(android.os.Looper.getMainLooper())
-        val actionRunnables = mutableMapOf<Int, Runnable>()
-        
-        var indicatorText: android.widget.TextView? = null
-        var indicatorFadeRunnable: Runnable? = null
-
-        val showIndicator = { text: String ->
-            val root = parent as? android.widget.FrameLayout
-            if (root != null) {
-                if (indicatorText == null) {
-                    val density = context.resources.displayMetrics.density
-
-                    indicatorText = android.widget.TextView(context).apply {
-                        setTextColor(android.graphics.Color.WHITE)
-                        textSize = 14f
-                        setPadding((16 * density).toInt(), (10 * density).toInt(), (16 * density).toInt(), (10 * density).toInt())
-                        gravity = android.view.Gravity.CENTER
-                        
-                        // Custom Toast-like rounded background
-                        background = android.graphics.drawable.GradientDrawable().apply {
-                            setColor(android.graphics.Color.parseColor("#E6303030"))
-                            cornerRadius = 24f * density
-                        }
-
-                        layoutParams = android.widget.FrameLayout.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply {
-                            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
-                            bottomMargin = (90 * density).toInt()
-                        }
-                        elevation = 8f * density
-                    }
-                    root.addView(indicatorText)
+        // ── Drag-to-adjust buttons (Volume + Brightness) ──
+        // Replaces the 4 old ±buttons. Each drag button:
+        //   • tap (no drag)          → single forward bump
+        //   • drag UP  / finger ↑    → increase  (system audio / screen brightness)
+        //   • drag DOWN/ finger ↓    → decrease
+        //   • the button visually tracks the finger up to ±60dp, then springs back.
+        // The touch listeners live above [init] as [lateinit var]s and are assigned
+        // here just before wiring. Their lambda bodies reference [volumeDragState] /
+        // [brightnessDragState] / [handleDragTouch]; those capture-by-name references
+        // are resolved lazily at touch-event time, by which point instance construction
+        // (including all property initializers below) is complete.
+        btnVolumeDragTouchListener = View.OnTouchListener { v, event ->
+            handleDragTouch(
+                view = v,
+                event = event,
+                dragState = volumeDragState,
+                tickDistanceDp = 14f,
+                onTap = {
+                    performVolumeTick(android.media.AudioManager.ADJUST_RAISE)
+                    showVolumeIndicator()
+                },
+                onStep = { direction ->
+                    performVolumeTick(
+                        if (direction > 0) android.media.AudioManager.ADJUST_RAISE
+                        else android.media.AudioManager.ADJUST_LOWER
+                    )
+                    showVolumeIndicator()
                 }
-
-                indicatorText?.text = text
-                indicatorText?.visibility = View.VISIBLE
-                indicatorText?.alpha = 1f
-                indicatorText?.animate()?.cancel()
-                
-                indicatorFadeRunnable?.let { handler.removeCallbacks(it) }
-                indicatorFadeRunnable = Runnable {
-                    indicatorText?.animate()
-                        ?.alpha(0f)
-                        ?.setDuration(300)
-                        ?.withEndAction { indicatorText?.visibility = View.GONE }
-                        ?.start()
+            )
+        }
+        btnBrightnessDragTouchListener = View.OnTouchListener { v, event ->
+            handleDragTouch(
+                view = v,
+                event = event,
+                dragState = brightnessDragState,
+                tickDistanceDp = 6f,
+                onTap = { performBrightnessTick(15); showBrightnessIndicator() },
+                onStep = { direction ->
+                    // 5% per drag tick so a full screen-height of finger travel covers
+                    // the [0..255] range. The tap path pumps +15 for a single bump.
+                    performBrightnessTick(direction * 5)
+                    showBrightnessIndicator()
                 }
-                handler.postDelayed(indicatorFadeRunnable!!, 1500)
-            }
+            )
         }
-
-        val performVolumeChange = { direction: Int, view: View ->
-            if (panelPrefs.hapticEnabled) view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
-            SpringAnimator.scalePulse(view)
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
-            
-            val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-            val percent = if (max > 0) (current * 100) / max else 0
-            showIndicator("Volume: $percent%")
-        }
-
-        // Click listeners for single taps
-        binding.btnVolumeUp.setOnClickListener { performVolumeChange(android.media.AudioManager.ADJUST_RAISE, it) }
-        binding.btnVolumeDown.setOnClickListener { performVolumeChange(android.media.AudioManager.ADJUST_LOWER, it) }
-
-        // Long click for continuous repeat
-        val setupVolumeRepeat = { btn: View, direction: Int ->
-            btn.setOnLongClickListener { v ->
-                val runnable = object : Runnable {
-                    override fun run() {
-                        performVolumeChange(direction, v)
-                        handler.postDelayed(this, 100)
-                    }
-                }
-                actionRunnables[v.id] = runnable
-                handler.post(runnable)
-                true
-            }
-        }
-        setupVolumeRepeat(binding.btnVolumeUp, android.media.AudioManager.ADJUST_RAISE)
-        setupVolumeRepeat(binding.btnVolumeDown, android.media.AudioManager.ADJUST_LOWER)
-
-        val performBrightnessChange = { delta: Int, view: View ->
-            if (panelPrefs.hapticEnabled) view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
-            SpringAnimator.scalePulse(view)
-            try {
-                if (!android.provider.Settings.System.canWrite(context)) {
-                    android.widget.Toast.makeText(context, "Requires 'Write System Settings' permission", android.widget.Toast.LENGTH_SHORT).show()
-                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                        data = android.net.Uri.parse("package:${context.packageName}")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                } else {
-                    val cResolver = context.contentResolver
-                    // 1. Ensure manual mode
-                    android.provider.Settings.System.putInt(cResolver, 
-                        android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, 
-                        android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
-
-                    // 2. Update standard int brightness
-                    var brightness = android.provider.Settings.System.getInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, 125)
-                    brightness = (brightness + delta).coerceIn(0, 255)
-                    android.provider.Settings.System.putInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, brightness)
-                    
-                    // 3. Update modern float brightness for slider sync on Android 10+
-                    try {
-                        android.provider.Settings.System.putFloat(cResolver, "screen_brightness_float", brightness / 255f)
-                    } catch (e: Exception) {}
-
-                    val percent = (brightness * 100) / 255
-                    showIndicator("Brightness: $percent%")
-                }
-            } catch (e: Exception) {
-                actionRunnables[view.id]?.let { handler.removeCallbacks(it) }
-            }
-        }
-
-        binding.btnBrightnessUp.setOnClickListener { performBrightnessChange(15, it) }
-        binding.btnBrightnessDown.setOnClickListener { performBrightnessChange(-15, it) }
-
-        val setupBrightnessRepeat = { btn: View, direction: Int ->
-            btn.setOnLongClickListener { v ->
-                val runnable = object : Runnable {
-                    override fun run() {
-                        performBrightnessChange(direction, v)
-                        handler.postDelayed(this, 100)
-                    }
-                }
-                actionRunnables[v.id] = runnable
-                handler.post(runnable)
-                true
-            }
-        }
-        setupBrightnessRepeat(binding.btnBrightnessUp, 15)
-        setupBrightnessRepeat(binding.btnBrightnessDown, -15)
-
-        // Cancel repeat on release
-        @android.annotation.SuppressLint("ClickableViewAccessibility")
-        val stopRepeatListener = View.OnTouchListener { v, event ->
-            if (event.action == android.view.MotionEvent.ACTION_UP || event.action == android.view.MotionEvent.ACTION_CANCEL) {
-                actionRunnables[v.id]?.let { handler.removeCallbacks(it) }
-                actionRunnables.remove(v.id)
-            }
-            false // Let click and long click propagate
-        }
-        
-        binding.btnVolumeUp.setOnTouchListener(stopRepeatListener)
-        binding.btnVolumeDown.setOnTouchListener(stopRepeatListener)
-        binding.btnBrightnessUp.setOnTouchListener(stopRepeatListener)
-        binding.btnBrightnessDown.setOnTouchListener(stopRepeatListener)
+        binding.btnVolumeDrag.setOnTouchListener(btnVolumeDragTouchListener)
+        binding.btnBrightnessDrag.setOnTouchListener(btnBrightnessDragTouchListener)
 
         binding.btnReboot.setOnClickListener {
             if (panelPrefs.hapticEnabled) {
                 it.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
             }
             SpringAnimator.scalePulse(it)
-            
+
             if (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()) {
                 AutomationManager.performPowerMenu()
             } else {
@@ -382,6 +304,11 @@ class SidePanelView @JvmOverloads constructor(
             onClose?.invoke()
         }
 
+        // Mirror the app-list column count across to the tools grid below the list,
+        // since the toolsContainer is a GridLayout whose columnCount isn't driven by
+        // ConstraintLayout attributes.
+        syncToolsGridColumns()
+
         applyTheme()
     }
 
@@ -391,14 +318,14 @@ class SidePanelView @JvmOverloads constructor(
 
         val scale = getFinalScaleFactor()
         val lp = binding.panelCard.layoutParams
-        
+
         // Scale only the icon area, keeping the padding/chrome fixed
         val newWidthDp = if (currentCols == 2) {
             52f + (88f * scale)
         } else {
             32f + (40f * scale)
         }
-        
+
         lp.width = context.dpToPx(newWidthDp.toInt())
         binding.panelCard.layoutParams = lp
 
@@ -406,22 +333,26 @@ class SidePanelView @JvmOverloads constructor(
         val displayMetrics = context.resources.displayMetrics
         val screenHeightPx = displayMetrics.heightPixels
         val screenHeightDp = screenHeightPx / displayMetrics.density
-        
+
         // Subtract estimated height of other UI elements (paddings, tools, close button)
         // Top Padding (12) + Bottom Padding (4) + Tools Margin (4) + Close Btn (48) = 68dp
         var nonAppHeightDp = 68f
-        
+
         val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
         val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
-        
+
         if (panelPrefs.showTools && navigationStack.isEmpty()) {
-            nonAppHeightDp += 50f // Divider + Screenshot + Labels
-            if (panelPrefs.showPowerMenu) nonAppHeightDp += 42f
-            if (showSysInfoEffective) nonAppHeightDp += 24f
-            if (panelPrefs.showVolumeKeys) nonAppHeightDp += 84f // Two buttons + labels
-            if (panelPrefs.showBrightnessKeys) nonAppHeightDp += 84f
+            // In 2-column mode tools share a row, so per-tool allocation is roughly
+            // halved vertically. Keep the 1-col layout generous (84dp) for the
+            // original icon + label stack.
+            val perToolRowDp = if (currentCols == 2) 60f else 84f
+            nonAppHeightDp += 50f // Divider + Screenshot cell + labels
+            if (panelPrefs.showPowerMenu) nonAppHeightDp += perToolRowDp
+            if (showSysInfoEffective) nonAppHeightDp += 30f
+            if (panelPrefs.showVolumeKeys) nonAppHeightDp += perToolRowDp
+            if (panelPrefs.showBrightnessKeys) nonAppHeightDp += perToolRowDp
         }
-        
+
         // Maximum allowed height for RV to keep panel within screen (with 24dp safety margin)
         val maxAllowedRvHeightDp = (screenHeightDp - nonAppHeightDp - 24).coerceAtLeast(100f)
         val targetRvHeightDp = panelPrefs.panelMaxHeight.toFloat().coerceAtMost(maxAllowedRvHeightDp)
@@ -429,7 +360,7 @@ class SidePanelView @JvmOverloads constructor(
         // Apply dynamic height using ConstraintLayout's max-height constraint instead of brittle manual item height guessing
         val rvLp = binding.rvPanelApps.layoutParams
         val maxRvHeightPx = context.dpToPx((targetRvHeightDp * scale).toInt())
-        
+
         val constraintSet = androidx.constraintlayout.widget.ConstraintSet()
         constraintSet.clone(binding.panelCard)
         constraintSet.constrainMaxHeight(binding.rvPanelApps.id, maxRvHeightPx)
@@ -437,11 +368,11 @@ class SidePanelView @JvmOverloads constructor(
         rvLp.height = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT
         (rvLp as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams)?.matchConstraintMaxHeight = maxRvHeightPx
         (rvLp as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams)?.constrainedHeight = true
-        
+
         constraintSet.applyTo(binding.panelCard)
         binding.rvPanelApps.layoutParams = rvLp
 
-        val containerLp = binding.panelContainer.layoutParams as? android.widget.RelativeLayout.LayoutParams    
+        val containerLp = binding.panelContainer.layoutParams as? android.widget.RelativeLayout.LayoutParams
         if (containerLp != null) {
             if (isRight) {
                 containerLp.addRule(android.widget.RelativeLayout.ALIGN_PARENT_END)
@@ -456,6 +387,9 @@ class SidePanelView @JvmOverloads constructor(
             }
             binding.panelContainer.layoutParams = containerLp
         }
+
+        // Refresh tools-grid column mirror so the tools layout tracks the app column count.
+        syncToolsGridColumns()
     }
 
     fun scrollToTop() {
@@ -486,6 +420,7 @@ class SidePanelView @JvmOverloads constructor(
         currentCols = cols
         adapter.setColumns(cols)
         (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
+        syncToolsGridColumns()
         updateSideLayout()
     }
 
@@ -518,7 +453,7 @@ class SidePanelView @JvmOverloads constructor(
     fun setApps(apps: List<AppInfo>, onComplete: (() -> Unit)? = null) {
         adapter.submitList(apps) {
             updateSideLayout()
-            
+
             // Restore scroll position if enabled (only for root level)
             if (panelPrefs.rememberScroll && navigationStack.isEmpty()) {
                 binding.rvPanelApps.post {
@@ -529,7 +464,7 @@ class SidePanelView @JvmOverloads constructor(
                     binding.rvPanelApps.scrollToPosition(0)
                 }
             }
-            
+
             onComplete?.invoke()
         }
     }
@@ -540,6 +475,7 @@ class SidePanelView @JvmOverloads constructor(
             currentCols = if (isGameMode) 2 else panelPrefs.panelColumns
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
+            syncToolsGridColumns()
         }
         applyTheme()
         updateSideLayout()
@@ -553,40 +489,39 @@ class SidePanelView @JvmOverloads constructor(
         val inFolder = navigationStack.isNotEmpty()
         val showTools = panelPrefs.showTools && !inFolder
         binding.toolsContainer.visibility = if (showTools) View.VISIBLE else View.GONE
-        
+
         val showPower = panelPrefs.showPowerMenu
         binding.layoutPowerTools.visibility = if (showPower) View.VISIBLE else View.GONE
-        
+
         val showVolume = panelPrefs.showVolumeKeys
         binding.layoutVolumeTools.visibility = if (showVolume) View.VISIBLE else View.GONE
-        
+
         val showBrightness = panelPrefs.showBrightnessKeys
         binding.layoutBrightnessTools.visibility = if (showBrightness) View.VISIBLE else View.GONE
-        
+
         val showScreenshot = panelPrefs.showScreenshotTool
-        binding.btnScreenshot.visibility = if (showScreenshot) View.VISIBLE else View.GONE
-        // Hide screenshot label if button is hidden
-        val screenshotLabel = binding.toolsContainer.getChildAt(binding.toolsContainer.indexOfChild(binding.btnScreenshot) + 1)
-        screenshotLabel?.visibility = if (showScreenshot) View.VISIBLE else View.GONE
+        val scVisibility = if (showScreenshot) View.VISIBLE else View.GONE
+        binding.btnScreenshot.visibility = scVisibility
+        binding.tvScreenshotLabel.visibility = scVisibility
 
         if (panelPrefs.hideBackground) {
             binding.panelCard.background = null
         } else {
             val theme = panelPrefs.uiTheme
-            
+
             // Revert to original dark-centric colors for floating panel
             val bgColor = when (theme) {
                 PanelPreferences.THEME_ORIGIN -> Color.parseColor("#1F1F1F")
                 PanelPreferences.THEME_HYPEROS -> Color.parseColor("#E6252525")
                 else -> try { Color.parseColor(panelPrefs.panelBackgroundColor) } catch (e: Exception) { Color.parseColor("#E61A1C1E") }
             }
-            
+
             val radius = context.dpToPx(if (theme == PanelPreferences.THEME_HYPEROS) 16 else panelPrefs.panelCornerRadius).toFloat()
-            
+
             val shape = GradientDrawable().apply {
                 setColor(bgColor)
                 cornerRadius = radius
-                
+
                 if (theme == PanelPreferences.THEME_HYPEROS) {
                     setStroke(context.dpToPx(1), Color.parseColor("#4DFFFFFF"))
                 } else if (theme == PanelPreferences.THEME_RICH) {
@@ -601,18 +536,16 @@ class SidePanelView @JvmOverloads constructor(
                 }
             }
             binding.panelCard.background = shape
-            
+
             // Force white/light icons and text for dark floating panel
             val iconColorList = ColorStateList.valueOf(Color.WHITE)
             binding.btnClose.imageTintList = iconColorList
             binding.btnScreenshot.imageTintList = iconColorList
-            binding.btnVolumeUp.imageTintList = iconColorList
-            binding.btnVolumeDown.imageTintList = iconColorList
-            binding.btnBrightnessUp.imageTintList = iconColorList
-            binding.btnBrightnessDown.imageTintList = iconColorList
+            binding.btnVolumeDrag.imageTintList = iconColorList
+            binding.btnBrightnessDrag.imageTintList = iconColorList
             binding.btnReboot.imageTintList = iconColorList
             binding.btnBack.imageTintList = iconColorList
-            
+
             binding.tvRamUsage.setTextColor(Color.WHITE)
             binding.tvBatTemp.setTextColor(Color.WHITE)
 
@@ -620,15 +553,19 @@ class SidePanelView @JvmOverloads constructor(
                 binding.panelCard.clipToOutline = true
             }
         }
-        
+
         val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
         val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
-        
+
         binding.layoutSysInfo.visibility = if (showSysInfoEffective) View.VISIBLE else View.GONE
-        
+
         // Final visibility check for tools container: hide if all sub-elements are gone
         val hasAnyVisibleTool = showPower || showVolume || showBrightness || showScreenshot || showSysInfoEffective
         binding.toolsContainer.visibility = if (showTools && hasAnyVisibleTool) View.VISIBLE else View.GONE
+
+        // Sync tools grid columns after theme-related visibility changes since they
+        // can affect the visible cell count.
+        syncToolsGridColumns()
 
         if (showSysInfoEffective) {
             updateSystemInfo()
@@ -636,6 +573,225 @@ class SidePanelView @JvmOverloads constructor(
             updateHandler.post(updateRunnable)
         } else {
             updateHandler.removeCallbacks(updateRunnable)
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  Drag-to-adjust helpers (PURE FUNCTIONS, no init-order constraints)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Toast-like transient indicator anchored to the panel's parent FrameLayout.
+     * Same visual style as the historical "Volume: 50%" / "Brightness: 25%" chips.
+     */
+    private fun showToolIndicator(text: String) {
+        val root = parent as? android.widget.FrameLayout
+        if (root != null) {
+            if (panelIndicatorText == null) {
+                val density = resources.displayMetrics.density
+                panelIndicatorText = android.widget.TextView(context).apply {
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 14f
+                    setPadding((16 * density).toInt(), (10 * density).toInt(), (16 * density).toInt(), (10 * density).toInt())
+                    gravity = android.view.Gravity.CENTER
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(android.graphics.Color.parseColor("#E6303030"))
+                        cornerRadius = 24f * density
+                    }
+                    layoutParams = android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+                        bottomMargin = (90 * density).toInt()
+                    }
+                    elevation = 8f * density
+                }
+                root.addView(panelIndicatorText)
+            }
+            panelIndicatorText?.text = text
+            panelIndicatorText?.visibility = View.VISIBLE
+            panelIndicatorText?.alpha = 1f
+            panelIndicatorText?.animate()?.cancel()
+            panelIndicatorFadeRunnable?.let { panelHandler.removeCallbacks(it) }
+            panelIndicatorFadeRunnable = Runnable {
+                panelIndicatorText?.animate()
+                    ?.alpha(0f)
+                    ?.setDuration(300)
+                    ?.withEndAction { panelIndicatorText?.visibility = View.GONE }
+                    ?.start()
+            }
+            panelHandler.postDelayed(panelIndicatorFadeRunnable!!, 1500)
+        }
+    }
+
+    private fun showVolumeIndicator() {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+        val percent = if (max > 0) (current * 100) / max else 0
+        showToolIndicator("Volume: $percent%")
+    }
+
+    private fun showBrightnessIndicator() {
+        try {
+            val cResolver = context.contentResolver
+            val bri = android.provider.Settings.System.getInt(
+                cResolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                125
+            )
+            showToolIndicator("Brightness: ${(bri * 100) / 255}%")
+        } catch (e: Exception) {}
+    }
+
+    private fun performVolumeTick(direction: Int) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        audioManager.adjustStreamVolume(
+            android.media.AudioManager.STREAM_MUSIC,
+            direction,
+            0
+        )
+    }
+
+    private fun performBrightnessTick(delta: Int) {
+        try {
+            if (!android.provider.Settings.System.canWrite(context)) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Requires 'Write System Settings' permission",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                val intent = Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                return
+            }
+            val cResolver = context.contentResolver
+            android.provider.Settings.System.putInt(
+                cResolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            )
+            var brightness = android.provider.Settings.System.getInt(
+                cResolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                125
+            )
+            brightness = (brightness + delta).coerceIn(0, 255)
+            android.provider.Settings.System.putInt(
+                cResolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                brightness
+            )
+            try {
+                android.provider.Settings.System.putFloat(
+                    cResolver,
+                    "screen_brightness_float",
+                    brightness / 255f
+                )
+            } catch (e: Exception) {}
+        } catch (e: Exception) {}
+    }
+
+    /**
+     * Shared touch handler for the two drag-to-adjust buttons (Volume, Brightness).
+     *
+     * Behavior:
+     *  • ACTION_DOWN  — record anchor; play scale pulse + brief haptic.
+     *  • ACTION_MOVE  — translate the button's view up/down by ∆Y (capped at ±60dp visually).
+     *                   For every `tickDistanceDp * density` of vertical motion since the
+     *                   last tick, fire [onStep] with direction = +1 if user dragged UP,
+     *                   -1 if DOWN. Multiple steps are coalesced so a fast flick still
+     *                   feels responsive.
+     *  • ACTION_UP    — spring the button back to translationY = 0. If total travel is
+     *                   less than tapSlop (8dp), fire [onTap] once so the button still
+     *                   works for users who don't discover the drag gesture.
+     *  • ACTION_CANCEL— snap back without firing anything (covers window-manager
+     *                   panics / panel-close mid-touch).
+     */
+    private fun handleDragTouch(
+        view: View,
+        event: android.view.MotionEvent,
+        dragState: FloatArray,
+        tickDistanceDp: Float,
+        onTap: () -> Unit,
+        onStep: (direction: Int) -> Unit
+    ): Boolean {
+        val density = resources.displayMetrics.density
+        val tickPx = tickDistanceDp * density
+        val maxVisualTravelPx = 60f * density
+        val tapSlopPx = 8f * density
+
+        return when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                dragState[0] = event.rawY
+                dragState[1] = event.rawY
+                dragState[2] = event.rawY
+                if (panelPrefs.hapticEnabled) {
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+                }
+                SpringAnimator.scalePulse(view)
+                true
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                // Positive dy = finger went UP (rawY decreased) = increase.
+                val dy = dragState[0] - event.rawY
+                view.translationY = dy.coerceIn(-maxVisualTravelPx, maxVisualTravelPx)
+
+                val sinceLastTick = dragState[1] - event.rawY
+                if (Math.abs(sinceLastTick) >= tickPx) {
+                    val direction = if (sinceLastTick > 0f) +1 else -1
+                    // Coalesce multiple ticks per move event so a fast flick still
+                    // reaches its full delta (instead of getting clamped to ±1 step).
+                    val ticks = (Math.abs(sinceLastTick) / tickPx).toInt().coerceAtLeast(1)
+                    repeat(ticks) { onStep(direction) }
+                    dragState[1] = event.rawY
+                }
+                true
+            }
+            android.view.MotionEvent.ACTION_UP -> {
+                SpringAnimation(
+                    view,
+                    androidx.dynamicanimation.animation.DynamicAnimation.TRANSLATION_Y
+                ).animateToFinalPosition(0f)
+                view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+
+                val totalTravel = Math.abs(event.rawY - dragState[2])
+                if (totalTravel < tapSlopPx) onTap()
+                true
+            }
+            android.view.MotionEvent.ACTION_CANCEL -> {
+                view.translationY = 0f
+                view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                true
+            }
+            else -> false
+        }
+    }
+
+    /**
+     * Mirror the app-list column count across to the tools grid below the list.
+     * When [currentCols] == 1, tools stack vertically (1 cell per row). When == 2,
+     * tools flow into a 2-column grid; the System Info cell spans both columns so
+     * its text isn't stranded.
+     */
+    private fun syncToolsGridColumns() {
+        binding.toolsContainer.columnCount = currentCols
+        val sysInfoLp = binding.layoutSysInfo.layoutParams as? android.widget.GridLayout.LayoutParams
+        if (sysInfoLp != null) {
+            // `columnSpan` is not a direct field on [android.widget.GridLayout.LayoutParams];
+            // the API encodes column position + span into a single [android.widget.GridLayout.Spec]
+            // via the [android.widget.GridLayout.spec] factory. UNDEFINED index means
+            // auto-place (let the grid decide where to put this cell).
+            val span = if (currentCols == 2) 2 else 1
+            sysInfoLp.columnSpec = android.widget.GridLayout.spec(
+                android.widget.GridLayout.UNDEFINED,
+                span
+            )
+            binding.layoutSysInfo.layoutParams = sysInfoLp
         }
     }
 

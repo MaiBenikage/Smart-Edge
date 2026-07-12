@@ -3,6 +3,7 @@ package com.imi.smartedge.sidebar.panel
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import org.xmlpull.v1.XmlPullParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.GlobalScope
@@ -341,29 +342,122 @@ class AppRepository(context: Context) {
     }
 
     /**
-     * App Shortcuts (Android 7.1+, API 25) grouped by owning package.
-     * Returns an empty list on devices that don't support LauncherApps shortcuts,
-     * or when the app doesn't have shortcut-host permission (most common case
-     * unless Smart Edge is the default launcher). Each entry's `intentUri` is
-     * the primary intent's URI, used as the unique identifier.
+     * App Shortcuts grouped by owning package.
+     *
+     * Two parallel sources are queried and the union deduped by [AppInfo.intentUri]:
+     *
+     *   1. **Static** shortcuts published by each app in its manifest under
+     *      `<meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />`.
+     *      Read via [PackageManager.getResourcesForApplication] — works **WITHOUT**
+     *      Smart Edge being the default launcher. This is what covers Gmail, WhatsApp,
+     *      Spotify etc. without prompting the user to switch launchers.
+     *
+     *   2. **Live** dynamic/pinned shortcuts via [android.content.pm.LauncherApps].
+     *      Only available when the user has set Smart Edge as the default launcher and
+     *      the system has granted us the privileged `hasShortcutHostPermission()` flag.
+     *      Preserved for users who already opted into Smart Edge as their launcher
+     *      and want their dynamic / runtime-pushed shortcuts.
+     *
+     * Both paths require API 25+ ([Build.VERSION_CODES.N_MR1]).
+     * Sort order: groups by app label, items within a group by label.
      */
     suspend fun getShortcutsByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return@withContext emptyList()
-        val launcherApps = appContext.getSystemService(Context.LAUNCHER_APPS_SERVICE)
-            as? android.content.pm.LauncherApps ?: return@withContext emptyList()
-        if (!launcherApps.hasShortcutHostPermission()) return@withContext emptyList()
 
+        // (1) Public path: static shortcuts via manifest meta-data. No permission.
+        val staticGroups = getStaticShortcutsByPackage()
+
+        // (2) Privileged path: only when we'll get past this check.
+        val launcherApps = appContext.getSystemService(Context.LAUNCHER_APPS_SERVICE)
+            as? android.content.pm.LauncherApps
+        val liveGroups: List<Pair<String, List<AppInfo>>> =
+            if (launcherApps?.hasShortcutHostPermission() == true) {
+                getLiveShortcutsByPackage(launcherApps)
+            } else emptyList()
+
+        // Merge by package, dedupe by intentUri so a static shortcut that's also pinned
+        // live doesn't appear twice in the picker.
+        val merged = linkedMapOf<String, MutableList<AppInfo>>()
+        (staticGroups + liveGroups).forEach { (pkg, items) ->
+            val bag = merged.getOrPut(pkg) { mutableListOf() }
+            items.forEach { incoming ->
+                if (bag.none { it.intentUri == incoming.intentUri }) bag.add(incoming)
+            }
+        }
+
+        // Sort groups by app label.
+        merged.entries
+            .map { (pkgName, scs) ->
+                val appLabel = try {
+                    packageManager.getApplicationLabel(
+                        packageManager.getApplicationInfo(pkgName, 0)
+                    ).toString()
+                } catch (e: Exception) { pkgName }
+                Triple(pkgName, scs.sortedBy { it.appName.lowercase() }, appLabel)
+            }
+            .sortedBy { it.third.lowercase() }
+            .map { (pkg, scs, _) -> pkg to scs }
+    }
+
+    /**
+     * Static shortcuts read from each package's publicly-resolvable shortcuts.xml
+     * (the resource referenced from its manifest's `<meta-data android:name="android.app.shortcuts">`
+     * tag). [PackageManager.getResourcesForApplication] requires no special permission.
+     */
+    private suspend fun getStaticShortcutsByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
+        val result = mutableListOf<Pair<String, List<AppInfo>>>()
+        try {
+            val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getInstalledPackages(
+                    PackageManager.PackageInfoFlags.of(PackageManager.GET_META_DATA.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
+            }
+            for (pkg in packages) {
+                try {
+                    val metaData = pkg.applicationInfo?.metaData ?: continue
+                    val xmlResId = metaData.getInt("android.app.shortcuts", 0)
+                    if (xmlResId <= 0) continue
+                    // getResourcesForApplication returns the app's own APK resources
+                    // without elevating our privileges - this is the trick that lets us
+                    // read another app's shortcuts.xml without being the default launcher.
+                    val appResources = packageManager.getResourcesForApplication(pkg.packageName)
+                    val items = parseStaticShortcutsXml(appResources, xmlResId, pkg.packageName)
+                    if (items.isNotEmpty()) {
+                        result.add(pkg.packageName to items)
+                    }
+                } catch (e: Exception) {
+                    // Split APKs, missing resources, hidden metadata - skip silently.
+                    continue
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+        result
+    }
+
+    /**
+     * Live (dynamic + pinned) shortcuts via [android.content.pm.LauncherApps].
+     * Requires `hasShortcutHostPermission()` — only true when we are the default
+     * launcher. Same logic as the pre-v1.3.8 implementation, factored out so the
+     * merged result below is easy to read.
+     */
+    private suspend fun getLiveShortcutsByPackage(
+        launcherApps: android.content.pm.LauncherApps
+    ): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
         val panelIds = panelPrefs.getPanelApps().toSet()
         val user = android.os.Process.myUserHandle()
         val result = mutableListOf<Pair<String, List<AppInfo>>>()
-
         try {
             val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(0L))
             } else {
+                @Suppress("DEPRECATION")
                 packageManager.getInstalledPackages(0)
             }
-
             for (pkg in packages) {
                 try {
                     val query = android.content.pm.LauncherApps.ShortcutQuery().apply {
@@ -379,7 +473,6 @@ class AppRepository(context: Context) {
 
                     val items = shortcuts.mapNotNull { sc ->
                         val mainIntent: android.content.Intent = sc.intent ?: return@mapNotNull null
-                        // Disable any auto-launch behavior so the URL/intent fires fresh
                         mainIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                         val uri = mainIntent.toUri(android.content.Intent.URI_INTENT_SCHEME)
                         val label = sc.shortLabel?.toString()?.takeIf { it.isNotBlank() } ?: sc.id
@@ -403,18 +496,128 @@ class AppRepository(context: Context) {
         } catch (e: Exception) {
             // Ignore
         }
-
-        // Sort groups by app label
         result
-            .map { (pkgName, scs) ->
-                val appLabel = try {
-                    val ai = packageManager.getApplicationInfo(pkgName, 0)
-                    packageManager.getApplicationLabel(ai).toString()
-                } catch (e: Exception) { pkgName }
-                pkgName to scs to appLabel
+    }
+
+    /**
+     * Parse a single app's `res/xml/shortcuts.xml` for `<shortcut>` entries.
+     *
+     * Schema reference: https://developer.android.com/develop/ui/views/launch/shortcuts/creating-shortcuts#static
+     *
+     * Resource-ref handling: shortcut labels often appear as a string-resource
+     * reference (`@string/foo`). We use [XmlPullParser.getAttributeResourceValue] which
+     * returns 0 for non-resource attributes and the integer ID otherwise; the ID is
+     * then resolved through the app's own [android.content.res.Resources], which works
+     * without any permission (it's just an APK asset read).
+     *
+     * Filter: shortcuts whose target intent can't be resolved by the current
+     * [PackageManager] (target package uninstalled, action unsupported, etc.) are
+     * dropped because they'd no-op on tap.
+     */
+    private fun parseStaticShortcutsXml(
+        resources: android.content.res.Resources,
+        xmlResId: Int,
+        owningPackage: String
+    ): List<AppInfo> {
+        val items = mutableListOf<AppInfo>()
+        val ANDROID_NS = "http://schemas.android.com/apk/res/android"
+        try {
+            val parser = resources.getXml(xmlResId)
+            val panelIds = panelPrefs.getPanelApps().toSet()
+
+            // Scratch state shared across one <shortcut> element.
+            var currentShortcutId: String? = null
+            var currentLabel: String? = null
+            var currentEnabled = true
+            var icAction: String? = null
+            var icData: String? = null
+            var icTargetPackage: String? = null
+            var icTargetClass: String? = null
+
+            while (parser.eventType != XmlPullParser.END_DOCUMENT) {
+                when (parser.eventType) {
+                    XmlPullParser.START_TAG -> {
+                        when (parser.name) {
+                            "shortcut" -> {
+                                currentShortcutId = parser.getAttributeValue(null, "android:shortcutId")
+                                currentEnabled = parser.getAttributeBooleanValue(null, "android:enabled", true)
+
+                                // Label may be a string-resource ref (@string/foo) or a literal.
+                                val labelResId = parser.getAttributeResourceValue(ANDROID_NS, "shortcutShortLabel", 0)
+                                currentLabel = when {
+                                    labelResId != 0 -> try { resources.getString(labelResId) } catch (e: Exception) { null }
+                                    else -> parser.getAttributeValue(ANDROID_NS, "shortcutShortLabel")
+                                }
+                            }
+                            "intent" -> {
+                                icAction = parser.getAttributeValue(null, "android:action")
+                                icData = parser.getAttributeValue(null, "android:data")
+                                icTargetPackage = parser.getAttributeValue(null, "android:targetPackage")
+                                icTargetClass = parser.getAttributeValue(null, "android:targetClass")
+                            }
+                        }
+                    }
+                    XmlPullParser.END_TAG -> {
+                        if (parser.name == "shortcut") {
+                            if (currentEnabled && currentShortcutId != null) {
+                                // Capture mutable vars into locals so Kotlin can smart-cast
+                                // them inside the [apply] block (mutated-var access doesn't
+                                // smart-cast in Kotlin 1.9).
+                                val action = icAction
+                                val data = icData
+                                val targetPackage = icTargetPackage
+                                val targetClass = icTargetClass
+                                val intent = android.content.Intent().apply {
+                                    if (!action.isNullOrBlank()) this.action = action
+                                    if (!data.isNullOrBlank()) this.data = android.net.Uri.parse(data)
+                                    if (!targetPackage.isNullOrBlank() && !targetClass.isNullOrBlank()) {
+                                        setClassName(targetPackage, targetClass)
+                                    } else if (!targetPackage.isNullOrBlank()) {
+                                        `package` = targetPackage
+                                    }
+                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                // Drop shortcuts whose target is no longer installed/actionable.
+                                val resolved = try {
+                                    packageManager.resolveActivity(intent, 0)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                                if (resolved != null) {
+                                    val uri = intent.toUri(android.content.Intent.URI_INTENT_SCHEME)
+                                    items.add(
+                                        AppInfo(
+                                            packageName = owningPackage,
+                                            appName = (currentLabel ?: currentShortcutId).takeIf { it.isNotBlank() } ?: currentShortcutId,
+                                            isInPanel = panelIds.contains(uri),
+                                            type = AppInfo.Type.SHORTCUT,
+                                            intentUri = uri,
+                                            activityName = currentShortcutId,
+                                            appearanceKey = panelPrefs.appearanceKey
+                                        )
+                                    )
+                                }
+                            }
+                            // Reset scratch state for the next <shortcut> sibling (defensive —
+                            // XmlPullParser is event-driven so this mostly just keeps the
+                            // state machine honest under malformed real-world XML).
+                            currentShortcutId = null
+                            currentLabel = null
+                            currentEnabled = true
+                            icAction = null
+                            icData = null
+                            icTargetPackage = null
+                            icTargetClass = null
+                        }
+                    }
+                }
+                parser.next()
             }
-            .sortedBy { it.second.lowercase() }
-            .map { (pair, _) -> pair }
+            parser.close()
+        } catch (e: Exception) {
+            // Skip this resource if parsing fails.
+        }
+        return items
     }
 
     /**
