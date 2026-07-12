@@ -18,7 +18,11 @@ android {
         versionName = "1.3.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        resConfigs("en", "es")
+        // Audit/M: AGP 8.x deprecated `resConfigs("en", "es")` in favour of
+        // the underlying DSL property `resourceConfigurations`. Same effect —
+        // strip all non en/es resource locales from the APK so we ship the
+        // smallest possible resources-only build.
+        resourceConfigurations += listOf("en", "es")
     }
 
     val keystorePropertiesFile = rootProject.file("keystore.properties")
