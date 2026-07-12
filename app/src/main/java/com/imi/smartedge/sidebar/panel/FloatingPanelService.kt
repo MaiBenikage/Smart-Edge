@@ -631,13 +631,13 @@ class FloatingPanelService : Service() {
 
         try {
             Log.d(TAG, "Adding notch handle to WindowManager")
-            windowManager.addView(notchHandleView, params)
+            notchHandleView?.let { windowManager.addView(it, params) }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add notch handle", e)
             // Drop the reference so the next addNotchHandle() call doesn't try to
             // re-attach a partially-attached view (would throw a different
             // unchecked exception on second attempt).
-            try { windowManager.removeView(notchHandleView) } catch (_: Exception) {}
+            try { notchHandleView?.let { windowManager.removeView(it) } } catch (_: Exception) {}
             notchHandleView = null
         }
     }
@@ -683,7 +683,7 @@ class FloatingPanelService : Service() {
                 params.y = requestedOffset.coerceIn(-maxOffset, maxOffset)
                 
                 try {
-                    windowManager.updateViewLayout(edgeHandleView, params)
+                    edgeHandleView?.let { windowManager.updateViewLayout(it, params) }
                 } catch (e: Exception) {}
             }
             
@@ -757,10 +757,10 @@ class FloatingPanelService : Service() {
         // the service stays alive — the user can still access other UI in the
         // app while the permission issue is investigated.
         try {
-            windowManager.addView(edgeHandleView, params)
+            edgeHandleView?.let { windowManager.addView(it, params) }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add edge handle overlay", e)
-            try { windowManager.removeView(edgeHandleView) } catch (_: Exception) {}
+            try { edgeHandleView?.let { windowManager.removeView(it) } } catch (_: Exception) {}
             edgeHandleView = null
         }
     }
@@ -1048,7 +1048,7 @@ class FloatingPanelService : Service() {
             // recoverable: roll back the open-state and continue without the panel;
             // the user can grant the permission and retry.
             try {
-                windowManager.addView(rootLayout, rootParams)
+                rootLayout?.let { windowManager.addView(it, rootParams) }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to add rootLayout overlay; rolling back openPanel()", e)
                 isPanelOpen = false
