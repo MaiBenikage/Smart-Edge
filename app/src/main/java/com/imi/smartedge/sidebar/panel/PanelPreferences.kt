@@ -212,6 +212,7 @@ class PanelPreferences(context: Context) {
         // Strings
         val strings = mapOf(
             KEY_PANEL_APPS to getPanelApps().joinToString(DELIMITER),
+            KEY_CUSTOM_ITEMS to (prefs.getString(KEY_CUSTOM_ITEMS, null) ?: ""),
             KEY_GAME_APPS to getGameApps().joinToString(DELIMITER),
             KEY_PANEL_SIDE to panelSide,
             KEY_ACCENT_COLOR to accentColor,
@@ -300,6 +301,7 @@ class PanelPreferences(context: Context) {
             prefs.edit {
                 // Strings
                 if (obj.has(KEY_PANEL_APPS)) putString(KEY_PANEL_APPS, obj.getString(KEY_PANEL_APPS))
+                if (obj.has(KEY_CUSTOM_ITEMS)) putString(KEY_CUSTOM_ITEMS, obj.getString(KEY_CUSTOM_ITEMS))
                 if (obj.has(KEY_GAME_APPS)) putString(KEY_GAME_APPS, obj.getString(KEY_GAME_APPS))
                 if (obj.has(KEY_PANEL_SIDE)) putString(KEY_PANEL_SIDE, obj.getString(KEY_PANEL_SIDE))
                 if (obj.has(KEY_ACCENT_COLOR)) putString(KEY_ACCENT_COLOR, obj.getString(KEY_ACCENT_COLOR))

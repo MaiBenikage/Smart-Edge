@@ -1083,8 +1083,8 @@ class AppPickerPanelView @JvmOverloads constructor(
             val scale = context.getAutoScalingFactor() * panelPrefs.scaleFactor
             val isRich = panelPrefs.uiTheme == PanelPreferences.THEME_RICH
             val baseIconSize = if (isRich) 48 else 44
-            val baseTextSize = if (isRich) 11f else 10f
-            val basePkgTextSize = if (isRich) 10f else 9f
+            val baseTextSize = if (isRich) 15f else 14f
+            val basePkgTextSize = if (isRich) 13f else 12f
 
             holder.ivIcon.layoutParams.let { lp ->
                 lp.width = (context.dpToPx(baseIconSize) * scale).toInt()

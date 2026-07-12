@@ -50,11 +50,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="sans-serif"
+                android:gravity="start"
                 android:maxLines="1"
                 android:text="Title"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp" />
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/tvCustomContent"
@@ -62,10 +64,12 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:fontFamily="sans-serif"
+                android:gravity="start"
                 android:maxLines="1"
                 android:text="content"
                 android:textColor="#B3FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="11sp"
+                android:textStyle="normal" />
         </LinearLayout>
 
         <!-- Edit mode: two stacked EditTexts -->

@@ -73,7 +73,8 @@ class ToggleActivity : AppCompatActivity() {
         // Without this gate, any 3rd-party app could fire `Intent(MAIN).setClassName(
         // this, ToggleActivity)` and silently flip the service back on after the
         // user had disabled it for battery / privacy reasons.
-        if (intent.getBooleanExtra("smartedge.from_shortcut", false)) {
+        if (intent.getBooleanExtra("smartedge.from_shortcut", false)
+            && intent.action == ACTION_TOGGLE) {
             PanelPreferences(this).serviceEnabled = true
         }
 

@@ -670,8 +670,17 @@ class SidePanelView @JvmOverloads constructor(
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         if (max <= 0) return
         val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        val currentPercent = (current * 100) / max
-        setVolumePercent(currentPercent + delta)
+        // Audit L1 — the previous code translated percent → index via `(percent*max)/100`
+        // and read back the new index every tick. For standard 15-step streams, a
+        // 3% delta round-trips to indices 7 → 7.35 → 7, so the volume visibly froze.
+        // Compute the index step directly and enforce at least ±1 step per gesture.
+        val step = if (delta > 0) Math.max(1, (max * delta) / 100)
+                   else Math.min(-1, (max * delta) / 100)
+        audioManager.setStreamVolume(
+            android.media.AudioManager.STREAM_MUSIC,
+            (current + step).coerceIn(0, max),
+            0
+        )
     }
 
     /**
