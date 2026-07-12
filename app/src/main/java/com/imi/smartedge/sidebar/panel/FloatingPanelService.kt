@@ -613,6 +613,11 @@ class FloatingPanelService : Service() {
             windowManager.addView(notchHandleView, params)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add notch handle", e)
+            // Drop the reference so the next addNotchHandle() call doesn't try to
+            // re-attach a partially-attached view (would throw a different
+            // unchecked exception on second attempt).
+            try { windowManager.removeView(notchHandleView) } catch (_: Exception) {}
+            notchHandleView = null
         }
     }
 
@@ -724,39 +729,74 @@ class FloatingPanelService : Service() {
             // Log.d(TAG, "Handle Params: width=$width, height=$height, y=$y (requested=$requestedOffset, max=$maxOffset)")
         }
 
-        windowManager.addView(edgeHandleView, params)
+        // Crash fix: same BadTokenException / SecurityException family as
+        // openPanel(). addEdgeHandle is called from FloatingPanelService.onCreate
+        // without exception handling, so any WMS hiccup here killed the service
+        // process on first launch. Catch, log, and reset the handle reference so
+        // the service stays alive — the user can still access other UI in the
+        // app while the permission issue is investigated.
+        try {
+            windowManager.addView(edgeHandleView, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add edge handle overlay", e)
+            try { windowManager.removeView(edgeHandleView) } catch (_: Exception) {}
+            edgeHandleView = null
+        }
     }
 
     private fun initSidePanel() {
-        sidePanelView = SidePanelView(this).apply {
-            onClose = { closePanel() }
-            onAppsChanged = { refreshApps() }
-            onAddClick = { isEdit -> togglePicker(isEdit) }
-            onScreenshot = { 
-                closePanel()
-                Handler(Looper.getMainLooper()).postDelayed({
-                    triggerScreenshot()
-                }, 300)
-            }
-            onFolderOpen = { folderId ->
-                currentFolderId = folderId
-                refreshApps()
-            }
-            onBackNavigation = {
-                currentFolderId = null // Simple logic for now: only 1-level folders
-                refreshApps()
-            }
-            onToolClick = { toolId ->
-                when (toolId) {
-                    "smartedge.tool.screenshot" -> triggerScreenshot()
+        // Crash fix: SidePanelView constructor inflates layout XML and creates
+        // a RecyclerView (adapter + view-bindings). On older devices or with
+        // corrupted resources, View.<init> can throw Resources.NotFoundException
+        // or InflateException — both propagate up and kill the service. The view
+        // is optional (the service still functions for foreground notification
+        // duty without it), so degrade-safe rather than crash.
+        try {
+            sidePanelView = SidePanelView(this).apply {
+                onClose = { closePanel() }
+                onAppsChanged = { refreshApps() }
+                onAddClick = { isEdit -> togglePicker(isEdit) }
+                onScreenshot = {
+                    closePanel()
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        triggerScreenshot()
+                    }, 300)
                 }
+                onFolderOpen = { folderId ->
+                    currentFolderId = folderId
+                    refreshApps()
+                }
+                onBackNavigation = {
+                    currentFolderId = null // Simple logic for now: only 1-level folders
+                    refreshApps()
+                }
+                onToolClick = { toolId ->
+                    when (toolId) {
+                        "smartedge.tool.screenshot" -> triggerScreenshot()
+                    }
+                }
+                visibility = View.GONE
             }
-            visibility = View.GONE 
+            refreshApps()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init side panel view", e)
+            sidePanelView = null
         }
-        refreshApps()
     }
 
     private fun initPickerPanel() {
+        // Crash fix (parity with initSidePanel): AppPickerPanelView construction
+        // is the heavy one (RecyclerView + SearchView + TabLayout + drag handles).
+        // Same degrade-safe policy — log and continue.
+        try {
+            initPickerPanelInternal()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init picker panel view", e)
+            pickerPanelView = null
+        }
+    }
+
+    private fun initPickerPanelInternal() {
         pickerPanelView = AppPickerPanelView(this).apply {
             // Audit U4 — drain any in-progress edit BEFORE tearing the picker
             // down. Without this, tapping outside or swiping-down closed the
@@ -957,7 +997,25 @@ class FloatingPanelService : Service() {
         refreshApps() // Load apps in background while panel opens
         initRootLayout()
         if (rootLayout?.parent == null) {
-            windowManager.addView(rootLayout, rootParams)
+            // Crash fix: windowManager.addView for a TYPE_APPLICATION_OVERLAY throws
+            // BadTokenException / SecurityException when the user revoked the
+            // "Draw over other apps" permission mid-session, or when system_server
+            // returns a transient IPC error. Without this guard the uncaught
+            // exception propagates out of onStartCommand and the Service process
+            // (which is the same as the App process) is killed by Android → user
+            // sees the app "flash-quit" immediately on click. Failure here is
+            // recoverable: roll back the open-state and continue without the panel;
+            // the user can grant the permission and retry.
+            try {
+                windowManager.addView(rootLayout, rootParams)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to add rootLayout overlay; rolling back openPanel()", e)
+                isPanelOpen = false
+                rootLayout = null
+                rootParams = null
+                sidePanelView?.visibility = View.GONE
+                return
+            }
         }
         updateBlur(true)
         sidePanelView?.updateStyles() // Evaluate Game Mode columns & update layout
