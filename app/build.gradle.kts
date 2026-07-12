@@ -95,8 +95,10 @@ dependencies {
     implementation(libs.glide)
     implementation("com.github.skydoves:colorpickerview:2.3.0")
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
-    implementation("dev.rikka.shizuku:api:12.1.0")
-    implementation("dev.rikka.shizuku:provider:12.1.0")
+    // Shizuku bumped 12.1.0 -> 13.1.0: api gains proper @Nullable annotations
+    // on `newProcess(String[], String[], String)`; provider packaging unchanged.
+    implementation("dev.rikka.shizuku:api:13.1.0")
+    implementation("dev.rikka.shizuku:provider:13.1.0")
 
     testImplementation(libs.junit)
     // Provide a real org.json on the JVM unit-test classpath to replace the
