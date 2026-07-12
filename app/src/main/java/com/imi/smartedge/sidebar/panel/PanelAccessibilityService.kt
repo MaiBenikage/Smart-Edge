@@ -173,8 +173,6 @@ class PanelAccessibilityService : AccessibilityService() {
             if (packageName == lastPackageName) return
             lastPackageName = packageName
 
-            val className = event.className?.toString() ?: ""
-            
             // Store current foreground package for Context/Game mode
             panelPrefs.currentForegroundPackage = packageName
             

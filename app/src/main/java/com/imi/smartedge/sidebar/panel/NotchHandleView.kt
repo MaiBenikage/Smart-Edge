@@ -79,9 +79,12 @@ class NotchHandleView @JvmOverloads constructor(
 
     private fun vibrateHaptic(durationMs: Long = 25) {
         if (!panelPrefs.hapticEnabled) return
-        val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
-        // minSdk = 26, so the SDK_INT >= O fork is always true. The pre-O
-        // Vibrator.vibrate(long) overload is deprecated in API 26 and unreachable.
+        // Strongly-typed getSystemService(Class) avoids the deprecated
+        // Context.VIBRATOR_SERVICE String key. minSdk = 26 covers the API surface.
+        val v = context.getSystemService(Vibrator::class.java) ?: return
+        // minSdk = 26, so VibrationEffect.createOneShot(...) is always available —
+        // the pre-O Vibrator.vibrate(long) overload (deprecated in API 26) is
+        // unreachable under our minSdk.
         v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 

@@ -21,7 +21,11 @@ class PanelTileService : TileService() {
     }
 
     private fun updateTile() {
-        val tile = qsTile ?: return
+        // qsTile is non-null only while the system has this tile pinned into
+        // the shade — bail out cleanly when it's been unbound. The downstream
+        // updateTileInternal reads qsTile directly, so the unused local `tile`
+        // is gone.
+        qsTile ?: return
         val prefs = PanelPreferences(this)
         val isEnabled = prefs.serviceEnabled
         val isAccessibilityEnabled = isAccessibilityServiceEnabled()
@@ -148,17 +152,19 @@ class PanelTileService : TileService() {
     private fun triggerHapticFeedback() {
         try {
             // VibratorManager is API 31+ (S). Pre-S devices (Android 8-11) still
-            // exist in the wild, so the legacy VIBRATOR_SERVICE branch stays.
+            // exist in the wild, so the legacy strongly-typed lookup stays below.
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager
                 vibratorManager.defaultVibrator
             } else {
-                @Suppress("DEPRECATION")
-                getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                // Strongly-typed getSystemService(Class) avoids the deprecated
+                // Context.VIBRATOR_SERVICE String key.
+                getSystemService(android.os.Vibrator::class.java) ?: return
             }
 
-            // minSdk = 26, so the SDK_INT >= O fork is always true. The pre-O
-            // Vibrator.vibrate(long) overload is deprecated in API 26 and unreachable.
+            // minSdk = 26, so VibrationEffect.createOneShot(...) is always available —
+            // the pre-O Vibrator.vibrate(long) overload (deprecated in API 26) is
+            // unreachable under our minSdk.
             vibrator.vibrate(android.os.VibrationEffect.createOneShot(10, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
         } catch (e: Exception) {
             // Ignore if vibrator fails

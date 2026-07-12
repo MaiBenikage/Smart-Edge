@@ -560,6 +560,14 @@ class InteractionSettingsActivity : AppCompatActivity() {
         startService(intent)
     }
 
+    // Intent.EXTRA_SHORTCUT_INTENT/NAME/ICON_RESOURCE were deprecated in API 26 but
+    // remain the ONLY public surface for the pre-O `com.android.launcher.action.INSTALL_SHORTCUT`
+    // broadcast that registers a home-screen launcher shortcut on legacy devices.
+    // ShortcutManager.requestPinShortcut (the modern equivalent) requires the
+    // caller to be the default launcher, which a side-bar app can't satisfy.
+    // Suppress at the function level — pre-O branch is dead on minSdk=26 but
+    // kept for older Android forks and OEM skins that still rely on it.
+    @Suppress("DEPRECATION")
     private fun pinShortcut() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val shortcutManager = getSystemService(android.content.pm.ShortcutManager::class.java)

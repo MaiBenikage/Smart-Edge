@@ -81,6 +81,12 @@ object AutomationManager {
         }
     }
 
+    // Shizuku 11/12 exposes this (Array<String>, Array<String>?, String?) overload;
+    // Shizuku 13 deprecates it in favor of an (Array<String>, Array<String>?, String?)
+    // overload with refined Kotlin nullability on the String! platform types. The
+    // migration is gated on a major Shizuku version bump; for now suppress the
+    // single-method deprecation warning at the call site.
+    @Suppress("DEPRECATION")
     fun execute(command: String): Boolean {
         if (isShizukuAvailable()) {
             return try {

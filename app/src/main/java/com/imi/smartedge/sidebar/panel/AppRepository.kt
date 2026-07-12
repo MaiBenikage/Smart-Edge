@@ -4,10 +4,11 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import org.xmlpull.v1.XmlPullParser
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Loads metadata for all user-installed, launchable apps from the PackageManager.
@@ -20,11 +21,17 @@ class AppRepository(context: Context) {
     private val panelPrefs = PanelPreferences(appContext)
     private val iconPackManager = IconPackManager(appContext)
 
+    // Per-instance coroutine scope for icon preloading. Replaces the two
+    // `GlobalScope.launch(...)` sites below, which were flagged as a
+    // `Delicate API` warning because `GlobalScope` has no structured-concurrency
+    // parent (no cancellation tracking vs. the host service lifetime).
+    private val iconPreloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     companion object {
         // Aggressive memory cache for fully processed static bitmap icons to ensure buttery smooth scrolling
         val iconCache = android.util.LruCache<String, android.graphics.drawable.Drawable>(300)
 
-        fun clearSystemIconCache(packageName: String? = null) {
+        fun clearSystemIconCache() {
             iconCache.evictAll()
         }
     }
@@ -141,7 +148,7 @@ class AppRepository(context: Context) {
         val sortedList = list.sortedBy { it.appName.lowercase() }
 
         // Aggressively pre-load icons into the memory cache in the background
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        iconPreloadScope.launch {
             sortedList.take(50).forEach { appInfo ->
                 getProcessedIcon(appInfo.packageName, appInfo.appearanceKey ?: "")
             }
@@ -195,9 +202,9 @@ class AppRepository(context: Context) {
         }
 
         val sortedList = allActivities.sortedBy { it.appName.lowercase() }
-        
+
         // Aggressively pre-load icons into the memory cache in the background
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        iconPreloadScope.launch {
             sortedList.take(50).forEach { appInfo ->
                 getProcessedIcon(appInfo.packageName, appInfo.appearanceKey ?: "")
             }

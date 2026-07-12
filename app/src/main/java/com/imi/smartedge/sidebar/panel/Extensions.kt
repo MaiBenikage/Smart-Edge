@@ -266,10 +266,12 @@ object MIUIUtils {
     fun isMIUI(): Boolean {
         return try {
             val manufacturer = android.os.Build.MANUFACTURER.lowercase()
-            val property = Class.forName("android.os.SystemProperties")
+            // `Method.invoke(...)` returns Any? on the JVM. Cast to String? and
+            // fall back to empty — without this the Kotlin compiler flags the
+            // raw `.toString()` call as an "unsafe use of a nullable receiver".
+            val property = (Class.forName("android.os.SystemProperties")
                 .getMethod("get", String::class.java)
-                .invoke(null, "ro.miui.ui.version.name")
-                .toString()
+                .invoke(null, "ro.miui.ui.version.name") as? String).orEmpty()
             manufacturer.contains("xiaomi") || property.isNotEmpty()
         } catch (e: Exception) {
             false
@@ -433,7 +435,6 @@ fun Context.isAccessibilityServiceEnabled(): Boolean {
  * Integrated into a seamless Material 3 Dialog using skydoves ColorPickerView.
  */
 fun Context.openColorPicker(initialColor: Int, onPick: (Int) -> Unit) {
-    val inflater = android.view.LayoutInflater.from(this)
     val rootLayout = android.widget.LinearLayout(this).apply {
         orientation = android.widget.LinearLayout.VERTICAL
         layoutParams = ViewGroup.LayoutParams(

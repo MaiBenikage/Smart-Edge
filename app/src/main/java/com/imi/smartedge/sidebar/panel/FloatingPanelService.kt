@@ -69,12 +69,10 @@ class FloatingPanelService : Service() {
             val action = intent?.action
             if (action == Intent.ACTION_PACKAGE_ADDED || 
                 action == Intent.ACTION_PACKAGE_REMOVED || 
-                action == Intent.ACTION_PACKAGE_REPLACED) {
-                
-                val packageName = intent.data?.schemeSpecificPart
-                if (packageName != null) {
-                    // Invalidate system icon cache for this app
-                    AppRepository.clearSystemIconCache(packageName)
+                action == Intent.ACTION_PACKAGE_REPLACED) {                    val packageName = intent.data?.schemeSpecificPart
+                    if (packageName != null) {
+                        // Invalidate system icon cache for this app
+                        AppRepository.clearSystemIconCache()
                     
                     // If it was removed, remove it from pinned apps too
                     if (action == Intent.ACTION_PACKAGE_REMOVED && !intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
@@ -94,6 +92,12 @@ class FloatingPanelService : Service() {
         }
     }
 
+    // Intent.ACTION_CLOSE_SYSTEM_DIALOGS is deprecated since API 29 but is still
+    // broadcast by the system on Home/Recents presses. There is no public
+    // replacement that lets a regular 3rd-party service observe home-key, so
+    // we keep the receiver (and the deprecated constant on the filter below)
+    // with file-scoped suppression.
+    @Suppress("DEPRECATION")
     private val systemDialogsReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_CLOSE_SYSTEM_DIALOGS) {
@@ -171,7 +175,7 @@ class FloatingPanelService : Service() {
             // // addNotchHandle() // Commented out per user request
         }
 
-        val filter = android.content.IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+        @Suppress("DEPRECATION") val filter = android.content.IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(systemDialogsReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -229,7 +233,9 @@ class FloatingPanelService : Service() {
         
         when (action) {
             ACTION_TOGGLE -> {
-                val newState = intent?.getBooleanExtra("target_state", !panelPrefs.serviceEnabled) ?: !panelPrefs.serviceEnabled
+                // Non-null intent guaranteed by the prior `if (intent == null || action == null)` guard;
+                // Kotlin smart-casts the receiver.
+                val newState = intent.getBooleanExtra("target_state", !panelPrefs.serviceEnabled)
                 panelPrefs.setServiceEnabled(newState, commit = true)
                 
                 // Request Tile Update explicitly
@@ -328,7 +334,9 @@ class FloatingPanelService : Service() {
                 handler.postDelayed({ triggerScreenshot() }, 200)
             }
             ACTION_UPDATE_IMMERSIVE -> {
-                isImmersiveMode = intent?.getBooleanExtra("is_immersive", false) ?: false
+                // Non-null intent guaranteed by the prior `if (intent == null || action == null)` guard;
+                // Kotlin smart-casts the receiver.
+                isImmersiveMode = intent.getBooleanExtra("is_immersive", false)
                 edgeHandleView?.isImmersiveMode = isImmersiveMode
             }
             ACTION_SHOW_TEMP -> {
@@ -628,7 +636,7 @@ class FloatingPanelService : Service() {
             onAdjustVolume = { delta ->
                 adjustVolume(delta)
             }
-            onSideChanged = { newSide ->
+            onSideChanged = { _ ->
                 // Pill was dragged to the opposite edge — sync the whole service UI
                 sidePanelView?.updateSideLayout()
             }
@@ -1035,15 +1043,12 @@ class FloatingPanelService : Service() {
             picker.loadApps()
             picker.setOnClickListener { }
             val isRight = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
-            val density = resources.displayMetrics.density
             val sidePanelWidthDp = 72
             val sidePanelMarginDp = 12
-            
+
             // Dynamic Height calculation for Picker Panel based on Screen Height
             val displayMetrics = resources.displayMetrics
-            val screenHeightPx = displayMetrics.heightPixels
-            val screenHeightDp = screenHeightPx / displayMetrics.density
-            
+
             // Max height for picker: User preference, with a sane minimum for usability
             val maxAllowedHeightDp = Math.max(300f, panelPrefs.pickerMaxHeight.toFloat())
             val maxPickerHeightPx = (maxAllowedHeightDp * displayMetrics.density).toInt()
@@ -1203,8 +1208,7 @@ class FloatingPanelService : Service() {
 
     private fun initDragOverlay() {
         if (dragOverlay != null) return
-        
-        val density = resources.displayMetrics.density
+
         dragOverlay = android.widget.FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.parseColor("#4D000000")) // 30% Dim
         }

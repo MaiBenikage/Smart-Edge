@@ -125,7 +125,10 @@ class AppPickerPanelView @JvmOverloads constructor(
     private var itemTouchHelper: ItemTouchHelper? = null
     private var lastMaxPx: Int = -1
     private var accentColor: Int = Color.parseColor("#4A9EFF")
-    private lateinit var gestureDetector: GestureDetector
+    // `lateinit` was emitting "Lateinit is unnecessary" since [gestureDetector]
+    // is always assigned in [init]. Plain nullable `var` removes the warning
+    // and lets ID-recycled callers use `gestureDetector?.onTouchEvent(...)`.
+    private var gestureDetector: GestureDetector? = null
 
     // ====================================================================================
     //                                Lifecycle
@@ -257,7 +260,7 @@ class AppPickerPanelView @JvmOverloads constructor(
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (::gestureDetector.isInitialized) gestureDetector.onTouchEvent(ev)
+        gestureDetector?.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
     }
 
@@ -528,7 +531,10 @@ class AppPickerPanelView @JvmOverloads constructor(
     // ====================================================================================
     //                                Data loading
     // ====================================================================================
-    private fun loadAppsInternal(forceRefresh: Boolean) {
+    private fun loadAppsInternal(@Suppress("UNUSED_PARAMETER") forceRefresh: Boolean) {
+        // `forceRefresh` is honored upstream by [loadApps] (which short-circuits
+        // the cached allApps). The internal method always re-fetches via
+        // repository.getAllApps() so the param is informational here only.
         val originalHeader = tvHeader.text
         tvHeader.text = "Loading Apps..."
         _scope.launch {
@@ -836,7 +842,6 @@ class AppPickerPanelView @JvmOverloads constructor(
         val density = resources.displayMetrics.density
         val theme = panelPrefs.uiTheme
         val isRich = theme == PanelPreferences.THEME_RICH
-        val isList = rvPickerGrid.layoutManager is LinearLayoutManager
 
         val itemHeightDp = when {
             activeTab != PickerTab.APPS -> 64  // header rows + custom rows are taller
@@ -1281,7 +1286,7 @@ class AppPickerPanelView @JvmOverloads constructor(
             }
 
             // Drag handle: ACTION_DOWN → startDrag
-            holder.dragHandle.setOnTouchListener { v, event ->
+            holder.dragHandle.setOnTouchListener { _, event ->
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     if (editingItemId != null) {
                         // Editing → ignore drag

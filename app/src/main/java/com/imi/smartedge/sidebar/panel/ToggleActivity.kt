@@ -19,6 +19,13 @@ class ToggleActivity : AppCompatActivity() {
         const val ACTION_TOGGLE = "com.imi.smartedge.sidebar.panel.TOGGLE"
     }
 
+    // Intent.EXTRA_SHORTCUT_INTENT/NAME/ICON_RESOURCE were deprecated in API 26 but
+    // remain the ONLY public surface for the legacy Intent.ACTION_CREATE_SHORTCUT
+    // flow that lets a 3rd-party app publish a home-screen launcher shortcut.
+    // ShortcutManager.requestPinShortcut is gated on default-launcher / system-app
+    // status and can't be used from a regular Android service/app. Suppress at the
+    // function level — there are no other deprecated APIs touched here.
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

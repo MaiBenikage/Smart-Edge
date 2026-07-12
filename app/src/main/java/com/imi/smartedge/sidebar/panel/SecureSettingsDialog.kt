@@ -1,3 +1,10 @@
+// Shizuku 11/12's `newProcess(Array<String>, Array<String>?, String?)` overload
+// is marked deprecated in Shizuku 13 in favor of a signature that refines the
+// Kotlin nullability annotations on the platform types. The migration is gated
+// on a major Shizuku version bump; for now suppress the file-wide DEPRECATION
+// warnings at the three call sites (shizukuListener, onGrant, onRevoke).
+@file:Suppress("DEPRECATION")
+
 package com.imi.smartedge.sidebar.panel
 
 import android.Manifest

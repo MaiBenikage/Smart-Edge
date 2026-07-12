@@ -75,13 +75,14 @@ object ActionDispatcher {
     private fun vibrateHaptic(context: Context, panelPrefs: PanelPreferences, duration: Long = 20) {
         if (!panelPrefs.hapticEnabled) return
         try {
-            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            if (vibrator?.hasVibrator() == true) {
-                // minSdk = 26 (Android 8.0), so the SDK_INT >= O fork is always true.
-                // The pre-O Vibrator.vibrate(long) overload was deprecated in API 26
-                // and is dead code under our minSdk.
-                vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
-            }
+            // Strongly-typed getSystemService(Class) avoids the deprecated
+            // Context.VIBRATOR_SERVICE String key. minSdk = 26 covers the API surface.
+            val vibrator = context.getSystemService(Vibrator::class.java) ?: return
+            if (!vibrator.hasVibrator()) return
+            // minSdk = 26 (Android 8.0), so VibrationEffect.createOneShot(...) is
+            // always available — the pre-O Vibrator.vibrate(long) overload
+            // (deprecated in API 26) is unreachable under our minSdk.
+            vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
         } catch (e: Exception) {
             // Ignore
         }

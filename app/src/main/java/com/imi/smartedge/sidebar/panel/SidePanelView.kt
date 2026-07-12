@@ -80,11 +80,14 @@ class SidePanelView @JvmOverloads constructor(
     private var panelIndicatorText: android.widget.TextView? = null
     private var panelIndicatorFadeRunnable: Runnable? = null
 
+    // `lateinit` was generating "Lateinit is unnecessary" warnings because the
+    // listeners are always assigned in the [init] block below. Convert to plain
+    // `val` properties — the init block initializes them before first use.
     @SuppressLint("ClickableViewAccessibility")
-    private lateinit var btnVolumeDragTouchListener: View.OnTouchListener
+    private val btnVolumeDragTouchListener: View.OnTouchListener
 
     @SuppressLint("ClickableViewAccessibility")
-    private lateinit var btnBrightnessDragTouchListener: View.OnTouchListener
+    private val btnBrightnessDragTouchListener: View.OnTouchListener
 
     private fun updateSystemInfo() {
         if (!panelPrefs.showSysInfo) return

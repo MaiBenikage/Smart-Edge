@@ -1,25 +1,27 @@
 package com.imi.smartedge.sidebar.panel
 
 import android.content.Context
-import android.content.res.Configuration
-import android.os.Build
+import androidx.core.os.LocaleListCompat
 import java.util.Locale
 
 object LocaleHelper {
     private const val SELECTED_LANGUAGE = "Locale.Helper.Selected.Language"
 
     fun onAttach(context: Context): Context {
-        val lang = getPersistedData(context, Locale.getDefault().language)
+        // LocaleListCompat.getDefault()[0] is null-safe on API 24+ (minSdk = 26),
+        // which lets us replace the deprecated `Locale.getDefault()` platform
+        // call. Kotlin was emitting `locale: Locale!` on the old call site.
+        val defaultLang = LocaleListCompat.getDefault().get(0)?.language
+            ?: Locale.ROOT.language
+        val lang = getPersistedData(context, defaultLang)
         return setLocale(context, lang)
     }
 
     fun setLocale(context: Context, language: String?): Context {
         persist(context, language)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            updateResources(context, language)
-        } else {
-            updateResourcesLegacy(context, language)
-        }
+        // minSdk = 26 (Build.VERSION_CODES.N), so the old < N legacy branch has
+        // been removed — `updateResources` is always the supported path.
+        return updateResources(context, language)
     }
 
     private fun getPersistedData(context: Context, defaultLanguage: String): String? {
@@ -40,23 +42,11 @@ object LocaleHelper {
         val configuration = context.resources.configuration
         configuration.setLocale(locale)
         configuration.setLayoutDirection(locale)
-        
-        // Also update legacy resources for older components/Skin compatibility
-        context.resources.updateConfiguration(configuration, context.resources.displayMetrics)
-        
-        return context.createConfigurationContext(configuration)
-    }
 
-    private fun updateResourcesLegacy(context: Context, language: String?): Context {
-        val locale = Locale(language ?: "en")
-        Locale.setDefault(locale)
-        val resources = context.resources
-        val configuration = resources.configuration
-        configuration.locale = locale
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            configuration.setLayoutDirection(locale)
-        }
-        resources.updateConfiguration(configuration, resources.displayMetrics)
-        return context
+        // createConfigurationContext(...) returns a Context configured with
+        // the new locale. The pre-API-17 Resources.updateConfiguration(...)
+        // overload was deprecated in API 25 and is no longer called — the
+        // modern wrapper above is the supported API on minSdk = 26.
+        return context.createConfigurationContext(configuration)
     }
 }
