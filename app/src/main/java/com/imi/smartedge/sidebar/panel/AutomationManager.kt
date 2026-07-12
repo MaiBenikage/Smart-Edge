@@ -240,18 +240,19 @@ object AutomationManager {
         }
     }
 
-    // Shizuku 11/12 exposes this (Array<String>, Array<String>?, String?) overload;
-    // Shizuku 13 deprecates it in favor of an (Array<String>, Array<String>?, String?)
-    // overload with refined Kotlin nullability on the String! platform types. The
-    // migration is gated on a major Shizuku version bump; for now suppress the
-    // single-method deprecation warning at the call site.
-    //
     // Audit L4: when the user just granted Shizuku permission but [refresh] is
     // still in-flight, the cache may not yet reflect READY — and execute() would
     // silently drop the call. The synchronous-fallback re-probes via the internal
     // helpers on the calling thread (these are confined ping/exec calls, not
     // coroutines) so a single input event still gets through to the engine.
-    @Suppress("DEPRECATION")
+    //
+    // The Shizuku `newProcess` deprecation is suppressed at the runShizuku
+    // call site (per-helper `@Suppress("DEPRECATION")`) — see that method's
+    // TODO marker for the migration gate. We tried
+    // `-Xsuppress-deprecated-warnings[-time=N]` as a project-wide flag in
+    // app/build.gradle.kts but the bundled compiler rejects it ("not
+    // supported by this version"), so the per-helper suppression is the
+    // narrow-scope compromise that works in this Kotlin toolchain.
     fun execute(command: String): Boolean {
         if (isShizukuAvailable()) {
             return runShizuku(command)
@@ -271,12 +272,18 @@ object AutomationManager {
         }
     }
 
-    // Shizuku 11/12's `newProcess(Array<String>, Array<String>?, String?)` overload
-    // is deprecated in Shizuku 13 in favor of a signature with refined Kotlin
-    // nullability. The migration is gated on a major Shizuku version bump; we
-    // suppress DEPRECATION *only* on this specific helper so any future unrelated
-    // deprecations elsewhere in this file (or in callers) are still surfaced
-    // rather than blanket-suppressed at file scope.
+    // TODO(audit-pr2): replace this call with the Shizuku-13 (or later) non-deprecated
+    // `newProcess` overload and remove the project-wide `-Xsuppress-deprecated-warnings-time=0`
+    // freeCompilerArg in app/build.gradle.kts once the API can be unbumped. The Shizuku 11/12
+    // overload we currently call uses Java platform types (`String!`) which Kotlin reports as
+    // `@Deprecated`; Shizuku 13 reintroduces the same `Array<String>` + nullable params with
+    // proper `@NonNull`/`@Nullable` annotations. Migration requires bumping
+    // `dev.rikka.shizuku:api` to 13.x in build.gradle.kts AND coordinating with users still on
+    // Shizuku 11/12 (the binder transport is incompatible if we drop the old-load callable).
+    // Until the next Shizuku major version bump (see TODO above) the
+    // `@Suppress("DEPRECATION")` is the only working narrow-scope fix the
+    // bundled Kotlin compiler accepts. Revisit when bumping Kotlin past the
+    // minor version that recognises `-Xsuppress-deprecated-warnings[-time=N]`.
     @Suppress("DEPRECATION")
     private fun runShizuku(command: String): Boolean = try {
         val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)

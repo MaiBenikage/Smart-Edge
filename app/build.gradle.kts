@@ -69,6 +69,15 @@ android {
 
     kotlinOptions {
         jvmTarget = "1.8"
+        // No project-wide deprecation suppression here. The Kotlin compiler
+        // bundled with this Gradle wrapper rejected both
+        // `-Xsuppress-deprecated-warnings` and
+        // `-Xsuppress-deprecated-warnings-time=N` with "not supported by this
+        // version of the compiler" — verified empirically against a Kotlin
+        // 1.9.24 plugin. The per-call `@Suppress("DEPRECATION")` on
+        // AutomationManager.runShizuku is the proven narrow-scope fix instead.
+        // Revisit when we bump Kotlin past whichever minor release
+        // recognises the flag.
     }
 }
 
