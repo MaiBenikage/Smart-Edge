@@ -768,17 +768,27 @@ class PanelPreferences(context: Context) {
     val appearanceKey: String
         get() = "shape:$iconShape|pack:$selectedIconPack|theme:$uiTheme"
 
+    // Audit D1 — DELIMITER = "," collision defense for the panel/games/whitelist lists.
+    // Package names never contain commas, but intent-URI tokens emitted by
+    // Intent.toUri(URI_INTENT_SCHEME) can carry raw unescaped commas inside array
+    // extras (e.g. `i.tags=a,b,c;`). A bare `String.split(",")` would splice those
+    // tokens in two on read and silently corrupt the sidebar. We escape the two
+    // bytes that the format reserves ('\' and ',') on write, and reverse on read.
+    private fun encodeDelim(s: String) = s.replace("\\", "\\\\").replace(",", "\\,")
+    private fun decodeDelim(s: String) = s.replace("\\,", ",").replace("\\\\", "\\")
+
     fun getPanelApps(): List<String> {
         val raw = prefs.getString(KEY_PANEL_APPS, "") ?: ""
         return if (raw.isBlank()) emptyList()
         else raw.split(DELIMITER)
             .filter { it.isNotBlank() }
+            .map { decodeDelim(it) }
             .distinct()
     }
 
     fun setPanelApps(identifiers: List<String>) {
         val unique = identifiers.filter { it.isNotBlank() }.distinct()
-        prefs.edit { putString(KEY_PANEL_APPS, unique.joinToString(DELIMITER)) }
+        prefs.edit { putString(KEY_PANEL_APPS, unique.joinToString(DELIMITER) { encodeDelim(it) }) }
     }
 
     fun addApp(identifier: String) {
@@ -814,14 +824,18 @@ class PanelPreferences(context: Context) {
         if (raw.isBlank()) return emptyList()
         return try {
             val arr = org.json.JSONArray(raw)
+            // Audit L1 — symmetric trim on the read path. saveEditingItem trims on
+            // write, but legacy rows pre-dating this fix may still carry leading /
+            // trailing whitespace which would defeat `app.intentUri.startsWith("intent:")`
+            // downstream. Trim here too so all consumers see canonical content.
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                val id = o.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val id = o.optString("id").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 CustomItem(
                     id = id,
                     isUrl = o.optBoolean("isUrl", false),
-                    title = o.optString("title", ""),
-                    content = o.optString("content", "")
+                    title = o.optString("title", "").trim(),
+                    content = o.optString("content", "").trim()
                 )
             }
         } catch (e: Exception) {
@@ -934,12 +948,13 @@ class PanelPreferences(context: Context) {
         return if (raw.isBlank()) emptyList()
         else raw.split(DELIMITER)
             .filter { it.isNotBlank() }
+            .map { decodeDelim(it) }
             .distinct()
     }
 
     fun setGameApps(packages: List<String>) {
         val uniquePackages = packages.filter { it.isNotBlank() }.distinct()
-        prefs.edit { putString(KEY_GAME_APPS, uniquePackages.joinToString(DELIMITER)) }
+        prefs.edit { putString(KEY_GAME_APPS, uniquePackages.joinToString(DELIMITER) { encodeDelim(it) }) }
     }
 
     var autoHideInFullscreen: Boolean
@@ -953,12 +968,15 @@ class PanelPreferences(context: Context) {
     fun getFullscreenWhitelist(): List<String> {
         val raw = prefs.getString(KEY_FULLSCREEN_WHITELIST, "") ?: ""
         return if (raw.isBlank()) emptyList()
-        else raw.split(DELIMITER).filter { it.isNotBlank() }.distinct()
+        else raw.split(DELIMITER)
+            .filter { it.isNotBlank() }
+            .map { decodeDelim(it) }
+            .distinct()
     }
 
     fun setFullscreenWhitelist(packages: List<String>) {
         val unique = packages.filter { it.isNotBlank() }.distinct()
-        prefs.edit { putString(KEY_FULLSCREEN_WHITELIST, unique.joinToString(DELIMITER)) }
+        prefs.edit { putString(KEY_FULLSCREEN_WHITELIST, unique.joinToString(DELIMITER) { encodeDelim(it) }) }
     }
 
     fun isWhitelistedFromAutoHide(packageName: String): Boolean {

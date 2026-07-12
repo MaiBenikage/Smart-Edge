@@ -673,9 +673,14 @@ class AppPickerPanelView @JvmOverloads constructor(
             return false
         }
 
-        // Detect URL vs intent from current content (best effort)
-        val isUrl = !newContent.trim().startsWith("intent:")
-        val updated = original.copy(title = newTitle, content = newContent, isUrl = isUrl)
+        // Detect URL vs intent from the *trimmed* content (best effort) and use the
+        // same trimmed form as the persisted content so read-path consumers see a
+        // canonical string. Pre-trim, leading whitespace or a stray '\n' from a
+        // paste would survive saveEditingItem and defeat downstream
+        // `intentUri.startsWith("intent:")` detection.
+        val trimmedContent = newContent.trim()
+        val isUrl = !trimmedContent.startsWith("intent:")
+        val updated = original.copy(title = newTitle, content = trimmedContent, isUrl = isUrl)
         customItems[idx] = updated
         if (original.title != newTitle || original.content != newContent || original.isUrl != isUrl) {
             onUpdateCustomItem?.invoke(updated)
