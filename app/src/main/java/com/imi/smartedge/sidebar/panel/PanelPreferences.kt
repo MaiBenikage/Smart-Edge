@@ -777,10 +777,32 @@ class PanelPreferences(context: Context) {
     private fun encodeDelim(s: String) = s.replace("\\", "\\\\").replace(",", "\\,")
     private fun decodeDelim(s: String) = s.replace("\\,", ",").replace("\\\\", "\\")
 
+    // Audit R5-fix — state-machine tokenizer. The previous `raw.split(",")`
+    // blindly severed the blob at every comma *including* commas inside the
+    // escape sequence we just produced via encodeDelim — so `\,` got
+    // destroyed before decodeDelim could ever see it. This walker honors the
+    // backslash so only UN-escaped commas split, leaving `\,` and `\\`
+    // intact inside each emitted token for decodeDelim to clean up.
+    private fun splitDelim(raw: String): List<String> {
+        val tokens = mutableListOf<String>()
+        val sb = StringBuilder()
+        var esc = false
+        for (c in raw) {
+            if (esc) { sb.append(c); esc = false }
+            else when (c) {
+                '\\' -> { sb.append(c); esc = true }
+                ','  -> { tokens += sb.toString(); sb.clear() }
+                else -> sb.append(c)
+            }
+        }
+        tokens += sb.toString()
+        return tokens
+    }
+
     fun getPanelApps(): List<String> {
         val raw = prefs.getString(KEY_PANEL_APPS, "") ?: ""
         return if (raw.isBlank()) emptyList()
-        else raw.split(DELIMITER)
+        else splitDelim(raw)
             .filter { it.isNotBlank() }
             .map { decodeDelim(it) }
             .distinct()
@@ -946,7 +968,7 @@ class PanelPreferences(context: Context) {
     fun getGameApps(): List<String> {
         val raw = prefs.getString(KEY_GAME_APPS, "") ?: ""
         return if (raw.isBlank()) emptyList()
-        else raw.split(DELIMITER)
+        else splitDelim(raw)
             .filter { it.isNotBlank() }
             .map { decodeDelim(it) }
             .distinct()
@@ -968,7 +990,7 @@ class PanelPreferences(context: Context) {
     fun getFullscreenWhitelist(): List<String> {
         val raw = prefs.getString(KEY_FULLSCREEN_WHITELIST, "") ?: ""
         return if (raw.isBlank()) emptyList()
-        else raw.split(DELIMITER)
+        else splitDelim(raw)
             .filter { it.isNotBlank() }
             .map { decodeDelim(it) }
             .distinct()
