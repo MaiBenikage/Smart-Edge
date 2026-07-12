@@ -1,0 +1,6 @@
+- Fixed custom URL field data loss when scrolling the app picker.
+- Fixed background service crashes on Android 12+ and 14+.
+- Fixed memory leaks in app icon loading.
+- Added custom URL validation with scheme allowlisting.
+- Improved security with input sanitization for custom items.
+- Under-the-hood maintenance and legacy code cleanup.

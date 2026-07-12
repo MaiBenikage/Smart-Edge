@@ -6,7 +6,19 @@
 
 ---
 
-### v1.3.6 (Latest)
+### v1.3.7 (Latest)
+- **fix(ui)**: Prevented custom URL text from being silently discarded when the row scrolls offscreen in the app picker.
+- **fix(core)**: Added `RECEIVER_EXPORTED` flag to package receiver for Android 14+ compatibility.
+- **fix(core)**: Avoided `ForegroundServiceStartNotAllowedException` on Android 12+ by dispatching toggle on main thread.
+- **fix(memory)**: Switched Glide context to `applicationContext` to prevent memory leaks after native view destruction.
+- **feat(security)**: Added scheme allowlisting and input sanitization for custom URL/intent field with toast validation.
+- **chore(maintenance)**: Rewrote legacy `startAction` logic, eliminating deprecated `Intent` overloads and system dialog broadcasts.
+- **chore(maintenance)**: Stripped out unreachable dead-code branches for Android versions below SDK 26.
+- **chore(maintenance)**: Removed deprecated `View#setDrawingCacheEnabled` call.
+
+---
+
+### v1.3.6
 - **feat(interaction)**: Reorganized Interaction settings dashboard into logical, consolidated groups (Main Trigger, Specialized Interaction, Panel Experience, Multitasking, Shortcuts, Advanced, System).
 - **feat(interaction)**: Restored missing Panel Experience features (Landscape, Notification Apps, Scroll Memory, Keyboard) and System & Behavior features (Auto-start, Debug Logs, Animation Feel, Picker Gap).
 - **feat(shortcuts)**: Restored Desktop Shortcuts feature to pin a Toggle Sidebar shortcut.
