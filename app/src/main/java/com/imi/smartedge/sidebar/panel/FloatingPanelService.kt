@@ -1018,8 +1018,18 @@ class FloatingPanelService : Service() {
             PixelFormat.TRANSLUCENT
         )
         
-        rootLayout?.addView(sidePanelView)
-        rootLayout?.addView(pickerPanelView)
+        // Round-H regression: sidePanelView and pickerPanelView are nullable
+        // because initSidePanel() / initPickerPanel() (in their Round-7 degrade-safe
+        // try/catch shells) set them to null on constructor failure. ViewGroup
+        // contract forbids addView(null) - it throws IllegalArgumentException:
+        //   "Cannot add a null child view to a ViewGroup"
+        // which propagates out of openPanel() → onStartCommand() and kills the
+        // service process (the user-reported FATAL EXCEPTION we just caught).
+        // Safe-call the ARGUMENT too (`sidePanelView?.also { ... }`), not just
+        // the receiver, so we degrade to "panel-less" gracefully instead of
+        // crashing the entire app.
+        sidePanelView?.also { rootLayout?.addView(it) }
+        pickerPanelView?.also { rootLayout?.addView(it) }
     }
 
     private fun openPanel() {
