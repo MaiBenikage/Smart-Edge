@@ -888,6 +888,33 @@ class PanelPreferences(context: Context) {
         setCustomItems(items)
     }
 
+    /**
+     * Audit L3 — after a custom-item reorder via the picker's drag handle,
+     * `KEY_CUSTOM_ITEMS` is updated, but the sidebar order is governed by
+     * `KEY_PANEL_APPS` and was completely unaware of the new positions.
+     * The user reorders in the URLS tab, taps the sidebar, and sees the
+     * pre-drag order — a silent UX bug.
+     *
+     * Strategy: rebuild `KEY_PANEL_APPS` keeping every non-custom entry in
+     * its existing relative position, then append the custom entries in
+     * the new drag order. Newly added items not yet pinned to the sidebar
+     * are intentionally skipped — they aren't in the sidebar yet, so
+     * they have nothing to reorder. Items removed from the custom list
+     * also fall out cleanly because their `smartedge.custom.<id>` ids
+     * are no longer in `customItems`.
+     */
+    fun resyncPanelAppsOrderFromCustomItems(customItems: List<CustomItem>) {
+        val current = getPanelApps().toMutableList()
+        val customIdsInSidebar = current.filter { it.startsWith(CUSTOM_ID_PREFIX) }.toSet()
+        val nonCustom = current.filterNot { it.startsWith(CUSTOM_ID_PREFIX) }
+        val orderedCustom = customItems.mapNotNull { item ->
+            val id = CUSTOM_ID_PREFIX + item.id
+            if (id in customIdsInSidebar) id else null
+        }
+        // setPanelApps takes List<String> and handles dedup + delimiter join internally.
+        setPanelApps(nonCustom + orderedCustom)
+    }
+
     var panelSide: String
         get() = prefs.getString(KEY_PANEL_SIDE, DEFAULT_SIDE) ?: DEFAULT_SIDE
         set(value) = prefs.edit { putString(KEY_PANEL_SIDE, value) }

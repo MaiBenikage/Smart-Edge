@@ -986,6 +986,10 @@ class AppPickerPanelView @JvmOverloads constructor(
                 // Persist the new order after a drag
                 if (editingItemId == null) {
                     panelPrefs.reorderCustomItems(customItems)
+                    // Audit L3 — mirror the new custom-list order into the sidebar
+                    // (KEY_PANEL_APPS) so the user sees the same arrangement in both
+                    // surfaces, not in only one of them.
+                    panelPrefs.resyncPanelAppsOrderFromCustomItems(customItems)
                 }
             }
         }
@@ -1168,7 +1172,7 @@ class AppPickerPanelView @JvmOverloads constructor(
             // only the CUSTOM branch had it; activities/shortcuts with `intent:`
             // uris bypassed the check, allowing `intent:#Intent;component=com.victim/.X`
             // to launch any exported=false activity from the sidebar.
-            if (!isSafeIntentUri(app.intentUri)) {
+            if (!context.isSafeIntentUri(app.intentUri)) {
                 showLaunchBlockedUI(app)
                 return
             }
@@ -1393,37 +1397,17 @@ class AppPickerPanelView @JvmOverloads constructor(
     }
 
     /**
-     * Audit S1 — intercept launcher for `intent:#Intent;component=…` URIs.
-     * Refuses to launch when an explicit component package is set that is NOT
-     * our own package, because that URL could target ANY component on the
-     * device including exported=false internal activities of other apps.
-     * Pure `http(s)://` and `file://` URIs are out of scope here because the
-     * OS Intent resolution already confines them to the registered browser/viewer.
+     * Audit S2 — expose the picker commit / discard decision so the hosting
+     * service can drain pending edits before tearing the picker down.
+     *
+     * Wraps `saveEditingItem()` (which itself either saves valid inputs or
+     * drops invalid ones + clears `editingItemId`). We keep the signature
+     * `internal` so the intent stays contained: this is the *only* legitimate
+     * cross-class surface for "I'm about to close the picker" so callers
+     * don't reach into `editingItemId` themselves.
      */
-    private fun isSafeIntentUri(uri: String?): Boolean {
-        if (uri.isNullOrBlank()) return true
-        if (!uri.startsWith("intent:")) return true
-        return try {
-            val parsed = android.content.Intent.parseUri(uri, android.content.Intent.URI_INTENT_SCHEME)
-            // Walk BOTH the top-level intent and any SEL=… selector chain.
-            // Android resolves `SEL` intents to deliver a different target; if
-            // the embedded selector carries a component pointing at another
-            // package, the system would happily start an unexported activity
-            // there. Refuse any non-self package along the whole chain.
-            var curr: android.content.Intent? = parsed
-            while (curr != null) {
-                val compPkg = curr.component?.packageName
-                if (compPkg != null && compPkg != context.packageName) return false
-                curr = curr.selector
-            }
-            // Top-level had no explicit component AND no selector chain carried
-            // a foreign component → either way, the chain is bound by action /
-            // category / package set, not by a privileged component override.
-            true
-        } catch (e: Exception) {
-            // Unparseable `intent:` URI — refuse to launch as a paranoia step.
-            false
-        }
+    internal fun commitPendingEdits() {
+        if (editingItemId != null) saveEditingItem()
     }
 
     /**

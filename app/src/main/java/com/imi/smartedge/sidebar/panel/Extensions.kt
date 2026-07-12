@@ -388,6 +388,48 @@ fun Context.isLandscapeApp(packageName: String): Boolean {
 }
 
 /**
+ * Audit S2 \u2014 shared safety gate for `intent:#Intent;\u2026` URIs persisted to
+ * SharedPreferences and round-tripped through the picker / sidebar.
+ *
+ * Walks the entire selector chain (top-level intent + every linked SEL=\u2026
+ * selector) and refuses any URI whose explicit component chain targets a
+ * package other than `packageName`. This is the same gate that
+ * `AppPickerPanelView` uses on its launch path, promoted to a top-level
+ * extension so the sidebar adapter `PanelAppsAdapter` honors it too \u2014
+ * otherwise a user-supplied `intent:` row could reach an unexported
+ * activity of another app straight from the sidebar, bypassing the picker
+ * surface that the picker gate nominally protects.
+ *
+ * Pure `http(s)://` / `file://` URIs are out of scope here \u2014 OS Intent
+ * resolution already confines them to the registered browser / viewer.
+ */
+internal fun Context.isSafeIntentUri(uri: String?): Boolean {
+    if (uri.isNullOrBlank()) return true
+    if (!uri.startsWith("intent:")) return true
+    return try {
+        val parsed = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME)
+        // Walk BOTH the top-level intent and any SEL=\u2026 selector chain.
+        // Android resolves `SEL` intents to deliver a different target; if
+        // the embedded selector carries a component pointing at another
+        // package, the system would happily start an unexported activity
+        // there. Refuse any non-self package along the whole chain.
+        var curr: Intent? = parsed
+        while (curr != null) {
+            val compPkg = curr.component?.packageName
+            if (compPkg != null && compPkg != packageName) return false
+            curr = curr.selector
+        }
+        // Top-level had no explicit component AND no selector chain carried
+        // a foreign component \u2192 either way, the chain is bound by action /
+        // category / package set, not by a privileged component override.
+        true
+    } catch (e: Exception) {
+        // Unparseable `intent:` URI \u2014 refuse to launch as a paranoia step.
+        false
+    }
+}
+
+/**
  * Extension to convert DP to PX.
  */
 fun Context.dpToPx(dp: Int): Int {

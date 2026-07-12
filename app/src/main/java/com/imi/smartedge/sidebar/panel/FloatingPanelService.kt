@@ -758,7 +758,14 @@ class FloatingPanelService : Service() {
 
     private fun initPickerPanel() {
         pickerPanelView = AppPickerPanelView(this).apply {
-            onClose = { closePicker() }
+            // Audit U4 — drain any in-progress edit BEFORE tearing the picker
+            // down. Without this, tapping outside or swiping-down closed the
+            // picker with the EditText rows intact but `editingItemId` still
+            // populated. The next session would then log an indexing -1 error
+            // when the ghost item was looked up. Saving on close also catches
+            // the case where the user filled a valid title/URL but didn't tap
+            // DONE — without the explicit save the row was silently lost.
+            onClose = { pickerPanelView?.commitPendingEdits(); closePicker() }
             onAppLaunched = { closePanel() }
             onToggleApp = { app, isSelected ->
                 if (isSelected) {
