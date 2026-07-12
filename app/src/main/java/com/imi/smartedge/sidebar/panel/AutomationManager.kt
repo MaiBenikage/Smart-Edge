@@ -271,6 +271,13 @@ object AutomationManager {
         }
     }
 
+    // Shizuku 11/12's `newProcess(Array<String>, Array<String>?, String?)` overload
+    // is deprecated in Shizuku 13 in favor of a signature with refined Kotlin
+    // nullability. The migration is gated on a major Shizuku version bump; we
+    // suppress DEPRECATION *only* on this specific helper so any future unrelated
+    // deprecations elsewhere in this file (or in callers) are still surfaced
+    // rather than blanket-suppressed at file scope.
+    @Suppress("DEPRECATION")
     private fun runShizuku(command: String): Boolean = try {
         val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
         process.waitFor() == 0
