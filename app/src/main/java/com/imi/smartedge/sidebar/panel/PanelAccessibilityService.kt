@@ -201,9 +201,16 @@ class PanelAccessibilityService : AccessibilityService() {
             }
         }
         
-        // Check for immersive mode on window content changes too, as bounds might change
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
-            event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+        // Audit U-High: only re-evaluate immersive state on full window
+        // STATE changes. The previous logic also fired on every
+        // TYPE_WINDOW_CONTENT_CHANGED event, which arrives frequently during
+        // progress bar / animation / video playback frames — each invocation
+        // makes a synchronous `rootInActiveWindow` IPC + bounds calculation on
+        // the AccessibilityService main thread. Limiting to STATE_CHANGED
+        // drops the per-frame cost without changing visible behavior, since
+        // immersive/fullscreen state only flips at app-change boundaries in
+        // practice (entering/leaving fullscreen video re-issues a STATE event).
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             checkImmersiveMode()
         }
     }

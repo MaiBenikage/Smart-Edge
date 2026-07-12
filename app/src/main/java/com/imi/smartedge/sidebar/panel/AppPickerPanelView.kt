@@ -649,7 +649,23 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
 
         // Reject invalid content unless the caller explicitly asked to discard.
-        if (!forceDiscard && !isValidCustom(newTitle, newContent)) {
+        if (!isValidCustom(newTitle, newContent)) {
+            // Audit L-High: when caller passed forceDiscard=true (typical from
+            // switchTab() / addNewCustomItem()), an invalid URI/text MUST be
+            // dropped — NOT silently saved. The previous logic skipped the
+            // `return false` branch on forceDiscard and fell through to
+            // write the invalid string to SharedPreferences anyway, which
+            // defeated the point of the validation gate.
+            if (forceDiscard) {
+                Log.w(
+                    "AppPickerPanelView",
+                    "saveEditingItem force-discarded invalid custom uri (id=$id, content='${newContent.take(64)}')"
+                )
+                editingItemId = null
+                pendingCustomEdits.remove(id)
+                rebuildAndSubmit()
+                return true
+            }
             Log.w(
                 "AppPickerPanelView",
                 "saveEditingItem rejected: invalid custom uri (id=$id, content='${newContent.take(64)}')"
@@ -1389,10 +1405,21 @@ class AppPickerPanelView @JvmOverloads constructor(
         if (!uri.startsWith("intent:")) return true
         return try {
             val parsed = android.content.Intent.parseUri(uri, android.content.Intent.URI_INTENT_SCHEME)
-            // No explicit component → binding goes through package manager
-            // resolution (action/category uri vs installed handlers). Reject only
-            // when the user forced a component name that targets another package.
-            parsed.component == null || parsed.component!!.packageName == context.packageName
+            // Walk BOTH the top-level intent and any SEL=… selector chain.
+            // Android resolves `SEL` intents to deliver a different target; if
+            // the embedded selector carries a component pointing at another
+            // package, the system would happily start an unexported activity
+            // there. Refuse any non-self package along the whole chain.
+            var curr: android.content.Intent? = parsed
+            while (curr != null) {
+                val compPkg = curr.component?.packageName
+                if (compPkg != null && compPkg != context.packageName) return false
+                curr = curr.selector
+            }
+            // Top-level had no explicit component AND no selector chain carried
+            // a foreign component → either way, the chain is bound by action /
+            // category / package set, not by a privileged component override.
+            true
         } catch (e: Exception) {
             // Unparseable `intent:` URI — refuse to launch as a paranoia step.
             false

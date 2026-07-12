@@ -504,12 +504,17 @@ class FloatingPanelService : Service() {
         removeView(rootLayout)
     }
 
-    // Audit L1: when the user swipes the app from Recents on a recent Android,
-    // the system keeps the foreground service alive briefly. stopSelf() routes
-    // through the standard onDestroy() path so window/receiver cleanup is guaranteed.
+    // Audit U-Med: this service is the live overlay panel; it MUST outlive
+    // any short-lived ConfigurationActivity the user swipes from Recents,
+    // because that's exactly how the Android swipe-from-recents UX is
+    // expected to behave for foreground services. Calling stopSelf() here
+    // terminated the entire sidebar the moment the user cleaned up the
+    // launcher task — the most unexpected failure mode we have in the wild.
+    // The service still terminates voluntarily through Notification-stop /
+    // quick-tile / explicit user action or through the system's own
+    // low-memory killer. We do NOT call stopSelf().
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

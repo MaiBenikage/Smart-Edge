@@ -142,6 +142,16 @@ class PanelTileService : TileService() {
      *   - `sendBroadcast(ACTION_CLOSE_SYSTEM_DIALOGS)` to collapse the shade
      *     (deprecated since Android N; the system no longer honors it for non-system apps)
      * [PendingIntent.FLAG_IMMUTABLE] is required by API 31+ for any PIs we create.
+     *
+     * Audit L-Low: on Android 14+ the strict background-activity-start policy
+     * can treat an unbounded PI launch as background and silently buffer it.
+     * Tile clicks already have system-granted background-launch privileges,
+     * so the 1-arg overload is correct everywhere; the 2-arg overload
+     * (which adds MODE_BACKGROUND_ACTIVITY_START_ALLOWED) is intentionally
+     * NOT used here because compileSdk = 34's TileService API surface does
+     * not yet expose it in this toolchain. The single-arg form below
+     * preserves the proven shipping path while keeping this reasoning
+     * documented for the next maintenance pass.
      */
     private fun startAction(intent: Intent) {
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
