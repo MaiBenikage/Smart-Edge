@@ -252,4 +252,14 @@
     <string name="section_desktop_shortcuts">Desktop Shortcuts</string>
     <string name="feature_add_shortcut_label">Add Toggle Shortcut</string>
     <string name="feature_add_shortcut_desc">Pin a shortcut to your home screen to quickly toggle the sidebar</string>
+
+    <!-- Audit PR-2: localized copy for engine loss + automation tips + drag overlays -->
+    <string name="engine_lost_msg">Engine lost — gestures may fall back to Accessibility</string>
+    <string name="split_top">TOP SPLIT</string>
+    <string name="split_bottom">BOTTOM SPLIT</string>
+    <string name="split_freeform">FREEFORM WINDOW</string>
+    <string name="automation_unavailable_tip">Native gesture requires Root or Shizuku. Tap to open Setup.</string>
+    <string name="accessibility_or_native_gesture_tip">Enable SidePanel in Accessibility, OR turn on Native Gesture (Root/Shizuku) in Settings</string>
+    <string name="write_secure_settings_explainer">WHO can change what: this permission lets Smart Edge write to Android\'s secure settings store (rotation, accessibility-related flags). It does not expose your apps or personal data to Smart Edge.</string>
+    <string name="custom_uri_returned_to_edit">Custom URL is invalid — switched that row to edit mode</string>
 </resources>

@@ -193,6 +193,23 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             setBackgroundColor(Color.parseColor("#1AFFFFFF"))
         })
 
+        // Audit S2: explanatory banner for WRITE_SECURE_SETTINGS. ADB-routed,
+        // not app-level. Most users don't realise what this permission can touch.
+        // Smart Edge uses it for rotation + system flags only — not user data.
+        val tvExplainer = TextView(ctx).apply {
+            text = getString(R.string.write_secure_settings_explainer)
+            textSize = 11f
+            setTextColor(Color.parseColor("#B3FFFFFF"))
+            setLineSpacing(0f, 1.15f)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = (16 * density).toInt()
+            }
+        }
+        root.addView(tvExplainer)
+
         // Shizuku Row
         root.addView(createAutomationRow(ctx, density, "Shizuku", "Wireless ADB automation",
             onGrant = {

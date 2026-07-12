@@ -374,7 +374,17 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                 val behavior = com.google.android.material.bottomsheet.BottomSheetBehavior.from(sheet)
                 behavior.isFitToContents = false
                 behavior.halfExpandedRatio = 0.6f
-                behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_HALF_EXPANDED
+                // Audit U2: short screens (<700dp usable height) clip the bottom
+                // "Use System Automation instead" button on STATE_HALF_EXPANDED.
+                // Force STATE_EXPANDED + skipCollapsed on those devices so both
+                // buttons stay reachable above the nav bar inset.
+                val heightDp = ctx.resources.displayMetrics.heightPixels / ctx.resources.displayMetrics.density
+                if (heightDp < 700f) {
+                    behavior.skipCollapsed = true
+                    behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+                } else {
+                    behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_HALF_EXPANDED
+                }
             }
             bottomSheet?.background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE

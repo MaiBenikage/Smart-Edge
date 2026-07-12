@@ -59,6 +59,13 @@ class FloatingPanelService : Service() {
     private var isImmersiveMode = false
     private var currentFolderId: String? = null
     private lateinit var panelPrefs: PanelPreferences
+    // Audit L1: AppRepository is now a single per-service instance provisioned in
+    // onCreate(). Previously every call to refreshApps()/getTop5Apps() allocated
+    // a fresh AppRepository(this), which owned its own
+    //   iconPreloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // so we leaked one SupervisorJob per refresh. With the field, refreshApps()
+    // reuses the same scope and onDestroy() can call repository.clear() (Audit L2).
+    private lateinit var repository: AppRepository
     private var lastPickerToggleTime = 0L
     
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
@@ -136,16 +143,12 @@ class FloatingPanelService : Service() {
         isRunning = true
 
         // Audit L5/U11/L7: probe engine once at service startup, then react if the
-        // Shizuku binder dies at runtime. The toast is intentionally short — the
-        // visible handle disappearing via addEdgeHandle() is the primary signal.
+        // Shizuku binder dies at runtime. A localized Snackbar (with Toast fallback
+        // if no anchor View exists yet) is now surfaced instead of the old plain toast.
         AutomationManager.refresh()
         AutomationManager.onEngineLost = {
             if (panelPrefs.useAutomationForGestures) {
-                android.widget.Toast.makeText(
-                    this,
-                    "Shizuku/Root engine lost — gestures may fall back to Accessibility",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
+                showEngineLostSnackbar()
                 addEdgeHandle()
             }
         }
@@ -155,7 +158,10 @@ class FloatingPanelService : Service() {
         }
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         panelPrefs = PanelPreferences(this)
-        
+        // Audit L1: provision the shared repository BEFORE initSidePanel() calls
+        // refreshApps() — otherwise the launch would NPE on repository.getPanelApps().
+        repository = AppRepository(this)
+
         try {
             cameraManager = getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
             cameraManager?.registerTorchCallback(torchCallback, handler)
@@ -218,7 +224,7 @@ class FloatingPanelService : Service() {
 
         serviceScope.launch {
             if (panelPrefs.getPanelApps().isEmpty()) {
-                val topApps = AppRepository(this@FloatingPanelService).getTop5Apps()
+                val topApps = repository.getTop5Apps()
                 panelPrefs.setPanelApps(topApps)
                 refreshApps()
             }
@@ -281,7 +287,7 @@ class FloatingPanelService : Service() {
             ACTION_REFRESH -> {
                 serviceScope.launch {
                     if (panelPrefs.getPanelApps().isEmpty()) {
-                        val topApps = AppRepository(this@FloatingPanelService).getTop5Apps()
+                        val topApps = repository.getTop5Apps()
                         panelPrefs.setPanelApps(topApps)
                     }
                     val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -469,11 +475,25 @@ class FloatingPanelService : Service() {
         try {
             cameraManager?.unregisterTorchCallback(torchCallback)
         } catch (e: Exception) {}
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             TileService.requestListeningState(this, android.content.ComponentName(this, PanelTileService::class.java))
         }
         NotificationTrackingService.onNotificationsChanged = null
+        // Audit S3: clear the AutomationManager.onEngineLost callback so the
+        // single-engine-singleton doesn't keep `this` alive past the service's
+        // death. Without this the Singleton → Service reference would leak the
+        // entire WindowManager overlay tree across service restarts.
+        AutomationManager.onEngineLost = null
+        // Audit L6: cancel every pending message on the foreground Handler.
+        // `handler.removeCallbacksAndMessages(null)` clears the indicator-fade
+        // runnable as well as anything scheduled via postDelayed above.
+        handler.removeCallbacksAndMessages(null)
+        // Audit L2: cancel the AppRepository's preload scope BEFORE tearing
+        // down serviceScope so its inflight icon loads cannot race the cancel.
+        // Guarded because `repository` is `lateinit` and may not have been
+        // initialized yet if onCreate threw before reaching the assignment.
+        if (::repository.isInitialized) repository.clear()
         serviceScope.cancel()
         try {
             unregisterReceiver(systemDialogsReceiver)
@@ -1132,8 +1152,6 @@ class FloatingPanelService : Service() {
 
     private fun refreshApps(onComplete: (() -> Unit)? = null) {
         serviceScope.launch {
-            val repository = AppRepository(this@FloatingPanelService)
-            
             val apps = if (currentFolderId != null) {
                 when (currentFolderId) {
                     "smartedge.folder.tools" -> {
@@ -1260,13 +1278,13 @@ class FloatingPanelService : Service() {
             }
         }
 
-        tvTopZone = createZone("TOP SPLIT", Gravity.TOP).apply { 
+        tvTopZone = createZone(getString(R.string.split_top), Gravity.TOP).apply {
             layoutParams.height = (resources.displayMetrics.heightPixels * 0.28).toInt()
         }
-        tvBottomZone = createZone("BOTTOM SPLIT", Gravity.BOTTOM).apply { 
+        tvBottomZone = createZone(getString(R.string.split_bottom), Gravity.BOTTOM).apply {
             layoutParams.height = (resources.displayMetrics.heightPixels * 0.28).toInt()
         }
-        tvFreeformZone = createZone("FREEFORM WINDOW", Gravity.CENTER).apply { 
+        tvFreeformZone = createZone(getString(R.string.split_freeform), Gravity.CENTER).apply {
             layoutParams.height = (resources.displayMetrics.heightPixels * 0.30).toInt()
         }
 
@@ -1407,7 +1425,7 @@ class FloatingPanelService : Service() {
                     textSize = 14f
                     setPadding((16 * density).toInt(), (10 * density).toInt(), (16 * density).toInt(), (10 * density).toInt())
                     gravity = android.view.Gravity.CENTER
-                    
+
                     background = android.graphics.drawable.GradientDrawable().apply {
                         setColor(android.graphics.Color.parseColor("#E6303030"))
                         cornerRadius = 24f * density
@@ -1429,7 +1447,7 @@ class FloatingPanelService : Service() {
             indicatorText?.visibility = View.VISIBLE
             indicatorText?.alpha = 1f
             indicatorText?.animate()?.cancel()
-            
+
             indicatorFadeRunnable?.let { handler.removeCallbacks(it) }
             indicatorFadeRunnable = Runnable {
                 indicatorText?.animate()
@@ -1439,6 +1457,26 @@ class FloatingPanelService : Service() {
                     ?.start()
             }
             handler.postDelayed(indicatorFadeRunnable!!, 1500)
+        }
+    }
+
+    /**
+     * Audit prompt — localized Snackbar surfaced when Shizuku/Root binder dies
+     * mid-session. Falls back to a Toast only if no anchor View is yet attached
+     * to the WindowManager (i.e. the very first probe fired before the panel was
+     * ever opened).
+     */
+    private fun showEngineLostSnackbar() {
+        val msg = getString(R.string.engine_lost_msg)
+        val anchor = rootLayout ?: edgeHandleView
+        if (anchor != null) {
+            com.google.android.material.snackbar.Snackbar.make(
+                anchor,
+                msg,
+                com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+            ).show()
+        } else {
+            android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
         }
     }
 }

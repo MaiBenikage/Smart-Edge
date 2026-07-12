@@ -1147,26 +1147,22 @@ class AppPickerPanelView @JvmOverloads constructor(
                 (it is PickerItem.TreeChild && it.app.identifier == app.identifier)
             }
             rvPickerGrid.findViewHolderForAdapterPosition(pos)?.itemView?.let { SpringAnimator.scalePulse(it) }
+
+            // Audit S1: hoist the self-package component validation. Previously
+            // only the CUSTOM branch had it; activities/shortcuts with `intent:`
+            // uris bypassed the check, allowing `intent:#Intent;component=com.victim/.X`
+            // to launch any exported=false activity from the sidebar.
+            if (!isSafeIntentUri(app.intentUri)) {
+                showLaunchBlockedUI(app)
+                return
+            }
+
             val intent: android.content.Intent? = when {
                 app.type == AppInfo.Type.CUSTOM -> {
                     try {
                         if (app.intentUri.orEmpty().startsWith("intent:")) {
-                            val parsed = android.content.Intent.parseUri(app.intentUri, android.content.Intent.URI_INTENT_SCHEME)
-                            // SECURITY (Audit S2): `intent:#Intent;component=…` can target ANY
-                            // component, including exported=false internal activities or
-                            // sensitive external ones the user did not intend. Refuse the
-                            // launch unless the explicit component is in our own package
-                            // (i.e. the custom URL is launching one of our own routes or a
-                            // scheme-resolved intent with no explicit component).
-                            if (parsed.component != null && parsed.component!!.packageName != context.packageName) {
-                                android.widget.Toast.makeText(
-                                    context,
-                                    "Custom URL points to a different app — launch blocked",
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
-                                return
-                            }
-                            parsed.apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
+                            android.content.Intent.parseUri(app.intentUri, android.content.Intent.URI_INTENT_SCHEME)
+                                .apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
                         } else {
                             android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(app.intentUri)).apply { addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
                         }
@@ -1211,6 +1207,13 @@ class AppPickerPanelView @JvmOverloads constructor(
         private fun bindCustom(holder: CustomViewHolder, item: PickerItem.CustomRow) {
             val ci = item.item
             val itemId = ci.id
+            // Audit L5: freeze recyclability while this row's edit session owns the
+            // live TextWatchers. If RecyclerView reused this holder while editing
+            // was active, the old watchers (tagged on etTitle/etContent) would
+            // reconstruct on rebind but a stale afterTextChanged could fire mid-bind
+            // and pollute pendingCustomEdits[staleId]. Marking the holder
+            // non-recyclable during editing guarantees its watchers stay in-sync.
+            holder.setIsRecyclable(!item.isEditing)
             if (item.isEditing) {
                 holder.readMode.visibility = View.GONE
                 holder.editMode.visibility = View.VISIBLE
@@ -1371,6 +1374,52 @@ class AppPickerPanelView @JvmOverloads constructor(
         if (content.length > MAX_CUSTOM_CONTENT_LEN) return false
         val s = content.trim().lowercase()
         return ALLOWED_CUSTOM_SCHEMES.any { s.startsWith(it) }
+    }
+
+    /**
+     * Audit S1 — intercept launcher for `intent:#Intent;component=…` URIs.
+     * Refuses to launch when an explicit component package is set that is NOT
+     * our own package, because that URL could target ANY component on the
+     * device including exported=false internal activities of other apps.
+     * Pure `http(s)://` and `file://` URIs are out of scope here because the
+     * OS Intent resolution already confines them to the registered browser/viewer.
+     */
+    private fun isSafeIntentUri(uri: String?): Boolean {
+        if (uri.isNullOrBlank()) return true
+        if (!uri.startsWith("intent:")) return true
+        return try {
+            val parsed = android.content.Intent.parseUri(uri, android.content.Intent.URI_INTENT_SCHEME)
+            // No explicit component → binding goes through package manager
+            // resolution (action/category uri vs installed handlers). Reject only
+            // when the user forced a component name that targets another package.
+            parsed.component == null || parsed.component!!.packageName == context.packageName
+        } catch (e: Exception) {
+            // Unparseable `intent:` URI — refuse to launch as a paranoia step.
+            false
+        }
+    }
+
+    /**
+     * Audit U6 — when an unsafe custom URL is caught, instead of just toasting
+     * and returning, auto-switch the user into edit mode on the offending row so
+     * they can fix the string in place. Falls back to plain toast if the offending
+     * app doesn't correspond to a custom row in our list.
+     */
+    private fun showLaunchBlockedUI(app: AppInfo) {
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.custom_uri_returned_to_edit),
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+        val customPrefix = PanelPreferences.CUSTOM_ID_PREFIX
+        val customItemId = if (app.identifier.startsWith(customPrefix)) {
+            app.identifier.removePrefix(customPrefix)
+        } else null
+        if (customItemId != null) {
+            // Ensure the row is visible: switch to the URLS tab if we weren't on it.
+            if (activeTab != PickerTab.CUSTOM) switchTab(PickerTab.CUSTOM)
+            onCustomEditButtonTapped(customItemId)
+        }
     }
 
     // ====================================================================================

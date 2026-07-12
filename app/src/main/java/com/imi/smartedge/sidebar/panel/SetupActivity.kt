@@ -50,6 +50,22 @@ class SetupActivity : AppCompatActivity() {
                         SecureSettingsDialog.show(this) {
                             updateUI()
                         }
+                        // Audit U3: without this follow-up the user dismisses the
+                        // ADB-grant dialog and gets no signal about what to do
+                        // next. After a 1.5s grace period (dialog open time), if
+                        // automation still hasn't come up, surface an actionable
+                        // Snackbar that re-opens the dialog if the user taps.
+                        binding.root.postDelayed({
+                            if (!AutomationManager.isAutomationPossible() && !panelPrefs.useAutomationForGestures) {
+                                com.google.android.material.snackbar.Snackbar.make(
+                                    binding.root,
+                                    R.string.automation_unavailable_tip,
+                                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                                ).setAction(R.string.btn_setup) {
+                                    SecureSettingsDialog.show(this) { updateUI() }
+                                }.show()
+                            }
+                        }, 1500)
                     }
                 }
             }

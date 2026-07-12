@@ -354,14 +354,18 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
 
         val automationEnabled = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
         if (!automationEnabled && !isAccessibilityServiceEnabled()) {
-            binding.root.showModernToast("Please enable 'SidePanel' in Accessibility Settings", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+            // Audit U1: was surfaced as "enable SidePanel in Accessibility" but users
+            // who ALSO had Native Gesture enabled but the engine missing read this
+            // as a contradiction. New copy explicitly names both engine options so
+            // the user understands they can route through Root/Shizuku instead.
+            binding.root.showModernToast(getString(R.string.accessibility_or_native_gesture_tip), com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
             openAccessibilitySettings()
             return
         }
 
         // Use centralized logic
         panelPrefs.toggleService(this)
-        
+
         // UI will be updated by the OnSharedPreferenceChangeListener
     }
 
@@ -373,11 +377,11 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
         
         val automationEnabled = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
         if (!automationEnabled && !isAccessibilityServiceEnabled()) {
-            binding.root.showModernToast("Please enable 'SidePanel' in Accessibility Settings", Snackbar.LENGTH_LONG)
+            binding.root.showModernToast(getString(R.string.accessibility_or_native_gesture_tip), Snackbar.LENGTH_LONG)
             openAccessibilitySettings()
             return
         }
-        
+
         binding.root.showModernToast("Opening Sidebar...")
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_OPEN

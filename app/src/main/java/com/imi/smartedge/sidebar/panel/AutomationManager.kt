@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import rikka.shizuku.Shizuku
 import java.io.DataOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Aud L5/U11/L7 — engine evaluation is now decoupled from synchronous reads.
@@ -71,7 +72,12 @@ object AutomationManager {
     // path cannot lose a race to a mid-flight [refresh] and overwrite NONE with
     // a stale SHIZUKU_READY.
     private val refreshMutex = Mutex()
-    private var isListenerRegistered: Boolean = false
+    // Audit L3: AtomicBoolean guards Shizuku listener registration. Two concurrent
+    // refresh() calls could both pass `if (!isListenerRegistered)` and register
+    // the same listeners twice — Shizuku.addBinderDeadListener on a duplicate
+    // throws IllegalArgumentException which was silently swallowed. compareAndSet
+    // guarantees a single registration across all coroutine invocations.
+    private val listenerRegistered = AtomicBoolean(false)
 
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
         scope.launch {
@@ -97,14 +103,17 @@ object AutomationManager {
      */
     fun refresh() {
         scope.launch {
-            if (!isListenerRegistered) {
+            // Audit L3: compareAndSet returns true exactly once across all racing
+            // refresh() calls. Losers no-op (they don't need to register; the
+            // winning thread already did).
+            if (listenerRegistered.compareAndSet(false, true)) {
                 try {
                     Shizuku.addBinderDeadListener(binderDeadListener)
                     Shizuku.addRequestPermissionResultListener(permissionListener)
-                    isListenerRegistered = true
                 } catch (e: Exception) {
-                    // Shizuku not installed — leave listeners unregistered forever;
-                    // refresh() will keep probing on its own.
+                    // Shizuku not installed — roll back so a later refresh() can
+                    // retry once Shizuku actually starts.
+                    listenerRegistered.set(false)
                 }
             }
 
@@ -236,26 +245,46 @@ object AutomationManager {
     // overload with refined Kotlin nullability on the String! platform types. The
     // migration is gated on a major Shizuku version bump; for now suppress the
     // single-method deprecation warning at the call site.
+    //
+    // Audit L4: when the user just granted Shizuku permission but [refresh] is
+    // still in-flight, the cache may not yet reflect READY — and execute() would
+    // silently drop the call. The synchronous-fallback re-probes via the internal
+    // helpers on the calling thread (these are confined ping/exec calls, not
+    // coroutines) so a single input event still gets through to the engine.
     @Suppress("DEPRECATION")
     fun execute(command: String): Boolean {
         if (isShizukuAvailable()) {
-            return try {
-                val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
-                process.waitFor() == 0
-            } catch (e: Exception) {
-                Log.e(TAG, "Shizuku execution failed: $command", e)
-                false
-            }
+            return runShizuku(command)
         } else if (isRootAvailable()) {
-            return try {
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
-                process.waitFor() == 0
-            } catch (e: Exception) {
-                Log.e(TAG, "Root execution failed: $command", e)
-                false
-            }
+            return runRoot(command)
         }
-        return false
+        // Audit L4 fallback: cache cold, re-probe synchronously before giving up.
+        return try {
+            when {
+                isShizukuAvailableInternal() -> runShizuku(command)
+                isRootAvailableInternal() -> runRoot(command)
+                else -> false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "execute() sync-fallback failed: $command", e)
+            false
+        }
+    }
+
+    private fun runShizuku(command: String): Boolean = try {
+        val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+        process.waitFor() == 0
+    } catch (e: Exception) {
+        Log.e(TAG, "Shizuku execution failed: $command", e)
+        false
+    }
+
+    private fun runRoot(command: String): Boolean = try {
+        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+        process.waitFor() == 0
+    } catch (e: Exception) {
+        Log.e(TAG, "Root execution failed: $command", e)
+        false
     }
 
     fun performBack() = execute("input keyevent 4")
