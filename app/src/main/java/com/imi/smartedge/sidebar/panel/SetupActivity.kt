@@ -79,6 +79,9 @@ class SetupActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Audit L5/U11: re-probe Shizuku/Root engine state when SetupActivity is foregrounded
+        // so cardAutomation reflects the current engine instead of a stale cached value.
+        AutomationManager.refresh()
         updateUI()
     }
 

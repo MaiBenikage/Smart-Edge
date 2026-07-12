@@ -123,9 +123,13 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
 
     override fun onResume() {
         super.onResume()
+        // Audit L5/U11: re-probe Shizuku/Root engine state on every foreground.
+        // Cheap, fire-and-forget; updates AutomationManager.engineState for UI subscribers.
+        AutomationManager.refresh()
+
         val prefs = getSharedPreferences("side_panel_prefs", android.content.Context.MODE_PRIVATE)
         prefs.registerOnSharedPreferenceChangeListener(this)
-        
+
         applyHomeButtonStyle()
         updatePermissionUI()
         updateServiceStatus()

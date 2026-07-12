@@ -134,6 +134,22 @@ class FloatingPanelService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+
+        // Audit L5/U11/L7: probe engine once at service startup, then react if the
+        // Shizuku binder dies at runtime. The toast is intentionally short — the
+        // visible handle disappearing via addEdgeHandle() is the primary signal.
+        AutomationManager.refresh()
+        AutomationManager.onEngineLost = {
+            if (panelPrefs.useAutomationForGestures) {
+                android.widget.Toast.makeText(
+                    this,
+                    "Shizuku/Root engine lost — gestures may fall back to Accessibility",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+                addEdgeHandle()
+            }
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             TileService.requestListeningState(this, android.content.ComponentName(this, PanelTileService::class.java))
         }
@@ -466,6 +482,14 @@ class FloatingPanelService : Service() {
         removeView(edgeHandleView)
         removeView(notchHandleView)
         removeView(rootLayout)
+    }
+
+    // Audit L1: when the user swipes the app from Recents on a recent Android,
+    // the system keeps the foreground service alive briefly. stopSelf() routes
+    // through the standard onDestroy() path so window/receiver cleanup is guaranteed.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

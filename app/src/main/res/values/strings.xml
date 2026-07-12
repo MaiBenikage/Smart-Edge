@@ -100,7 +100,7 @@
     <string name="main_service_title">Sidebar Service</string>
     <string name="main_service_stopped">Service is Stopped</string>
     <string name="main_service_running">Service is Active</string>
-    <string name="main_test_sidebar">Test Sidebar Now</string>
+    <string name="main_test_sidebar">Open Sidebar</string>
     
     <string name="alert_battery_title">Improve Stability</string>
     <string name="alert_battery_desc">Exclude SidePanel from battery optimization to prevent the system from killing it in the background.</string>

@@ -368,6 +368,14 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         dialog?.setOnShowListener {
             val bottomSheet = (dialog as? com.google.android.material.bottomsheet.BottomSheetDialog)
                 ?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            // Audit U10: half-expand prevents full-screen take-over on tall devices.
+            // isFitToContents=false is required for STATE_HALF_EXPANDED to register visually on Material.
+            (bottomSheet as? android.widget.FrameLayout)?.let { sheet ->
+                val behavior = com.google.android.material.bottomsheet.BottomSheetBehavior.from(sheet)
+                behavior.isFitToContents = false
+                behavior.halfExpandedRatio = 0.6f
+                behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_HALF_EXPANDED
+            }
             bottomSheet?.background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadii = floatArrayOf(

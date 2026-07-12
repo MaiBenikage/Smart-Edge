@@ -1224,6 +1224,7 @@ class AppPickerPanelView @JvmOverloads constructor(
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                     override fun afterTextChanged(s: Editable?) {
+                        if (holder.isBinding) return
                         val t = holder.etTitle.text?.toString().orEmpty()
                         val c = holder.etContent.text?.toString().orEmpty()
                         pendingCustomEdits[itemId] = t to c
@@ -1233,6 +1234,7 @@ class AppPickerPanelView @JvmOverloads constructor(
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                     override fun afterTextChanged(s: Editable?) {
+                        if (holder.isBinding) return
                         val t = holder.etTitle.text?.toString().orEmpty()
                         val c = holder.etContent.text?.toString().orEmpty()
                         pendingCustomEdits[itemId] = t to c
@@ -1254,8 +1256,10 @@ class AppPickerPanelView @JvmOverloads constructor(
 
                 // Populate EditTexts. Watchers fire and self-seed pendingCustomEdits
                 // with (ci.title, ci.content).
+                holder.isBinding = true
                 if (holder.etTitle.text.toString() != ci.title) holder.etTitle.setText(ci.title)
                 if (holder.etContent.text.toString() != ci.content) holder.etContent.setText(ci.content)
+                holder.isBinding = false
                 // Edit-text hint: detect URL vs intent from content
                 if (ci.content.isBlank()) {
                     holder.etContent.hint = "URL or intent:#Intent;…end"
@@ -1320,6 +1324,11 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
 
         inner class CustomViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            // Audit L6: gate that suppresses the TextWatcher self-seed during bind.
+            // When set to true the watcher ignores the next afterTextChanged hit, which
+            // is the synthetic echo from holder.etTitle.setText(ci.title); the watcher
+            // is then re-armed for genuine user edits.
+            var isBinding: Boolean = true
             val dragHandle: ImageView = view.findViewById(R.id.ivCustomDragHandle)
             val readMode: View = view.findViewById(R.id.customReadMode)
             val editMode: View = view.findViewById(R.id.customEditMode)
@@ -1354,7 +1363,10 @@ class AppPickerPanelView @JvmOverloads constructor(
      * Scheme + length validation for a custom URL/intent the user is editing.
      * Returns true if the inputs are acceptable to persist.
      */
-    private fun isValidCustom(title: String, content: String): Boolean {
+    // Audit U1: isValidCustom exposed as `internal` so unit tests in
+    // app/src/test/.../IsValidCustomTest.kt can verify scheme allowlist + length caps
+    // without needing Robolectric or an Activity.
+    internal fun isValidCustom(title: String, content: String): Boolean {
         if (title.length > MAX_CUSTOM_TITLE_LEN) return false
         if (content.length > MAX_CUSTOM_CONTENT_LEN) return false
         val s = content.trim().lowercase()

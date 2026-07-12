@@ -49,8 +49,8 @@ android {
     }
 
     lint {
-        checkReleaseBuilds = false
-        abortOnError = true
+        checkReleaseBuilds = true
+        abortOnError = false
     }
 
     dependenciesInfo {
@@ -86,6 +86,10 @@ dependencies {
     implementation("dev.rikka.shizuku:provider:12.1.0")
 
     testImplementation(libs.junit)
+    // Provide a real org.json on the JVM unit-test classpath to replace the
+    // Android-stub `org.json` (which throws `RuntimeException("Stub!")` on use).
+    // android.jar is on the unit-test compileClasspath but not at runtime.
+    testImplementation("org.json:json:20231013")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

@@ -7,6 +7,7 @@ import org.xmlpull.v1.XmlPullParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -26,6 +27,13 @@ class AppRepository(context: Context) {
     // `Delicate API` warning because `GlobalScope` has no structured-concurrency
     // parent (no cancellation tracking vs. the host service lifetime).
     private val iconPreloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Audit L3: cancel any in-flight icon preload jobs. Called from FloatingPanelService.onDestroy
+    // so we don't leak a SupervisorJob past the service lifetime.
+    // Safe to call multiple times — cancel() is idempotent.
+    fun clear() {
+        iconPreloadScope.cancel()
+    }
 
     companion object {
         // Aggressive memory cache for fully processed static bitmap icons to ensure buttery smooth scrolling

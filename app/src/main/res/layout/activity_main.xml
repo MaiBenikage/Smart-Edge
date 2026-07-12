@@ -118,8 +118,7 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnTogglePanel"
                     android:layout_width="match_parent"
-                    android:layout_height="54dp"
-                    android:text="Test Sidebar Manually"
+                    android:layout_height="54dp"                        android:text="@string/main_test_sidebar"
                     android:textAllCaps="false"
                     android:backgroundTint="#0DFFFFFF"
                     android:textColor="#FFFFFF"
