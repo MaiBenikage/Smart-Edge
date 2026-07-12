@@ -1,0 +1,11 @@
+v1.3.8
+- Hardened intent-URI safety across the entire sidebar: unified selector-chain guard prevents unexported activities of other apps from being reached via user-typed intent strings (picker + sidebar).
+- Fixed custom-URL/Intent round-trip collisions in sidebar storage: state-machine tokenizer preserves commas embedded inside Intent extras; legacy data round-trips losslessly.
+- Eliminated volume-clamp crash on devices whose MediaSession max is unusual (Bluetooth/A2DP/Communication overrides).
+- Service-toggle shortcut is now gated: imported/3rd-party launchers can no longer silently flip the sidebar back on.
+- Accessibility event listener no longer fires on every content-change tick — only on full window-state transitions, eliminating per-frame binder pressure.
+- Picker now properly drains in-progress edits when the user closes the gesture panel mid-typing; URLS tab reorders also re-flow into the sidebar order.
+- Backup/Restore: settings export/import is now strictly symmetric for custom items, panel apps, and game apps.
+- URLS, Activities, Shortcuts tabs now use a consistent two-row layout (left-aligned, name bold + larger; secondary line regular size).
+- Internal: Shizuku/Root engine probes moved off the UI thread to their own coroutine scope with structured-cancellation on service destroy.
+- Under-the-hood: lifecycle cleanup across FloatingPanelService + AppRepository (Glide/handler/notify callbacks all wired to onDestroy).
