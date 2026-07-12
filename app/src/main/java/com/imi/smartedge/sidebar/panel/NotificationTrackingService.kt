@@ -9,8 +9,17 @@ class NotificationTrackingService : NotificationListenerService() {
     companion object {
         private const val TAG = "NotificationTracker"
         
-        // List of unique package names that currently have active notifications
-        private val notificationPackages = mutableSetOf<String>()
+        // List of unique package names that currently have active notifications.
+        // Round-7 L-High: switched from mutableSetOf<String>() to a
+        // ConcurrentHashMap-backed key set. The set is mutated from the main
+        // thread inside onNotificationPosted/onNotificationRemoved and from
+        // updateActiveNotifications(), while AppRepository.getPanelApps()
+        // iterates a snapshot via .toList() on Dispatchers.IO. The previous
+        // plain HashSet would intermittently throw ConcurrentModificationException
+        // when the IO iterator caught the set mid-mutation, producing a
+        // NullPointerException further down `getAppsForIdentifiers` and a
+        // visible sidebar flicker (an item vanishing for one refresh cycle).
+        private val notificationPackages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         
         fun getActiveNotificationPackages(): List<String> {
             return notificationPackages.toList()

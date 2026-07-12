@@ -377,10 +377,31 @@ class FloatingPanelService : Service() {
     fun triggerScreenshot() {
         closePanel()
         Handler(Looper.getMainLooper()).postDelayed({
-            val intent = Intent(this, PanelAccessibilityService::class.java).apply {
-                action = PanelAccessibilityService.ACTION_TAKE_SCREENSHOT
+            // Round-7 L1/S2: PanelAccessibilityService is guarded by the
+            // BIND_ACCESSIBILITY_SERVICE signature permission — only Android
+            // system_server can bind/start it. A regular third-party app
+            // calling startService() on it would throw SecurityException; the
+            // previous code didn't catch it, so tapping the screenshot tool
+            // caused a FATAL EXCEPTION that brought the entire process down.
+            // Fall back to the Shizuku / Root route via AutomationManager
+            // (already wired in ActionDispatcher) when the startService
+            // attempt is denied, so the screenshot still goes out under the
+            // user's granted engine.
+            try {
+                val intent = Intent(this, PanelAccessibilityService::class.java).apply {
+                    action = PanelAccessibilityService.ACTION_TAKE_SCREENSHOT
+                }
+                startService(intent)
+            } catch (e: SecurityException) {
+                Log.e(TAG, "startService(PanelAccessibilityService) denied; falling back to AutomationManager.takeScreenshot()", e)
+                try {
+                    com.imi.smartedge.sidebar.panel.AutomationManager.takeScreenshot()
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Automation fallback also failed", e2)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to dispatch screenshot intent", e)
             }
-            startService(intent)
         }, 300)
     }
 
@@ -839,6 +860,16 @@ class FloatingPanelService : Service() {
                 panelPrefs.removeCustomItem(id)
                 val sidebarId = PanelPreferences.CUSTOM_ID_PREFIX + id
                 panelPrefs.removeApp(sidebarId)
+                refreshApps()
+            }
+            // Round-7 U3: drag-to-reorder inside the URLS tab persists the new
+            // order via resyncPanelAppsOrderFromCustomItems() (already correct),
+            // but the SidePanelView won't see the new positions until the
+            // service's refreshApps() runs. The picker holds the canonical
+            // customItems list while it's mounted, so wire this hook so the
+            // sidebar visually reflects the reorder immediately instead of
+            // waiting for the next ACTION_REFRESH / panel close-open cycle.
+            onCustomItemsReordered = {
                 refreshApps()
             }
             visibility = View.GONE

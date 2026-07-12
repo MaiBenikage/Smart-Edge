@@ -78,6 +78,12 @@ class AppPickerPanelView @JvmOverloads constructor(
     /** Fired when a custom item is removed (swipe or future "delete" button). */
     var onRemoveCustomItem: ((String) -> Unit)? = null
 
+    /** Round-7 U3: fired after a drag-and-drop reorder of URLS-tab items is
+     *  persisted. The hosting service should refresh the sidebar so the user
+     *  sees the new positions immediately rather than after the next panel
+     *  close-open cycle. */
+    var onCustomItemsReordered: (() -> Unit)? = null
+
     // ====================================================================================
     //                                    State
     // ====================================================================================
@@ -995,6 +1001,11 @@ class AppPickerPanelView @JvmOverloads constructor(
                     // (KEY_PANEL_APPS) so the user sees the same arrangement in both
                     // surfaces, not in only one of them.
                     panelPrefs.resyncPanelAppsOrderFromCustomItems(customItems)
+                    // Round-7 U3: notify the host so the sidebar reflects the
+                    // reorder immediately. Without this hook the persisted
+                    // KEY_PANEL_APPS is updated but SidePanelView's adapter
+                    // still sees the old order until a refresh cycle runs.
+                    onCustomItemsReordered?.invoke()
                 }
             }
         }

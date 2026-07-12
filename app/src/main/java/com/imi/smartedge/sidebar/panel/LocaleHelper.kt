@@ -14,7 +14,16 @@ object LocaleHelper {
         val defaultLang = LocaleListCompat.getDefault().get(0)?.language
             ?: Locale.ROOT.language
         val lang = getPersistedData(context, defaultLang)
-        return setLocale(context, lang)
+        // Round-7 U-Med: bypass setLocale() here because that path calls
+        // persist() — unconditional on every Activity attach (MainActivity,
+        // SettingsMainActivity, every *SettingsActivity, etc.), which forces
+        // a SharedPreferences.edit().apply() on the UI thread for each
+        // activity create during app startup. The value we just read is the
+        // same value persist() would write back, so the disk write is pure
+        // waste on every resume. updateResources only mutates Context.resources
+        // (cheap). The Settings page still uses setLocale() for the explicit
+        // user-driven language flip, where the write is the whole point.
+        return updateResources(context, lang)
     }
 
     fun setLocale(context: Context, language: String?): Context {
