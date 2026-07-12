@@ -1092,8 +1092,14 @@ class FloatingPanelService : Service() {
                 params.flags = params.flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
                 params.blurBehindRadius = 0
             }
-            if (rootLayout?.parent != null) {
-                windowManager.updateViewLayout(rootLayout, params)
+            // Round-H trap-fix: `if (rootLayout?.parent != null) { rootLayout.xxx }`
+            // does NOT smart-cast rootLayout through the `?.` — Kotlin keeps the
+            // receiver typed as FrameLayout? inside the body, so the call site
+            // would dispatch to windowManager.updateViewLayout with a null
+            // argument and trip IllegalArgumentException. Use takeIf + let so
+            // the receiver is non-null-shadowed under `it`.
+            rootLayout?.takeIf { it.parent != null }?.let { rl ->
+                windowManager.updateViewLayout(rl, params)
             }
         }
     }
@@ -1112,8 +1118,12 @@ class FloatingPanelService : Service() {
             }
             sidePanelView?.visibility = View.GONE
             updateBlur(false)
-            if (rootLayout?.parent != null) {
-                try { windowManager.removeViewImmediate(rootLayout) } catch (e: Exception) {}
+            // Round-H trap-fix: same `?.` smart-cast gap as in updateBlur().
+            // windowManager.removeViewImmediate(null) throws IllegalArgumentException;
+            // the previous try/catch silently absorbed it without removing the
+            // view from WM. Use takeIf + let to shadow a non-null receiver.
+            rootLayout?.takeIf { it.parent != null }?.let { rl ->
+                try { windowManager.removeViewImmediate(rl) } catch (e: Exception) {}
             }
             edgeHandleView?.visibility = View.VISIBLE
             sidePanelView?.animatePickerToggle(false)
@@ -1126,8 +1136,11 @@ class FloatingPanelService : Service() {
 
         if (!wasOpen) {
             // Safety: if panel is already marked closed but rootLayout is somehow still attached, kill it
-            if (rootLayout?.parent != null) {
-                try { windowManager.removeView(rootLayout) } catch (e: Exception) {}
+            // Round-H trap-fix: kotlin does NOT smart-cast rootLayout through `?.`
+            // — see FloatingPanelService.updateBlur for the full analysis. Use
+            // takeIf + let so the call site sees a non-null receiver.
+            rootLayout?.takeIf { it.parent != null }?.let { rl ->
+                try { windowManager.removeView(rl) } catch (e: Exception) {}
             }
             edgeHandleView?.visibility = View.VISIBLE
             return
@@ -1141,8 +1154,11 @@ class FloatingPanelService : Service() {
             SpringAnimator.animateClose(panel, if (isRight) panelWidth else -panelWidth, stiffness = stiffness) {
                 panel.visibility = View.GONE
                 updateBlur(false)
-                if (rootLayout?.parent != null) {
-                    try { windowManager.removeView(rootLayout) } catch (e: Exception) {}
+                // Round-H trap-fix: kotlin does NOT smart-cast rootLayout through `?.`
+                // — see FloatingPanelService.updateBlur for the full analysis. Use
+                // takeIf + let so the call site sees a non-null receiver.
+                rootLayout?.takeIf { it.parent != null }?.let { rl ->
+                    try { windowManager.removeView(rl) } catch (e: Exception) {}
                 }
                 edgeHandleView?.visibility = View.VISIBLE
                 panel.animatePickerToggle(false) 
