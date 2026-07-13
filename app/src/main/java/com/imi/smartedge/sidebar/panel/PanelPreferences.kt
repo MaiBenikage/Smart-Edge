@@ -210,10 +210,20 @@ class PanelPreferences(context: Context) {
         obj.put("_app", "SmartEdge")
 
         // Strings
+        //
+        // Round-13 audit M3 — DELIMITER-ROUND-TRIP DEFENSE: the three lists
+        // keyed below use `encodeDelim()` to escape `,` and `\` on write so
+        // that Intent-URI extras like `tags=a,b,c` survive `split(",")` on
+        // read. Calling `getPanelApps().joinToString(",")` here would discard
+        // the escape sequences the prefs blob still carries, producing a
+        // perfectly valid JSON export that silently corrupts the next
+        // `importFromJson`. Read the persisted blob verbatim instead — this
+        // is also what makes the export idempotent across multiple
+        // export→import round-trips.
         val strings = mapOf(
-            KEY_PANEL_APPS to getPanelApps().joinToString(DELIMITER),
+            KEY_PANEL_APPS to (prefs.getString(KEY_PANEL_APPS, null) ?: ""),
             KEY_CUSTOM_ITEMS to (prefs.getString(KEY_CUSTOM_ITEMS, null) ?: ""),
-            KEY_GAME_APPS to getGameApps().joinToString(DELIMITER),
+            KEY_GAME_APPS to (prefs.getString(KEY_GAME_APPS, null) ?: ""),
             KEY_PANEL_SIDE to panelSide,
             KEY_ACCENT_COLOR to accentColor,
             KEY_PANEL_BG_COLOR to panelBackgroundColor,

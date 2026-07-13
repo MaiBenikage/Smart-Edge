@@ -517,6 +517,15 @@ class FloatingPanelService : Service() {
         // `handler.removeCallbacksAndMessages(null)` clears the indicator-fade
         // runnable as well as anything scheduled via postDelayed above.
         handler.removeCallbacksAndMessages(null)
+        // Round-13 audit M2: also nil out the indicator TextView reference.
+        // Even though `removeView(rootLayout)` removes the FrameLayout and its
+        // children from WindowManager, the Kotlin property here still holds a
+        // hard reference to the TextView object, which transitively anchors
+        // the View internals (mContext, mAttachInfo, mListenerInfo). Across
+        // service restarts that pile up. The fade-runnable cancellation above
+        // removes the timing path; this drops the memory anchor.
+        indicatorFadeRunnable = null
+        indicatorText = null
         // Audit L2: cancel the AppRepository's preload scope BEFORE tearing
         // down serviceScope so its inflight icon loads cannot race the cancel.
         // Guarded because `repository` is `lateinit` and may not have been

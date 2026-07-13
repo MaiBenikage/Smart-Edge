@@ -592,13 +592,16 @@ class AppPickerPanelView @JvmOverloads constructor(
         customItems.add(newItem)
         editingItemId = newItem.id
         onAddCustomItem?.invoke(newItem)
-        rebuildAndSubmit()
-        rvPickerGrid.post {
-            rvPickerGrid.scrollToPosition(adapter.itemCount - 1)
-            // Focus + show keyboard
-            val lastHolder = rvPickerGrid.findViewHolderForAdapterPosition(adapter.itemCount - 1)
-                as? PickerAdapter.CustomViewHolder
-            lastHolder?.let { h ->
+        // Round-13 audit M4: scroll + focus now runs from the LISTADAPTER commit
+        // callback so the new holder is actually laid out by the time we look it
+        // up. Previously `rvPickerGrid.post {}` ran before submitList finished,
+        // returning null from findViewHolderForAdapterPosition and leaving the
+        // keyboard permanently hidden.
+        rebuildAndSubmit {
+            val pos = adapter.itemCount - 1
+            rvPickerGrid.scrollToPosition(pos)
+            (rvPickerGrid.findViewHolderForAdapterPosition(pos)
+                as? PickerAdapter.CustomViewHolder)?.let { h ->
                 h.etTitle.requestFocus()
                 (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
                     .showSoftInput(h.etTitle, InputMethodManager.SHOW_IMPLICIT)
@@ -726,17 +729,20 @@ class AppPickerPanelView @JvmOverloads constructor(
             // Save previous, then enter edit on new
             if (editingItemId != null) saveEditingItem()
             editingItemId = id
-            rebuildAndSubmit()
-            // Focus title field of the now-editing row
-            val pos = adapter.currentList.indexOfFirst {
-                (it is PickerItem.CustomRow) && it.item.id == id
-            }
-            if (pos >= 0) {
-                val holder = rvPickerGrid.findViewHolderForAdapterPosition(pos) as? PickerAdapter.CustomViewHolder
-                holder?.let { h ->
-                    h.etTitle.requestFocus()
-                    (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-                        .showSoftInput(h.etTitle, InputMethodManager.SHOW_IMPLICIT)
+            // Round-13 audit M4: same fix as addNewCustomItem — run the focus
+            // lookup AFTER submitList's commit callback fires, so the holder
+            // bound to the now-editing row has actually been laid out.
+            rebuildAndSubmit {
+                val pos = adapter.currentList.indexOfFirst {
+                    (it is PickerItem.CustomRow) && it.item.id == id
+                }
+                if (pos >= 0) {
+                    (rvPickerGrid.findViewHolderForAdapterPosition(pos)
+                        as? PickerAdapter.CustomViewHolder)?.let { h ->
+                        h.etTitle.requestFocus()
+                        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                            .showSoftInput(h.etTitle, InputMethodManager.SHOW_IMPLICIT)
+                    }
                 }
             }
         }
@@ -850,10 +856,20 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
     }
 
-    private fun rebuildAndSubmit() {
+    private fun rebuildAndSubmit(onCommit: (() -> Unit)? = null) {
         val items = buildFlattenedList()
+        // Round-13 audit M4 — focus-on-new-row race fix. ListAdapter.submitList runs
+        // its DiffUtil computation on the supplied executor (the synchronous variant
+        // here dispatches on a background thread by default) and only THEN dispatches
+        // the commit callback. Acquirers that want to grab a ViewHolder by position
+        // (e.g. addNewCustomItem scrolling to & focusing the new row) used to call
+        // `rvPickerGrid.post { findViewHolderForAdapterPosition(...) }` BEFORE the
+        // commit ran, which always returned null → silent keyboard-failure. Routing
+        // the focus logic through an onCommit hook guarantees it executes AFTER
+        // submitList has finished applying + laying out.
         adapter.submitList(items) {
             updatePickerHeight()
+            onCommit?.invoke()
         }
     }
 

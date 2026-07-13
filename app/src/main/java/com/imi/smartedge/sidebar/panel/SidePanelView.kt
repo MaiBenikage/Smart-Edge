@@ -37,6 +37,10 @@ class SidePanelView @JvmOverloads constructor(
     private val binding: SidePanelLayoutBinding = SidePanelLayoutBinding.inflate(LayoutInflater.from(context), this, true)
     private val adapter: PanelAppsAdapter
     private val panelPrefs = PanelPreferences(context)
+    // Default to 1 column. Every write-path (setColumns, updateStyles) coerces via
+    // coerceIn(1, 2) before this field sees a new value, so an out-of-range read
+    // (e.g. a corrupt prefs value hand-edited through ADB) can never propagate into
+    // GridLayoutManager.spanCount / toolsContainer.columnCount and crash the process.
     private var currentCols = 1
     private var isPickerOpenInternal = false
 
@@ -421,9 +425,15 @@ class SidePanelView @JvmOverloads constructor(
     }
 
     fun setColumns(cols: Int) {
-        currentCols = cols
-        adapter.setColumns(cols)
-        (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
+        // Round-13 audit M1: AOSP GridLayoutManager(0) throws IllegalArgumentException
+        // ("Span count must be at least 1") and a (columnCount > 0) check on the tools
+        // GridLayout would crash the same way via setColumnCount. coerceIn(1, 2)
+        // guarantees neither receives a degenerate value, regardless of what
+        // FloatingPanelService / SavedInstanceState data pass in.
+        val safe = cols.coerceIn(1, 2)
+        currentCols = safe
+        adapter.setColumns(safe)
+        (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = safe
         syncToolsGridColumns()
         updateSideLayout()
     }
@@ -476,7 +486,9 @@ class SidePanelView @JvmOverloads constructor(
     fun updateStyles() {
         if (!isPickerOpenInternal) {
             val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
-            currentCols = if (isGameMode) 2 else panelPrefs.panelColumns
+            // Round-13 audit M1: also coerce here so a stale or hand-edited
+            // panelColumns preference cannot drive a 0/3 syncToolsGridColumns call.
+            currentCols = (if (isGameMode) 2 else panelPrefs.panelColumns).coerceIn(1, 2)
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
             syncToolsGridColumns()
@@ -815,39 +827,49 @@ class SidePanelView @JvmOverloads constructor(
      *    System Info cell each span both columns so their full-width visual
      *    treatment isn't stranded on one side.
      *
-     * SAFETY: AOSP [android.widget.GridLayout.setColumnCount] validates that every
-     * existing child's `start + span ≤ columnCount` and throws
-     * [IllegalArgumentException] otherwise. Our XML declares the `toolsDivider` with
-     * `layout_columnSpan="2"` and the previous code mutated `layoutSysInfo` to span 2
-     * in 2-col mode; collapsing to columnCount=1 therefore crashed the service
-     * process every time the user opened the picker when their `panelColumns` was
-     * already 1 (and crashed openPanel() via updateStyles when panelColumns==1 was
-     * persisted from a prior session because SidePanelView's init-block runs this
-     * same function).
+     * Round-13 SAFETY (the actual crash root cause):
      *
-     * Fix: PRE-NORMALIZE every child's `columnSpec` to a safe single-cell baseline
-     * (UNDEFINED index + span=1 + weight=1 + FILL) BEFORE the `setColumnCount`
-     * call, then re-apply the "fill the row" overrides for divider + sysInfo when
-     * the target is exactly 2.
+     * AOSP `android.widget.GridLayout$Axis` caches `mMaxIndex` in memory and
+     * re-uses it on every `setColumnCount(N)` call to validate that no existing
+     * child has `start + span > N`. `getMaxIndex()` returns the cached value
+     * unless `mMaxIndex == UNDEFINED`.
+     *
+     * The ONLY synchronous way to reset `mMaxIndex` to `UNDEFINED` is via
+     * `GridLayout.invalidateStructure()`, which is called from
+     * `ViewGroup.onSetLayoutParams()`, which is called only by
+     * `child.setLayoutParams(lp)`. Mutating `lp.columnSpec` in place is a silent
+     * no-op for the cache — the new value is held in the LayoutParams object but
+     * `Axis.mMaxIndex` keeps reflecting the PRE-mutation value.
+     *
+     * Round-10 attempted `container.requestLayout()` between mutate and
+     * `setColumnCount`. That was a band-aid: `requestLayout()` schedules an async
+     * layout pass, but `setColumnCount` runs IMMEDIATELY after. The cache is still
+     * stale, validation still throws.
+     *
+     * Round-10 also assigned `binding.layoutSysInfo.layoutParams = lp` to
+     * invalidate that one child, but **forgot** to assign
+     * `binding.toolsDivider.layoutParams = lp` — so the divider's own stale cache
+     * could trigger the same crash on a 1→2→1 round-trip.
+     *
+     * Round-13 fix: after every spec mutation, call `child.layoutParams = lp` so
+     * the cache is invalidated SYNCHRONOUSLY before the next setColumnCount.
      */
     private fun syncToolsGridColumns() {
-        val target = currentCols
+        val target = currentCols.coerceIn(1, 2)
         val container = binding.toolsContainer
 
-        // 1) Reset every child's columnSpec to a safe single-cell baseline so
-        //    the upcoming setColumnCount cannot see any prior span > target.
+        // 1) Walk every child and (a) normalize its columnSpec to a safe baseline
+        //    AND (b) re-assign the layoutParams so invalidateStructure() runs
+        //    synchronously and clears mMaxIndex BEFORE the next setColumnCount call.
         //
-        // SDK note: The 4-argument overload
+        // SDK note: the 4-argument overload
         //   `spec(int start, int size, Alignment alignment, float weight)`
-        // is the only way to set BOTH span AND alignment AND weight inside a
-        // single Spec here. We must keep FILL alignment because every tools
-        // child has `layout_width="0dp"` — with BEGIN alignment those 0dp
-        // children collapse to literally 0px wide and the divider, tools, and
-        // sysInfo cells visually vanish. FILL stretches the 0dp view across
-        // its full weight-allocated cell, which is the visual behavior the
-        // tools grid was originally tuned around.
+        // is the only form that sets span + alignment + weight in a single Spec.
+        // We must keep FILL alignment because every tools child has
+        // `layout_width="0dp"` — BEGIN alignment would collapse those 0dp views
+        // to literally 0px wide, vanishing tools / divider / sysInfo visually.
         for (i in 0 until container.childCount) {
-            val child = container.getChildAt(i)
+            val child = container.getChildAt(i) ?: continue
             val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams ?: continue
             lp.columnSpec = android.widget.GridLayout.spec(
                 android.widget.GridLayout.UNDEFINED,
@@ -855,57 +877,47 @@ class SidePanelView @JvmOverloads constructor(
                 android.widget.GridLayout.FILL,
                 1.0f
             )
+            // The critical line that Round-10 missed: this assignment
+            // synchronously calls GridLayout.onSetLayoutParams → invalidateStructure,
+            // which sets mHorizontalAxis.mMaxIndex = UNDEFINED so the very next
+            // setColumnCount() call (line 3) recomputes the cache from the
+            // normalized specs and cannot trip handleInvalidParams().
+            child.layoutParams = lp
         }
 
-        // 2) Round-12 critical fix:
-        //    AOSP android.widget.GridLayout$Axis caches `maxIndex` in memory
-        //    and re-uses it on every setColumnCount(N) call to validate that
-        //    no existing child has start+span > N. Mutating lp.columnSpec on
-        //    its own does NOT invalidate that cache (only onSetLayoutParams /
-        //    requestLayout does, via invalidateStructure() which sets
-        //    mHorizontalAxis.maxIndex = UNDEFINED). Round-10's code normalized
-        //    the specs and then immediately called setColumnCount, so on the
-        //    2→1 transition (openPicker → setColumns(1)) the cache still
-        //    held the previous layout's maxIndex=2 and threw
-        //    IllegalArgumentException because 1 < 0+2.
-        //
-        //    The fix is one line: explicitly call requestLayout() so the
-        //    gridlayout re-enters invalidateStructure() and clears the
-        //    cache synchronously, BEFORE the next setColumnCount.
-        container.requestLayout()
-
-        // 3) Mutate columnCount. Now safe regardless of direction 1↔2
-        //    because maxIndex is back at UNDEFINED until the next layout pass.
+        // 2) Now safe to mutate columnCount in either direction (1→2 or 2→1);
+        //    invalidation in step 1 means Axis.getMaxIndex() recomputes on the fly.
         container.columnCount = target
 
-        // 4) Re-apply "fill the row" overrides only in 2-column mode.
-        //    In 1-column mode every child already owns the row, so span=1 from
-        //    step 1 is correct.
+        // 3) Re-apply the "fill the row" overrides only in 2-column mode.
+        //    Each setLayoutParams(lp) call invalidates the cache so the NEXT
+        //    transition (back to 1-col) sees a fresh maxIndex instead of the
+        //    stale "2" we'd otherwise leak across the call.
         if (target == 2) {
-            binding.toolsDivider?.layoutParams?.let { raw ->
-                (raw as? android.widget.GridLayout.LayoutParams)?.let { lp ->
-                    lp.columnSpec = android.widget.GridLayout.spec(
-                        android.widget.GridLayout.UNDEFINED,
-                        2,
-                        android.widget.GridLayout.FILL,
-                        1.0f
-                    )
-                }
+            binding.toolsDivider?.let { divider ->
+                val lp = divider.layoutParams as? android.widget.GridLayout.LayoutParams ?: return@let
+                lp.columnSpec = android.widget.GridLayout.spec(
+                    android.widget.GridLayout.UNDEFINED,
+                    2,
+                    android.widget.GridLayout.FILL,
+                    1.0f
+                )
+                // Without THIS assignment the divider's mMaxIndex stays at the
+                // pre-mutation value (1 from step 1), and the next setColumnCount(1)
+                // would recompute maxIndex=… before this divider's new span=2
+                // overrides reached the cache, throwing IllegalArgumentException.
+                divider.layoutParams = lp
             }
-            binding.layoutSysInfo.layoutParams.let { raw ->
-                (raw as? android.widget.GridLayout.LayoutParams)?.let { lp ->
-                    lp.columnSpec = android.widget.GridLayout.spec(
-                        android.widget.GridLayout.UNDEFINED,
-                        2,
-                        android.widget.GridLayout.FILL,
-                        1.0f
-                    )
-                    binding.layoutSysInfo.layoutParams = lp
-                }
+            val siLp = binding.layoutSysInfo.layoutParams as? android.widget.GridLayout.LayoutParams
+            if (siLp != null) {
+                siLp.columnSpec = android.widget.GridLayout.spec(
+                    android.widget.GridLayout.UNDEFINED,
+                    2,
+                    android.widget.GridLayout.FILL,
+                    1.0f
+                )
+                binding.layoutSysInfo.layoutParams = siLp
             }
-            // Invalidate again so the next setColumns() transition (back to 1)
-            // sees a fresh cache reflecting these new span=2 overrides.
-            container.requestLayout()
         }
     }
 
@@ -920,5 +932,16 @@ class SidePanelView @JvmOverloads constructor(
         // reference immediately when the view leaves the window.
         panelHandler.removeCallbacksAndMessages(null)
         panelIndicatorFadeRunnable = null
+        // Round-13 audit M2: the indicator TextView was added to `parent`
+        // (the FrameLayout owned by FloatingPanelService) but never
+        // explicitly removed. Holding the Kotlin reference keeps the View
+        // pinned in memory after the panel is detached, and worse, on the
+        // next attach a NEW TextView would be created while the old one
+        // still floats around rootLayout accumulating memory for every
+        // volume/brightness drag. Drop both.
+        panelIndicatorText?.let { ind ->
+            (parent as? android.widget.FrameLayout)?.removeView(ind)
+        }
+        panelIndicatorText = null
     }
 }
