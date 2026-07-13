@@ -581,6 +581,22 @@ class EdgeHandleView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Round-12 audit L-Medium: EdgeHandleView is a WindowManager overlay view
+     * that can be detached (service stop, panel close mid-gesture, screen
+     * rotation, panel re-added at a new position). The 4 Handler-owned
+     * runnables (longPress, hold, tap, resetAlpha) are scheduled in
+     * onTouchEvent but only some are explicitly removed in ACTION_UP/CANCEL.
+     * If the view is detached mid-touch, the Looper keeps the still-bound
+     * lambdas (capturing `this`) alive past the view's natural death, so
+     * a delayed fire can still call `onTrigger`/`vibrateHaptic`/`updatePill`
+     * on a dead view. Cancel everything here.
+     */
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        handler.removeCallbacksAndMessages(null)
+    }
+
     fun updateFromPrefs() {
         val prefs = PanelPreferences(context)
         isRightSide = prefs.panelSide == PanelPreferences.SIDE_RIGHT

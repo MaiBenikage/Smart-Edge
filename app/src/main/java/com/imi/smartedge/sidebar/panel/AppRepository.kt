@@ -36,8 +36,32 @@ class AppRepository(context: Context) {
     }
 
     companion object {
-        // Aggressive memory cache for fully processed static bitmap icons to ensure buttery smooth scrolling
-        val iconCache = android.util.LruCache<String, android.graphics.drawable.Drawable>(300)
+        // Round-12 audit L-High: original cache used item-COUNT sizing
+        // (`LruCache<String, Drawable>(300)`), which means "300 entries
+        // regardless of how big each icon is". A 256×256 ARGB_8888 BitmapDrawable
+        // weighs ~256 KiB in heap; 300 entries could pin 75+ MiB on a
+        // memory-constrained device and contribute to OOM when the sidebar
+        // scrolls rapidly. Switch to byte-based sizing and override
+        // sizeOf() so the cap scales with actual icon footprint rather than
+        // entry count. 24 MiB covers ~96 fully-resolved 256×256 icons — more
+        // than the working set for any realistic sidebar.
+        private const val ICON_CACHE_BYTES = 24 * 1024 * 1024
+        val iconCache = object : android.util.LruCache<String, android.graphics.drawable.Drawable>(ICON_CACHE_BYTES) {
+            override fun sizeOf(key: String, value: android.graphics.drawable.Drawable): Int {
+                if (value is android.graphics.drawable.BitmapDrawable) {
+                    val bmp = value.bitmap
+                    if (bmp != null && !bmp.isRecycled) {
+                        return bmp.allocationByteCount.coerceAtLeast(1)
+                    }
+                }
+                // Adaptive / non-bitmap drawables: estimate by intrinsic size,
+                // or fall back to 64 KiB so a single entry can't monopolize
+                // the cache through sizeOf() returning 0.
+                val w = value.intrinsicWidth.coerceAtLeast(1)
+                val h = value.intrinsicHeight.coerceAtLeast(1)
+                return (w * h * 4).coerceAtLeast(64 * 1024)
+            }
+        }
 
         fun clearSystemIconCache() {
             iconCache.evictAll()

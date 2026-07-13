@@ -10,6 +10,14 @@ class PanelAccessibilityService : AccessibilityService() {
     private lateinit var panelPrefs: PanelPreferences
     private var lastImmersiveState = false
     private var lastPackageName: String? = null
+    // Round-12 audit L-Medium: pre-allocate a single main-looper Handler
+    // for the few postDelayed sites in this class. Previously each call to
+    // ACTION_PREVIOUS_APP allocated a fresh `Handler(Looper.getMainLooper())`
+    // (now fixed below to use this field instead). Holding the reference
+    // here also lets onDestroy sweep pending runnables when the system
+    // un-binds the service, preventing the Looper from holding a lambda
+    // that captures `this` past the service's death.
+    private val accessibilityHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
@@ -97,14 +105,19 @@ class PanelAccessibilityService : AccessibilityService() {
                 }
             }
             ACTION_ONE_HANDED -> {
-                val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                handler.post {
-                    android.widget.Toast.makeText(this, "One-Handed Mode triggered", android.widget.Toast.LENGTH_SHORT).show()
-                }
+                // Round-12 audit L-Low: Toast.makeText is already main-thread
+                // safe and runs the show on the calling thread. Wrapping the
+                // show in another `Handler(Looper.getMainLooper()).post { … }`
+                // only added an extra main-looper round trip; this branch
+                // already runs on the main looper (AccessibilityService
+                // onStartCommand dispatches on the main thread by contract).
+                android.widget.Toast.makeText(this, "One-Handed Mode triggered", android.widget.Toast.LENGTH_SHORT).show()
             }
             ACTION_PREVIOUS_APP -> {
                 performGlobalAction(GLOBAL_ACTION_RECENTS)
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // Reuse the cached instance Handler instead of allocating a
+                // new one for the postDelayed tail.
+                accessibilityHandler.postDelayed({
                     performGlobalAction(GLOBAL_ACTION_RECENTS)
                 }, 200)
             }
@@ -121,10 +134,10 @@ class PanelAccessibilityService : AccessibilityService() {
             ACTION_TRIGGER_SHORTCUT -> {
                 val shortcut = intent.getStringExtra("shortcut")
                 if (shortcut == "smartedge.shortcut.one_hand") {
-                    val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                    handler.post {
-                        android.widget.Toast.makeText(this, "One-Handed Mode triggered", android.widget.Toast.LENGTH_SHORT).show()
-                    }
+                    // Round-12 audit L-Low: same drop-the-redundant-Handler fix
+                    // as ACTION_ONE_HANDED above. Toast from the main thread is
+                    // already main-thread safe.
+                    android.widget.Toast.makeText(this, "One-Handed Mode triggered", android.widget.Toast.LENGTH_SHORT).show()
                     // Attempting standard fallback if the OEM supports it via AccessibilityService
                     // true specific one-handed mode intents are heavily fragmented
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -147,7 +160,6 @@ class PanelAccessibilityService : AccessibilityService() {
      *   own window manager handles placing it in split.
      */
     private fun triggerSplitScreen(pkg: String, mode: Int) {
-        val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val isVivo = VivoUtils.isVivo()
 
         if (isVivo) {
@@ -159,7 +171,7 @@ class PanelAccessibilityService : AccessibilityService() {
             // On many AOSP/Pixel versions, we need a significant delay for the system to dock the first app.
             // If toggle failed (e.g. only one app open), we still try to launch adjacent.
             val delay = if (toggled) 1000L else 500L
-            handler.postDelayed({
+            accessibilityHandler.postDelayed({
                 SplitScreenHelper.launchApp(this, pkg, mode)
             }, delay)
         }
@@ -224,5 +236,15 @@ class PanelAccessibilityService : AccessibilityService() {
         }
         startService(stopIntent)
         return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Round-12 audit L-Medium: drain the cached Handler so any pending
+        // postDelayed runnables (e.g. ACTION_PREVIOUS_APP's double-RECENTS)
+        // can't fire after the AccessibilityService is being torn down.
+        // Without this, the Looper keeps the bound lambda (capturing `this`)
+        // alive until it naturally runs, even though the service is gone.
+        accessibilityHandler.removeCallbacksAndMessages(null)
     }
 }

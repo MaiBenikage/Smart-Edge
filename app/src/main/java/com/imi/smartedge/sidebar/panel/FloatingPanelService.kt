@@ -376,7 +376,14 @@ class FloatingPanelService : Service() {
 
     fun triggerScreenshot() {
         closePanel()
-        Handler(Looper.getMainLooper()).postDelayed({
+        // Round-12 audit L-Medium: previously allocated a fresh Handler
+        // (`Handler(Looper.getMainLooper())`) per call. A repeated screenshot
+        // every ~1s would create a new Handler instance each time, which the
+        // JVM keeps alive until its first posted runnable drains. The
+        // service already owns `handler` (a single Handler bound to the
+        // main looper); route the delay through it instead of churning
+        // new Handler objects. Same effective behavior, no Handler spam.
+        handler.postDelayed({
             // Round-7 L1/S2: PanelAccessibilityService is guarded by the
             // BIND_ACCESSIBILITY_SERVICE signature permission — only Android
             // system_server can bind/start it. A regular third-party app
@@ -779,7 +786,11 @@ class FloatingPanelService : Service() {
                 onAddClick = { isEdit -> togglePicker(isEdit) }
                 onScreenshot = {
                     closePanel()
-                    Handler(Looper.getMainLooper()).postDelayed({
+                    // Round-12 audit L-Medium: reuse the service-level `handler`
+                    // instead of allocating a fresh `Handler(Looper.getMainLooper())`
+                    // per screenshot tap. (See FloatingPanelService.triggerScreenshot
+                    // for the same rationale.)
+                    handler.postDelayed({
                         triggerScreenshot()
                     }, 300)
                 }
@@ -1255,10 +1266,15 @@ class FloatingPanelService : Service() {
         if (!isPickerOpen) return
         isPickerOpen = false
         sidePanelView?.animatePickerToggle(false)
-        Handler(Looper.getMainLooper()).postDelayed({
+        // Round-12 audit L-Medium: same fix as triggerScreenshot() — reuse
+        // the service-level `handler` rather than allocating a fresh
+        // `Handler(Looper.getMainLooper())` per closePicker invocation. A
+        // user rapidly tapping the chevron would otherwise leave N anonymous
+        // handlers queued on the main looper until they all drained.
+        handler.postDelayed({
             if (!isPickerOpen) {
                 val originalCols = panelPrefs.panelColumns
-                sidePanelView?.setEditButtonVisible(false) 
+                sidePanelView?.setEditButtonVisible(false)
                 sidePanelView?.setColumns(originalCols)
             }
         }, 250)

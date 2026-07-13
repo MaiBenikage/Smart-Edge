@@ -832,6 +832,7 @@ class SidePanelView @JvmOverloads constructor(
      */
     private fun syncToolsGridColumns() {
         val target = currentCols
+        val container = binding.toolsContainer
 
         // 1) Reset every child's columnSpec to a safe single-cell baseline so
         //    the upcoming setColumnCount cannot see any prior span > target.
@@ -845,7 +846,6 @@ class SidePanelView @JvmOverloads constructor(
         // sysInfo cells visually vanish. FILL stretches the 0dp view across
         // its full weight-allocated cell, which is the visual behavior the
         // tools grid was originally tuned around.
-        val container = binding.toolsContainer
         for (i in 0 until container.childCount) {
             val child = container.getChildAt(i)
             val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams ?: continue
@@ -857,10 +857,28 @@ class SidePanelView @JvmOverloads constructor(
             )
         }
 
-        // 2) Mutate columnCount (now safe regardless of direction 1↔2).
+        // 2) Round-12 critical fix:
+        //    AOSP android.widget.GridLayout$Axis caches `maxIndex` in memory
+        //    and re-uses it on every setColumnCount(N) call to validate that
+        //    no existing child has start+span > N. Mutating lp.columnSpec on
+        //    its own does NOT invalidate that cache (only onSetLayoutParams /
+        //    requestLayout does, via invalidateStructure() which sets
+        //    mHorizontalAxis.maxIndex = UNDEFINED). Round-10's code normalized
+        //    the specs and then immediately called setColumnCount, so on the
+        //    2→1 transition (openPicker → setColumns(1)) the cache still
+        //    held the previous layout's maxIndex=2 and threw
+        //    IllegalArgumentException because 1 < 0+2.
+        //
+        //    The fix is one line: explicitly call requestLayout() so the
+        //    gridlayout re-enters invalidateStructure() and clears the
+        //    cache synchronously, BEFORE the next setColumnCount.
+        container.requestLayout()
+
+        // 3) Mutate columnCount. Now safe regardless of direction 1↔2
+        //    because maxIndex is back at UNDEFINED until the next layout pass.
         container.columnCount = target
 
-        // 3) Re-apply "fill the row" overrides only in 2-column mode.
+        // 4) Re-apply "fill the row" overrides only in 2-column mode.
         //    In 1-column mode every child already owns the row, so span=1 from
         //    step 1 is correct.
         if (target == 2) {
@@ -885,11 +903,22 @@ class SidePanelView @JvmOverloads constructor(
                     binding.layoutSysInfo.layoutParams = lp
                 }
             }
+            // Invalidate again so the next setColumns() transition (back to 1)
+            // sees a fresh cache reflecting these new span=2 overrides.
+            container.requestLayout()
         }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         updateHandler.removeCallbacks(updateRunnable)
+        // Round-12 audit L-Low: panelHandler drives showToolIndicator's
+        // fade-out runnable. If the user drags the volume / brightness
+        // button right before the service tears the panel down, the
+        // pending 1.5s fade runnable keeps the indicator TextView alive
+        // for that window. Sweeping callbacks here releases the indicator
+        // reference immediately when the view leaves the window.
+        panelHandler.removeCallbacksAndMessages(null)
+        panelIndicatorFadeRunnable = null
     }
 }

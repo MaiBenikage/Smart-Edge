@@ -298,70 +298,87 @@ class PanelPreferences(context: Context) {
         if (json.length > 524288) return false
         return try {
             val obj = org.json.JSONObject(json)
+            // Round-12 audit L-High: previous code used getString/getInt/
+            // getBoolean which all throw JSONException on type mismatch
+            // (e.g. a manually-edited export that has a bool where the schema
+            // expects a string). One bad key would abort the entire import,
+            // silently leaving the prefs in a half-imported state. Switching
+            // to opt* makes every key best-effort: missing or wrong-type
+            // values just keep the current pref, while every well-typed
+            // sibling still gets applied.
             prefs.edit {
                 // Strings
-                if (obj.has(KEY_PANEL_APPS)) putString(KEY_PANEL_APPS, obj.getString(KEY_PANEL_APPS))
-                if (obj.has(KEY_CUSTOM_ITEMS)) putString(KEY_CUSTOM_ITEMS, obj.getString(KEY_CUSTOM_ITEMS))
-                if (obj.has(KEY_GAME_APPS)) putString(KEY_GAME_APPS, obj.getString(KEY_GAME_APPS))
-                if (obj.has(KEY_PANEL_SIDE)) putString(KEY_PANEL_SIDE, obj.getString(KEY_PANEL_SIDE))
-                if (obj.has(KEY_ACCENT_COLOR)) putString(KEY_ACCENT_COLOR, obj.getString(KEY_ACCENT_COLOR))
-                if (obj.has(KEY_PANEL_BG_COLOR)) putString(KEY_PANEL_BG_COLOR, obj.getString(KEY_PANEL_BG_COLOR))
-                if (obj.has(KEY_UI_THEME)) putString(KEY_UI_THEME, obj.getString(KEY_UI_THEME))
-                if (obj.has(KEY_ICON_SHAPE)) putString(KEY_ICON_SHAPE, obj.getString(KEY_ICON_SHAPE))
-                if (obj.has(KEY_PILL_COLOR)) putString(KEY_PILL_COLOR, obj.getString(KEY_PILL_COLOR))
-                if (obj.has(KEY_ICON_PACK)) putString(KEY_ICON_PACK, obj.getString(KEY_ICON_PACK))
-                if (obj.has(KEY_ICON_PACK_LABEL)) putString(KEY_ICON_PACK_LABEL, obj.getString(KEY_ICON_PACK_LABEL))
-                if (obj.has(KEY_HOME_BUTTON_STYLE)) putString(KEY_HOME_BUTTON_STYLE, obj.getString(KEY_HOME_BUTTON_STYLE))
-                if (obj.has(KEY_FREEFORM_WINDOW_MODE)) putString(KEY_FREEFORM_WINDOW_MODE, obj.getString(KEY_FREEFORM_WINDOW_MODE))
+                obj.optString(KEY_PANEL_APPS, null)?.let { putString(KEY_PANEL_APPS, it) }
+                obj.optString(KEY_CUSTOM_ITEMS, null)?.let { putString(KEY_CUSTOM_ITEMS, it) }
+                obj.optString(KEY_GAME_APPS, null)?.let { putString(KEY_GAME_APPS, it) }
+                obj.optString(KEY_PANEL_SIDE, null)?.let { putString(KEY_PANEL_SIDE, it) }
+                obj.optString(KEY_ACCENT_COLOR, null)?.let { putString(KEY_ACCENT_COLOR, it) }
+                obj.optString(KEY_PANEL_BG_COLOR, null)?.let { putString(KEY_PANEL_BG_COLOR, it) }
+                obj.optString(KEY_UI_THEME, null)?.let { putString(KEY_UI_THEME, it) }
+                obj.optString(KEY_ICON_SHAPE, null)?.let { putString(KEY_ICON_SHAPE, it) }
+                obj.optString(KEY_PILL_COLOR, null)?.let { putString(KEY_PILL_COLOR, it) }
+                obj.optString(KEY_ICON_PACK, null)?.let { putString(KEY_ICON_PACK, it) }
+                obj.optString(KEY_ICON_PACK_LABEL, null)?.let { putString(KEY_ICON_PACK_LABEL, it) }
+                obj.optString(KEY_HOME_BUTTON_STYLE, null)?.let { putString(KEY_HOME_BUTTON_STYLE, it) }
+                obj.optString(KEY_FREEFORM_WINDOW_MODE, null)?.let { putString(KEY_FREEFORM_WINDOW_MODE, it) }
+                obj.optString(KEY_PICKER_ANIM_TYPE, null)?.let { putString(KEY_PICKER_ANIM_TYPE, it) }
 
                 // Ints
-                if (obj.has(KEY_PANEL_OPACITY)) putInt(KEY_PANEL_OPACITY, obj.getInt(KEY_PANEL_OPACITY))
-                if (obj.has(KEY_HANDLE_HEIGHT)) putInt(KEY_HANDLE_HEIGHT, obj.getInt(KEY_HANDLE_HEIGHT))
-                if (obj.has(KEY_HANDLE_WIDTH)) putInt(KEY_HANDLE_WIDTH, obj.getInt(KEY_HANDLE_WIDTH))
-                if (obj.has(KEY_HANDLE_OFFSET)) putInt(KEY_HANDLE_OFFSET, obj.getInt(KEY_HANDLE_OFFSET))
-                if (obj.has(KEY_PANEL_COLUMNS)) putInt(KEY_PANEL_COLUMNS, obj.getInt(KEY_PANEL_COLUMNS))
-                if (obj.has(KEY_PANEL_RADIUS)) putInt(KEY_PANEL_RADIUS, obj.getInt(KEY_PANEL_RADIUS))
-                if (obj.has(KEY_PILL_WIDTH)) putInt(KEY_PILL_WIDTH, obj.getInt(KEY_PILL_WIDTH))
-                if (obj.has(KEY_BLUR_AMOUNT)) putInt(KEY_BLUR_AMOUNT, obj.getInt(KEY_BLUR_AMOUNT))
-                if (obj.has(KEY_ANIM_SPEED)) putInt(KEY_ANIM_SPEED, obj.getInt(KEY_ANIM_SPEED))
-                if (obj.has(KEY_PICKER_ANIM_TYPE)) putString(KEY_PICKER_ANIM_TYPE, obj.getString(KEY_PICKER_ANIM_TYPE))
-                if (obj.has(KEY_PICKER_GAP)) putInt(KEY_PICKER_GAP, obj.getInt(KEY_PICKER_GAP))
-                if (obj.has(KEY_PANEL_MAX_HEIGHT)) putInt(KEY_PANEL_MAX_HEIGHT, obj.getInt(KEY_PANEL_MAX_HEIGHT))
-                if (obj.has(KEY_PICKER_MAX_HEIGHT)) putInt(KEY_PICKER_MAX_HEIGHT, obj.getInt(KEY_PICKER_MAX_HEIGHT))
-                if (obj.has(KEY_SLIDE_SENSITIVITY)) putInt(KEY_SLIDE_SENSITIVITY, obj.getInt(KEY_SLIDE_SENSITIVITY))
-                if (obj.has(KEY_SWIPE_SENSITIVITY)) putInt(KEY_SWIPE_SENSITIVITY, obj.getInt(KEY_SWIPE_SENSITIVITY))
-                if (obj.has(KEY_FREEFORM_CUSTOM_W)) putInt(KEY_FREEFORM_CUSTOM_W, obj.getInt(KEY_FREEFORM_CUSTOM_W))
-                if (obj.has(KEY_FREEFORM_CUSTOM_H)) putInt(KEY_FREEFORM_CUSTOM_H, obj.getInt(KEY_FREEFORM_CUSTOM_H))
-                if (obj.has(KEY_THEME_MODE)) putInt(KEY_THEME_MODE, obj.getInt(KEY_THEME_MODE))
+                if (obj.has(KEY_PANEL_OPACITY) && !obj.isNull(KEY_PANEL_OPACITY)) putInt(KEY_PANEL_OPACITY, obj.optInt(KEY_PANEL_OPACITY, panelOpacity))
+                if (obj.has(KEY_HANDLE_HEIGHT) && !obj.isNull(KEY_HANDLE_HEIGHT)) putInt(KEY_HANDLE_HEIGHT, obj.optInt(KEY_HANDLE_HEIGHT, handleHeight))
+                if (obj.has(KEY_HANDLE_WIDTH) && !obj.isNull(KEY_HANDLE_WIDTH)) putInt(KEY_HANDLE_WIDTH, obj.optInt(KEY_HANDLE_WIDTH, handleWidth))
+                if (obj.has(KEY_HANDLE_OFFSET) && !obj.isNull(KEY_HANDLE_OFFSET)) putInt(KEY_HANDLE_OFFSET, obj.optInt(KEY_HANDLE_OFFSET, handleVerticalOffset))
+                if (obj.has(KEY_PANEL_COLUMNS) && !obj.isNull(KEY_PANEL_COLUMNS)) putInt(KEY_PANEL_COLUMNS, obj.optInt(KEY_PANEL_COLUMNS, panelColumns).coerceIn(1, 2))
+                if (obj.has(KEY_PANEL_RADIUS) && !obj.isNull(KEY_PANEL_RADIUS)) putInt(KEY_PANEL_RADIUS, obj.optInt(KEY_PANEL_RADIUS, panelCornerRadius))
+                if (obj.has(KEY_PILL_WIDTH) && !obj.isNull(KEY_PILL_WIDTH)) putInt(KEY_PILL_WIDTH, obj.optInt(KEY_PILL_WIDTH, pillWidth))
+                if (obj.has(KEY_BLUR_AMOUNT) && !obj.isNull(KEY_BLUR_AMOUNT)) putInt(KEY_BLUR_AMOUNT, obj.optInt(KEY_BLUR_AMOUNT, blurAmount))
+                if (obj.has(KEY_ANIM_SPEED) && !obj.isNull(KEY_ANIM_SPEED)) putInt(KEY_ANIM_SPEED, obj.optInt(KEY_ANIM_SPEED, animSpeed))
+                if (obj.has(KEY_PICKER_GAP) && !obj.isNull(KEY_PICKER_GAP)) putInt(KEY_PICKER_GAP, obj.optInt(KEY_PICKER_GAP, pickerGap))
+                if (obj.has(KEY_PANEL_MAX_HEIGHT) && !obj.isNull(KEY_PANEL_MAX_HEIGHT)) putInt(KEY_PANEL_MAX_HEIGHT, obj.optInt(KEY_PANEL_MAX_HEIGHT, panelMaxHeight))
+                if (obj.has(KEY_PICKER_MAX_HEIGHT) && !obj.isNull(KEY_PICKER_MAX_HEIGHT)) putInt(KEY_PICKER_MAX_HEIGHT, obj.optInt(KEY_PICKER_MAX_HEIGHT, pickerMaxHeight))
+                if (obj.has(KEY_SLIDE_SENSITIVITY) && !obj.isNull(KEY_SLIDE_SENSITIVITY)) putInt(KEY_SLIDE_SENSITIVITY, obj.optInt(KEY_SLIDE_SENSITIVITY, slideSensitivity))
+                if (obj.has(KEY_SWIPE_SENSITIVITY) && !obj.isNull(KEY_SWIPE_SENSITIVITY)) putInt(KEY_SWIPE_SENSITIVITY, obj.optInt(KEY_SWIPE_SENSITIVITY, swipeSensitivity))
+                if (obj.has(KEY_FREEFORM_CUSTOM_W) && !obj.isNull(KEY_FREEFORM_CUSTOM_W)) putInt(KEY_FREEFORM_CUSTOM_W, obj.optInt(KEY_FREEFORM_CUSTOM_W, freeformCustomWidth))
+                if (obj.has(KEY_FREEFORM_CUSTOM_H) && !obj.isNull(KEY_FREEFORM_CUSTOM_H)) putInt(KEY_FREEFORM_CUSTOM_H, obj.optInt(KEY_FREEFORM_CUSTOM_H, freeformCustomHeight))
+                if (obj.has(KEY_THEME_MODE) && !obj.isNull(KEY_THEME_MODE)) putInt(KEY_THEME_MODE, obj.optInt(KEY_THEME_MODE, themeMode))
 
                 // Float
-                if (obj.has(KEY_SCALE_FACTOR)) putFloat(KEY_SCALE_FACTOR, obj.getDouble(KEY_SCALE_FACTOR).toFloat())
+                if (obj.has(KEY_SCALE_FACTOR) && !obj.isNull(KEY_SCALE_FACTOR)) {
+                    putFloat(KEY_SCALE_FACTOR, obj.optDouble(KEY_SCALE_FACTOR, scaleFactor.toDouble()).toFloat())
+                }
 
-                // Booleans
-                if (obj.has(KEY_AUTO_START)) putBoolean(KEY_AUTO_START, obj.getBoolean(KEY_AUTO_START))
-                if (obj.has(KEY_SHOW_PILL)) putBoolean(KEY_SHOW_PILL, obj.getBoolean(KEY_SHOW_PILL))
-                if (obj.has(KEY_HAPTIC_ENABLED)) putBoolean(KEY_HAPTIC_ENABLED, obj.getBoolean(KEY_HAPTIC_ENABLED))
-                if (obj.has(KEY_USE_CUSTOM_ACCENT)) putBoolean(KEY_USE_CUSTOM_ACCENT, obj.getBoolean(KEY_USE_CUSTOM_ACCENT))
-                if (obj.has(KEY_HIDE_BG)) putBoolean(KEY_HIDE_BG, obj.getBoolean(KEY_HIDE_BG))
-                if (obj.has(KEY_SHOW_TOOLS)) putBoolean(KEY_SHOW_TOOLS, obj.getBoolean(KEY_SHOW_TOOLS))
-                if (obj.has(KEY_GESTURES_ENABLED)) putBoolean(KEY_GESTURES_ENABLED, obj.getBoolean(KEY_GESTURES_ENABLED))
-                if (obj.has(KEY_SHOW_IN_LANDSCAPE)) putBoolean(KEY_SHOW_IN_LANDSCAPE, obj.getBoolean(KEY_SHOW_IN_LANDSCAPE))
-                if (obj.has(KEY_TAP_TO_OPEN)) putBoolean(KEY_TAP_TO_OPEN, obj.getBoolean(KEY_TAP_TO_OPEN))
-                if (obj.has(KEY_DOUBLE_TAP_TO_OPEN)) putBoolean(KEY_DOUBLE_TAP_TO_OPEN, obj.getBoolean(KEY_DOUBLE_TAP_TO_OPEN))
-                if (obj.has(KEY_TRIPLE_TAP_TO_OPEN)) putBoolean(KEY_TRIPLE_TAP_TO_OPEN, obj.getBoolean(KEY_TRIPLE_TAP_TO_OPEN))
-                if (obj.has(KEY_BLUR_ENABLED)) putBoolean(KEY_BLUR_ENABLED, obj.getBoolean(KEY_BLUR_ENABLED))
-                if (obj.has(KEY_SHOW_LOGS)) putBoolean(KEY_SHOW_LOGS, obj.getBoolean(KEY_SHOW_LOGS))
-                if (obj.has(KEY_SHOW_SYS_INFO)) putBoolean(KEY_SHOW_SYS_INFO, obj.getBoolean(KEY_SHOW_SYS_INFO))
-                if (obj.has(KEY_SHOW_POWER_MENU)) putBoolean(KEY_SHOW_POWER_MENU, obj.getBoolean(KEY_SHOW_POWER_MENU))
-                if (obj.has(KEY_SHOW_VOLUME_KEYS)) putBoolean(KEY_SHOW_VOLUME_KEYS, obj.getBoolean(KEY_SHOW_VOLUME_KEYS))
-                if (obj.has(KEY_SHOW_BRIGHTNESS_KEYS)) putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, obj.getBoolean(KEY_SHOW_BRIGHTNESS_KEYS))
-                if (obj.has(KEY_SLIDE_BRIGHTNESS_ENABLED)) putBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, obj.getBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED))
-                if (obj.has(KEY_SLIDE_VOLUME_ENABLED)) putBoolean(KEY_SLIDE_VOLUME_ENABLED, obj.getBoolean(KEY_SLIDE_VOLUME_ENABLED))
-                if (obj.has(KEY_FREEFORM_ENABLED)) putBoolean(KEY_FREEFORM_ENABLED, obj.getBoolean(KEY_FREEFORM_ENABLED))
-                if (obj.has(KEY_SHOW_NOTIFICATION_APPS)) putBoolean(KEY_SHOW_NOTIFICATION_APPS, obj.getBoolean(KEY_SHOW_NOTIFICATION_APPS))
-                if (obj.has(KEY_DRAG_TO_SPLIT)) putBoolean(KEY_DRAG_TO_SPLIT, obj.getBoolean(KEY_DRAG_TO_SPLIT))
-                if (obj.has(KEY_REMEMBER_SCROLL)) putBoolean(KEY_REMEMBER_SCROLL, obj.getBoolean(KEY_REMEMBER_SCROLL))
-                if (obj.has(KEY_AUTO_SHOW_KEYBOARD)) putBoolean(KEY_AUTO_SHOW_KEYBOARD, obj.getBoolean(KEY_AUTO_SHOW_KEYBOARD))
+                // Booleans — optBoolean's signature is (key, fallback) so
+                // we explicitly read the current value to keep the previous
+                // behavior of "no write" on missing/typed-wrong keys.
+                fun putBoolIfPresent(key: String, current: Boolean) {
+                    if (!obj.has(key) || obj.isNull(key)) return
+                    val v = obj.optBoolean(key, current)
+                    putBoolean(key, v)
+                }
+                putBoolIfPresent(KEY_AUTO_START, autoStart)
+                putBoolIfPresent(KEY_SHOW_PILL, showPill)
+                putBoolIfPresent(KEY_HAPTIC_ENABLED, hapticEnabled)
+                putBoolIfPresent(KEY_USE_CUSTOM_ACCENT, useCustomAccent)
+                putBoolIfPresent(KEY_HIDE_BG, hideBackground)
+                putBoolIfPresent(KEY_SHOW_TOOLS, showTools)
+                putBoolIfPresent(KEY_GESTURES_ENABLED, gesturesEnabled)
+                putBoolIfPresent(KEY_SHOW_IN_LANDSCAPE, showInLandscape)
+                putBoolIfPresent(KEY_TAP_TO_OPEN, tapToOpen)
+                putBoolIfPresent(KEY_DOUBLE_TAP_TO_OPEN, doubleTapToOpen)
+                putBoolIfPresent(KEY_TRIPLE_TAP_TO_OPEN, tripleTapToOpen)
+                putBoolIfPresent(KEY_BLUR_ENABLED, blurEnabled)
+                putBoolIfPresent(KEY_SHOW_LOGS, showLogs)
+                putBoolIfPresent(KEY_SHOW_SYS_INFO, showSysInfo)
+                putBoolIfPresent(KEY_SHOW_POWER_MENU, showPowerMenu)
+                putBoolIfPresent(KEY_SHOW_VOLUME_KEYS, showVolumeKeys)
+                putBoolIfPresent(KEY_SHOW_BRIGHTNESS_KEYS, showBrightnessKeys)
+                putBoolIfPresent(KEY_SLIDE_BRIGHTNESS_ENABLED, slideBrightnessEnabled)
+                putBoolIfPresent(KEY_SLIDE_VOLUME_ENABLED, slideVolumeEnabled)
+                putBoolIfPresent(KEY_FREEFORM_ENABLED, freeformEnabled)
+                putBoolIfPresent(KEY_SHOW_NOTIFICATION_APPS, showNotificationApps)
+                putBoolIfPresent(KEY_DRAG_TO_SPLIT, dragToSplit)
+                putBoolIfPresent(KEY_REMEMBER_SCROLL, rememberScroll)
+                putBoolIfPresent(KEY_AUTO_SHOW_KEYBOARD, autoShowKeyboard)
             }
             true
         } catch (e: Exception) {
