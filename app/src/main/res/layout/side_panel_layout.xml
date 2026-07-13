@@ -66,12 +66,15 @@
         app:layout_constraintTop_toBottomOf="@id/rvPanelApps"
         app:layout_constraintBottom_toTopOf="@id/btnClose">
 
-        <!-- Divider spans both columns -->
+        <!-- Divider (spanned by id so SidePanelView can safely re-apply span=2
+             for 2-col mode; its XML columnSpan is intentionally NOT set so
+             init-time inflation doesn't pre-create an over-wide spec that
+             AOSP GridLayout.setColumnCount(1) would later reject). -->
         <View
+            android:id="@+id/toolsDivider"
             android:layout_width="0dp"
             android:layout_height="1dp"
             android:background="#33FFFFFF"
-            android:layout_columnSpan="2"
             android:layout_columnWeight="1"
             android:layout_marginBottom="8dp" />
 

@@ -808,24 +808,83 @@ class SidePanelView @JvmOverloads constructor(
 
     /**
      * Mirror the app-list column count across to the tools grid below the list.
-     * When [currentCols] == 1, tools stack vertically (1 cell per row). When == 2,
-     * tools flow into a 2-column grid; the System Info cell spans both columns so
-     * its text isn't stranded.
+     *
+     * Behavior:
+     *  • [currentCols] == 1 → tools stack vertically (1 cell per row).
+     *  • [currentCols] == 2 → tools flow into a 2-column grid; the divider and the
+     *    System Info cell each span both columns so their full-width visual
+     *    treatment isn't stranded on one side.
+     *
+     * SAFETY: AOSP [android.widget.GridLayout.setColumnCount] validates that every
+     * existing child's `start + span ≤ columnCount` and throws
+     * [IllegalArgumentException] otherwise. Our XML declares the `toolsDivider` with
+     * `layout_columnSpan="2"` and the previous code mutated `layoutSysInfo` to span 2
+     * in 2-col mode; collapsing to columnCount=1 therefore crashed the service
+     * process every time the user opened the picker when their `panelColumns` was
+     * already 1 (and crashed openPanel() via updateStyles when panelColumns==1 was
+     * persisted from a prior session because SidePanelView's init-block runs this
+     * same function).
+     *
+     * Fix: PRE-NORMALIZE every child's `columnSpec` to a safe single-cell baseline
+     * (UNDEFINED index + span=1 + weight=1 + FILL) BEFORE the `setColumnCount`
+     * call, then re-apply the "fill the row" overrides for divider + sysInfo when
+     * the target is exactly 2.
      */
     private fun syncToolsGridColumns() {
-        binding.toolsContainer.columnCount = currentCols
-        val sysInfoLp = binding.layoutSysInfo.layoutParams as? android.widget.GridLayout.LayoutParams
-        if (sysInfoLp != null) {
-            // `columnSpan` is not a direct field on [android.widget.GridLayout.LayoutParams];
-            // the API encodes column position + span into a single [android.widget.GridLayout.Spec]
-            // via the [android.widget.GridLayout.spec] factory. UNDEFINED index means
-            // auto-place (let the grid decide where to put this cell).
-            val span = if (currentCols == 2) 2 else 1
-            sysInfoLp.columnSpec = android.widget.GridLayout.spec(
+        val target = currentCols
+
+        // 1) Reset every child's columnSpec to a safe single-cell baseline so
+        //    the upcoming setColumnCount cannot see any prior span > target.
+        //
+        // SDK note: The 4-argument overload
+        //   `spec(int start, int size, Alignment alignment, float weight)`
+        // is the only way to set BOTH span AND alignment AND weight inside a
+        // single Spec here. We must keep FILL alignment because every tools
+        // child has `layout_width="0dp"` — with BEGIN alignment those 0dp
+        // children collapse to literally 0px wide and the divider, tools, and
+        // sysInfo cells visually vanish. FILL stretches the 0dp view across
+        // its full weight-allocated cell, which is the visual behavior the
+        // tools grid was originally tuned around.
+        val container = binding.toolsContainer
+        for (i in 0 until container.childCount) {
+            val child = container.getChildAt(i)
+            val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams ?: continue
+            lp.columnSpec = android.widget.GridLayout.spec(
                 android.widget.GridLayout.UNDEFINED,
-                span
+                1,
+                android.widget.GridLayout.FILL,
+                1.0f
             )
-            binding.layoutSysInfo.layoutParams = sysInfoLp
+        }
+
+        // 2) Mutate columnCount (now safe regardless of direction 1↔2).
+        container.columnCount = target
+
+        // 3) Re-apply "fill the row" overrides only in 2-column mode.
+        //    In 1-column mode every child already owns the row, so span=1 from
+        //    step 1 is correct.
+        if (target == 2) {
+            binding.toolsDivider?.layoutParams?.let { raw ->
+                (raw as? android.widget.GridLayout.LayoutParams)?.let { lp ->
+                    lp.columnSpec = android.widget.GridLayout.spec(
+                        android.widget.GridLayout.UNDEFINED,
+                        2,
+                        android.widget.GridLayout.FILL,
+                        1.0f
+                    )
+                }
+            }
+            binding.layoutSysInfo.layoutParams.let { raw ->
+                (raw as? android.widget.GridLayout.LayoutParams)?.let { lp ->
+                    lp.columnSpec = android.widget.GridLayout.spec(
+                        android.widget.GridLayout.UNDEFINED,
+                        2,
+                        android.widget.GridLayout.FILL,
+                        1.0f
+                    )
+                    binding.layoutSysInfo.layoutParams = lp
+                }
+            }
         }
     }
 
