@@ -103,7 +103,7 @@ class PanelPreferences(context: Context) {
         // with fixed-position hyphens). Anything else is rejected on addCustomItem
         // so corrupt prefs or future caller bugs can't smuggle arbitrary bytes
         // into sidebar identifiers.
-        private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\$")
+        private val UUID_PATTERN = Regex("""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""")
 
         private const val DELIMITER = ","
 

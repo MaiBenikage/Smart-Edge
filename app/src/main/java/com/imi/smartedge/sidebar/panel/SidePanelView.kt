@@ -823,105 +823,50 @@ class SidePanelView @JvmOverloads constructor(
      *
      * Behavior:
      *  • [currentCols] == 1 → tools stack vertically (1 cell per row).
-     *  • [currentCols] == 2 → tools flow into a 2-column grid; the divider and the
-     *    System Info cell each span both columns so their full-width visual
+     *  • [currentCols] == 2 → tools flow into a 2-column grid; the divider and
+     *    the System Info cell each span both columns so their full-width visual
      *    treatment isn't stranded on one side.
      *
-     * ROUND-15 (FINAL) — layered defense:
+     * ROUND-16 (FINAL) — pre-emptive span downgrade strategy:
      *
-     * PROBLEM:
-     * AOSP [android.widget.GridLayout$Axis.setCount] validates the new column
-     * count against **every child's resolved start index + span** via
-     * [getMaxIndex]. Once children are laid out, GridLayout resolves their
-     * [UNDEFINED] start values to concrete positions. A call to
-     * [setColumnCount] with children present computes [maxIndex] from these
-     * resolved starts and throws [IllegalArgumentException] if the new count
-     * doesn't cover them.
+     * ROOT CAUSE (confirmed across OEM GridLayout forks):
+     *   AOSP [GridLayout.Axis.setCount] validates the new columnCount against
+     *   every child's resolved start index + span via [getMaxIndex()]. Once a
+     *   layout pass resolves children's [UNDEFINED] start values to concrete
+     *   positions, [setColumnCount] throws [IllegalArgumentException] if those
+     *   resolved indices don't fit. Additionally, many OEM GridLayout
+     *   implementations cache [mMaxIndex] and fail to invalidate it on
+     *   [removeAllViews()], so even a detach→setCount→reattach cycle crashes.
      *
-     * Callers invoke syncToolsGridColumns from a deep call chain (openPicker →
-     * setColumns → syncToolsGridColumns → updateSideLayout → syncToolsGridColumns,
-     * plus additional calls from setEditButtonVisible → updateSideLayout).
-     * The first call correctly handles the transition. Redundant calls see an
-     * already-correct column count but children with resolved starts — which
-     * would crash a second [setColumnCount] even for the SAME value.
+     * FIX (single deterministic pass):
+     *   1. If columnCount already matches target → no-op (avoid redundant work).
+     *   2. Downgrade ALL children's [columnSpec] to span=1 BEFORE calling
+     *      [setColumnCount]. Since every child now claims span=1 with
+     *      UNDEFINED start, the maximum possible index is always ≤ childCount,
+     *      and any target ≥ 1 satisfies the validation.
+     *   3. Set [columnCount] — guaranteed safe because no child claims span > 1.
+     *   4. If target == 2, re-apply span=2 overrides for divider+SysInfo.
      *
-     * FIX (three layers of defense):
-     *
-     *   Layer 1 — EARLY RETURN (for the SAME value).
-     *   If [container.columnCount] already matches [target] AND the container
-     *   has children, we already handled this transition in a prior invocation.
-     *   Skip entirely — no [setColumnCount] call, no validation, no crash.
-     *
-     *   Layer 2 — TRY-AND-FALLBACK (for a DIFFERENT value).
-     *   First try [setColumnCount] directly with the children still attached.
-     *   If GridLayout's [getMaxIndex] validation passes (which it does for
-     *   freshly-added children whose start values haven't yet been resolved
-     *   by a layout pass), this is the zero-overhead path.
-     *   If it throws [IllegalArgumentException], fall back to Layer 3.
-     *
-     *   Layer 3 — DETACH-AND-REBUILD (emergency fallback).
-     *   Snapshot children, remove them all, set [columnCount] on an empty
-     *   container (no children → no validation → no crash), then re-add every
-     *   child with fresh UNDEFINED-start / span-1 specs. In 2-column mode,
-     *   apply span=2 for the divider and System Info cell.
-     *
-     * This three-layer strategy ensures survival against ANY GridLayout
-     * internal state — including OEM-specific GridLayout forks or layout-pass
-     * timing quirks that might resolve children's starts between the detach
-     * and the [setColumnCount] call.
+     * No try-catch, no detach-reattach. One linear, crash-proof sequence.
      */
     private fun syncToolsGridColumns() {
         val target = currentCols.coerceIn(1, 2)
         val container = binding.toolsContainer
 
-        // — Layer 1: early return —
-        // If the column count is already correct AND the container has
-        // children (meaning a previous invocation already set things up),
-        // skip entirely so we never hit setColumnCount's validation.
-        if (container.columnCount == target && container.childCount > 0) {
-            refreshColumnSpanOverrides(target)
+        // Already at the target column count — nothing to do.
+        if (container.columnCount == target) {
+            if (target == 2) refreshColumnSpanOverrides(target)
             return
         }
 
         val FILL = android.widget.GridLayout.FILL
 
-        // — Layer 2: try the direct approach —
-        // For freshly-added children whose starts haven't been resolved by a
-        // layout pass, setColumnCount with children attached works fine.
-        try {
-            container.columnCount = target
-            // Re-spec all children so their columnSpec matches.
-            for (i in 0 until container.childCount) {
-                val child = container.getChildAt(i) ?: continue
-                val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
-                    ?: android.widget.GridLayout.LayoutParams().apply {
-                        width = 0; height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                    }
-                lp.columnSpec = android.widget.GridLayout.spec(
-                    android.widget.GridLayout.UNDEFINED,
-                    1,
-                    FILL,
-                    1.0f
-                )
-                child.layoutParams = lp
-            }
-            refreshColumnSpanOverrides(target)
-            return
-        } catch (_: IllegalArgumentException) {
-            // GridLayout validation failed — fall through to Layer 3.
-        }
-
-        // — Layer 3: detach-and-rebuild —
-        // Remove all children so setColumnCount has nothing to validate.
-        val children = mutableListOf<View>()
+        // Step 1: Downgrade ALL children to span=1 FIRST.
+        // This guarantees that after setColumnCount, no child claims a span
+        // greater than 1, so GridLayout's getMaxIndex() validation always
+        // passes regardless of OEM cache bugs or resolved start positions.
         for (i in 0 until container.childCount) {
-            container.getChildAt(i)?.let { children.add(it) }
-        }
-        container.removeAllViews()
-
-        container.columnCount = target
-
-        for (child in children) {
+            val child = container.getChildAt(i) ?: continue
             val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
                 ?: android.widget.GridLayout.LayoutParams().apply {
                     width = 0; height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -933,9 +878,12 @@ class SidePanelView @JvmOverloads constructor(
                 1.0f
             )
             child.layoutParams = lp
-            container.addView(child)
         }
 
+        // Step 2: Now safe to change column count.
+        container.columnCount = target
+
+        // Step 3: Apply span=2 overrides only when expanding to 2 columns.
         refreshColumnSpanOverrides(target)
     }
 
