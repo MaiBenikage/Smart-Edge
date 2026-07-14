@@ -827,85 +827,75 @@ class SidePanelView @JvmOverloads constructor(
      *    System Info cell each span both columns so their full-width visual
      *    treatment isn't stranded on one side.
      *
-     * Round-13 SAFETY (the actual crash root cause):
+     * Round-14 FIX — rebuild-via-detach strategy:
      *
-     * AOSP `android.widget.GridLayout$Axis` caches `mMaxIndex` in memory and
-     * re-uses it on every `setColumnCount(N)` call to validate that no existing
-     * child has `start + span > N`. `getMaxIndex()` returns the cached value
-     * unless `mMaxIndex == UNDEFINED`.
+     * AOSP `android.widget.GridLayout$Axis.setCount(int)` validates the new
+     * column count against **every child's resolved start + span** via
+     * `getMaxIndex()`.  The only guaranteed way to avoid a stale-computation
+     * is to remove ALL children from the GridLayout before changing
+     * `columnCount`, since an empty GridLayout has zero children to validate.
      *
-     * The ONLY synchronous way to reset `mMaxIndex` to `UNDEFINED` is via
-     * `GridLayout.invalidateStructure()`, which is called from
-     * `ViewGroup.onSetLayoutParams()`, which is called only by
-     * `child.setLayoutParams(lp)`. Mutating `lp.columnSpec` in place is a silent
-     * no-op for the cache — the new value is held in the LayoutParams object but
-     * `Axis.mMaxIndex` keeps reflecting the PRE-mutation value.
+     * Previous approaches (Round-10 requestLayout, Round-13 layoutParams
+     * reassignment) all failed for the 2→1 transition because
+     * `getMaxIndex()` resolves `UNDEFINED` start values against the
+     * **current** columnCount (still 2), computes maxIndex=1 (span=1), and
+     * then rejects the new count=1 because 1 < (1+1)=2.
      *
-     * Round-10 attempted `container.requestLayout()` between mutate and
-     * `setColumnCount`. That was a band-aid: `requestLayout()` schedules an async
-     * layout pass, but `setColumnCount` runs IMMEDIATELY after. The cache is still
-     * stale, validation still throws.
-     *
-     * Round-10 also assigned `binding.layoutSysInfo.layoutParams = lp` to
-     * invalidate that one child, but **forgot** to assign
-     * `binding.toolsDivider.layoutParams = lp` — so the divider's own stale cache
-     * could trigger the same crash on a 1→2→1 round-trip.
-     *
-     * Round-13 fix: after every spec mutation, call `child.layoutParams = lp` so
-     * the cache is invalidated SYNCHRONOUSLY before the next setColumnCount.
+     * Round-14 fix: detach all children, set columnCount, re-attach with
+     * fresh specs.  This completely sidesteps the validation because there
+     * are literally no children in the parent when setColumnCount runs.
      */
     private fun syncToolsGridColumns() {
         val target = currentCols.coerceIn(1, 2)
         val container = binding.toolsContainer
 
-        // 1) Walk every child and (a) normalize its columnSpec to a safe baseline
-        //    AND (b) re-assign the layoutParams so invalidateStructure() runs
-        //    synchronously and clears mMaxIndex BEFORE the next setColumnCount call.
-        //
-        // SDK note: the 4-argument overload
-        //   `spec(int start, int size, Alignment alignment, float weight)`
-        // is the only form that sets span + alignment + weight in a single Spec.
-        // We must keep FILL alignment because every tools child has
-        // `layout_width="0dp"` — BEGIN alignment would collapse those 0dp views
-        // to literally 0px wide, vanishing tools / divider / sysInfo visually.
+        // 1) Snapshot all children and detach them from the GridLayout.
+        //    removeAllViews() also clears each child's parent reference so
+        //    that addView() below doesn't trip "The specified child already
+        //    has a parent" in ViewGroup.
+        val children = mutableListOf<View>()
         for (i in 0 until container.childCount) {
-            val child = container.getChildAt(i) ?: continue
-            val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams ?: continue
+            container.getChildAt(i)?.let { children.add(it) }
+        }
+        container.removeAllViews()
+
+        // 2) columnCount with zero children: no validation possible, no crash.
+        container.columnCount = target
+
+        // 3) Re-add every child with a freshly-normalised spec.
+        //    SDK note: the 4-argument overload
+        //      `spec(int start, int size, Alignment alignment, float weight)`
+        //    is the only form that sets span + alignment + weight in a single Spec.
+        //    We must keep FILL alignment because every tools child has
+        //    `layout_width="0dp"` — BEGIN alignment would collapse those 0dp views
+        //    to literally 0px wide, vanishing tools / divider / sysInfo visually.
+        val FILL = android.widget.GridLayout.FILL
+        for (child in children) {
+            val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
+                ?: android.widget.GridLayout.LayoutParams().apply {
+                    width = 0; height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                }
             lp.columnSpec = android.widget.GridLayout.spec(
                 android.widget.GridLayout.UNDEFINED,
                 1,
-                android.widget.GridLayout.FILL,
+                FILL,
                 1.0f
             )
-            // The critical line that Round-10 missed: this assignment
-            // synchronously calls GridLayout.onSetLayoutParams → invalidateStructure,
-            // which sets mHorizontalAxis.mMaxIndex = UNDEFINED so the very next
-            // setColumnCount() call (line 3) recomputes the cache from the
-            // normalized specs and cannot trip handleInvalidParams().
+            // Invalidate the child's own cached spec so it resolves afresh.
             child.layoutParams = lp
+            container.addView(child)
         }
 
-        // 2) Now safe to mutate columnCount in either direction (1→2 or 2→1);
-        //    invalidation in step 1 means Axis.getMaxIndex() recomputes on the fly.
-        container.columnCount = target
-
-        // 3) Re-apply the "fill the row" overrides only in 2-column mode.
-        //    Each setLayoutParams(lp) call invalidates the cache so the NEXT
-        //    transition (back to 1-col) sees a fresh maxIndex instead of the
-        //    stale "2" we'd otherwise leak across the call.
+        // 4) Apply span=2 overrides in 2-column mode.
         if (target == 2) {
             binding.toolsDivider?.let { divider ->
                 val lp = divider.layoutParams as? android.widget.GridLayout.LayoutParams ?: return@let
                 lp.columnSpec = android.widget.GridLayout.spec(
                     android.widget.GridLayout.UNDEFINED,
                     2,
-                    android.widget.GridLayout.FILL,
+                    FILL,
                     1.0f
                 )
-                // Without THIS assignment the divider's mMaxIndex stays at the
-                // pre-mutation value (1 from step 1), and the next setColumnCount(1)
-                // would recompute maxIndex=… before this divider's new span=2
-                // overrides reached the cache, throwing IllegalArgumentException.
                 divider.layoutParams = lp
             }
             val siLp = binding.layoutSysInfo.layoutParams as? android.widget.GridLayout.LayoutParams
@@ -913,7 +903,7 @@ class SidePanelView @JvmOverloads constructor(
                 siLp.columnSpec = android.widget.GridLayout.spec(
                     android.widget.GridLayout.UNDEFINED,
                     2,
-                    android.widget.GridLayout.FILL,
+                    FILL,
                     1.0f
                 )
                 binding.layoutSysInfo.layoutParams = siLp
