@@ -234,7 +234,9 @@ class PanelPreferences(context: Context) {
             KEY_ICON_PACK to selectedIconPack,
             KEY_ICON_PACK_LABEL to iconPackLabel,
             KEY_HOME_BUTTON_STYLE to homeButtonStyle,
-            KEY_FREEFORM_WINDOW_MODE to freeformWindowMode
+            KEY_FREEFORM_WINDOW_MODE to freeformWindowMode,
+            KEY_FULLSCREEN_WHITELIST to (prefs.getString(KEY_FULLSCREEN_WHITELIST, null) ?: ""),
+            KEY_FAVORITE_APP to favoriteAppPackage
         )
         strings.forEach { (k, v) -> obj.put(k, v) }
 
@@ -256,7 +258,15 @@ class PanelPreferences(context: Context) {
             KEY_SWIPE_SENSITIVITY to swipeSensitivity,
             KEY_FREEFORM_CUSTOM_W to freeformCustomWidth,
             KEY_FREEFORM_CUSTOM_H to freeformCustomHeight,
-            KEY_THEME_MODE to themeMode
+            KEY_THEME_MODE to themeMode,
+            KEY_TAP_ACTION to tapAction,
+            KEY_DOUBLE_TAP_ACTION to doubleTapAction,
+            KEY_TRIPLE_TAP_ACTION to tripleTapAction,
+            KEY_LONG_PRESS_ACTION to longPressAction,
+            KEY_NOTCH_TAP_ACTION to notchTapAction,
+            KEY_NOTCH_DOUBLE_TAP_ACTION to notchDoubleTapAction,
+            KEY_NOTCH_TRIPLE_TAP_ACTION to notchTripleTapAction,
+            KEY_NOTCH_LONG_PRESS_ACTION to notchLongPressAction
         )
         ints.forEach { (k, v) -> obj.put(k, v) }
         
@@ -291,7 +301,14 @@ class PanelPreferences(context: Context) {
             KEY_SHOW_NOTIFICATION_APPS to showNotificationApps,
             KEY_DRAG_TO_SPLIT to dragToSplit,
             KEY_REMEMBER_SCROLL to rememberScroll,
-            KEY_AUTO_SHOW_KEYBOARD to autoShowKeyboard
+            KEY_AUTO_SHOW_KEYBOARD to autoShowKeyboard,
+            KEY_SHOW_SCREENSHOT_TOOL to showScreenshotTool,
+            KEY_SHOW_TOOLS_PANEL_BUTTON to showToolsPanelButton,
+            KEY_ONLY_ON_HOME to onlyOnHome,
+            KEY_AUTO_HIDE_FULLSCREEN to autoHideInFullscreen,
+            KEY_DELIBERATE_GESTURE_GAMES to deliberateGestureInGames,
+            KEY_NOTCH_GESTURES_ENABLED to notchGesturesEnabled,
+            KEY_USE_AUTOMATION_FOR_GESTURES to useAutomationForGestures
         )
         bools.forEach { (k, v) -> obj.put(k, v) }
 
@@ -334,6 +351,8 @@ class PanelPreferences(context: Context) {
                 obj.optString(KEY_HOME_BUTTON_STYLE, null)?.let { putString(KEY_HOME_BUTTON_STYLE, it) }
                 obj.optString(KEY_FREEFORM_WINDOW_MODE, null)?.let { putString(KEY_FREEFORM_WINDOW_MODE, it) }
                 obj.optString(KEY_PICKER_ANIM_TYPE, null)?.let { putString(KEY_PICKER_ANIM_TYPE, it) }
+                obj.optString(KEY_FULLSCREEN_WHITELIST, null)?.let { putString(KEY_FULLSCREEN_WHITELIST, it) }
+                obj.optString(KEY_FAVORITE_APP, null)?.let { putString(KEY_FAVORITE_APP, it) }
 
                 // Ints
                 if (obj.has(KEY_PANEL_OPACITY) && !obj.isNull(KEY_PANEL_OPACITY)) putInt(KEY_PANEL_OPACITY, obj.optInt(KEY_PANEL_OPACITY, panelOpacity))
@@ -353,6 +372,14 @@ class PanelPreferences(context: Context) {
                 if (obj.has(KEY_FREEFORM_CUSTOM_W) && !obj.isNull(KEY_FREEFORM_CUSTOM_W)) putInt(KEY_FREEFORM_CUSTOM_W, obj.optInt(KEY_FREEFORM_CUSTOM_W, freeformCustomWidth))
                 if (obj.has(KEY_FREEFORM_CUSTOM_H) && !obj.isNull(KEY_FREEFORM_CUSTOM_H)) putInt(KEY_FREEFORM_CUSTOM_H, obj.optInt(KEY_FREEFORM_CUSTOM_H, freeformCustomHeight))
                 if (obj.has(KEY_THEME_MODE) && !obj.isNull(KEY_THEME_MODE)) putInt(KEY_THEME_MODE, obj.optInt(KEY_THEME_MODE, themeMode))
+                if (obj.has(KEY_TAP_ACTION) && !obj.isNull(KEY_TAP_ACTION)) putInt(KEY_TAP_ACTION, obj.optInt(KEY_TAP_ACTION, tapAction))
+                if (obj.has(KEY_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_DOUBLE_TAP_ACTION)) putInt(KEY_DOUBLE_TAP_ACTION, obj.optInt(KEY_DOUBLE_TAP_ACTION, doubleTapAction))
+                if (obj.has(KEY_TRIPLE_TAP_ACTION) && !obj.isNull(KEY_TRIPLE_TAP_ACTION)) putInt(KEY_TRIPLE_TAP_ACTION, obj.optInt(KEY_TRIPLE_TAP_ACTION, tripleTapAction))
+                if (obj.has(KEY_LONG_PRESS_ACTION) && !obj.isNull(KEY_LONG_PRESS_ACTION)) putInt(KEY_LONG_PRESS_ACTION, obj.optInt(KEY_LONG_PRESS_ACTION, longPressAction))
+                if (obj.has(KEY_NOTCH_TAP_ACTION) && !obj.isNull(KEY_NOTCH_TAP_ACTION)) putInt(KEY_NOTCH_TAP_ACTION, obj.optInt(KEY_NOTCH_TAP_ACTION, notchTapAction))
+                if (obj.has(KEY_NOTCH_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_DOUBLE_TAP_ACTION)) putInt(KEY_NOTCH_DOUBLE_TAP_ACTION, obj.optInt(KEY_NOTCH_DOUBLE_TAP_ACTION, notchDoubleTapAction))
+                if (obj.has(KEY_NOTCH_TRIPLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_TRIPLE_TAP_ACTION)) putInt(KEY_NOTCH_TRIPLE_TAP_ACTION, obj.optInt(KEY_NOTCH_TRIPLE_TAP_ACTION, notchTripleTapAction))
+                if (obj.has(KEY_NOTCH_LONG_PRESS_ACTION) && !obj.isNull(KEY_NOTCH_LONG_PRESS_ACTION)) putInt(KEY_NOTCH_LONG_PRESS_ACTION, obj.optInt(KEY_NOTCH_LONG_PRESS_ACTION, notchLongPressAction))
 
                 // Float
                 if (obj.has(KEY_SCALE_FACTOR) && !obj.isNull(KEY_SCALE_FACTOR)) {
@@ -392,6 +419,13 @@ class PanelPreferences(context: Context) {
                 putBoolIfPresent(KEY_DRAG_TO_SPLIT, dragToSplit)
                 putBoolIfPresent(KEY_REMEMBER_SCROLL, rememberScroll)
                 putBoolIfPresent(KEY_AUTO_SHOW_KEYBOARD, autoShowKeyboard)
+                putBoolIfPresent(KEY_SHOW_SCREENSHOT_TOOL, showScreenshotTool)
+                putBoolIfPresent(KEY_SHOW_TOOLS_PANEL_BUTTON, showToolsPanelButton)
+                putBoolIfPresent(KEY_ONLY_ON_HOME, onlyOnHome)
+                putBoolIfPresent(KEY_AUTO_HIDE_FULLSCREEN, autoHideInFullscreen)
+                putBoolIfPresent(KEY_DELIBERATE_GESTURE_GAMES, deliberateGestureInGames)
+                putBoolIfPresent(KEY_NOTCH_GESTURES_ENABLED, notchGesturesEnabled)
+                putBoolIfPresent(KEY_USE_AUTOMATION_FOR_GESTURES, useAutomationForGestures)
             }
             true
         } catch (e: Exception) {
@@ -467,6 +501,13 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_AUTO_HIDE_FULLSCREEN, false)
             putString(KEY_FULLSCREEN_WHITELIST, "")
             putBoolean(KEY_DELIBERATE_GESTURE_GAMES, true)
+            putBoolean(KEY_ONLY_ON_HOME, false)
+            putString(KEY_FAVORITE_APP, "")
+            putBoolean(KEY_NOTCH_GESTURES_ENABLED, false)
+            remove(KEY_NOTCH_TAP_ACTION)
+            remove(KEY_NOTCH_DOUBLE_TAP_ACTION)
+            remove(KEY_NOTCH_TRIPLE_TAP_ACTION)
+            remove(KEY_NOTCH_LONG_PRESS_ACTION)
             putInt(KEY_SIDEBAR_SCROLL, 0)
             putInt(KEY_PICKER_SCROLL, 0)
         }

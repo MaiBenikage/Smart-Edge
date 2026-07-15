@@ -63,7 +63,9 @@ class SettingsMainActivity : AppCompatActivity() {
                 if (binding.rvSettingsResults.visibility == View.VISIBLE || binding.etSettingsSearch.visibility == View.VISIBLE) {
                     collapseSearch()
                 } else {
-                    isEnabled = false
+                    // Round-1 audit: do NOT disable — the callback must stay alive for
+                    // subsequent search-open cycles. When search is closed we simply
+                    // pass the back press up to the dispatcher.
                     onBackPressedDispatcher.onBackPressed()
                 }
             }

@@ -253,13 +253,19 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private fun hasOverlayPermission(): Boolean =
         Settings.canDrawOverlays(this)
 
-    private fun requestOverlayPermission() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:$packageName")
-        )
+private fun requestOverlayPermission() {
+    val intent = Intent(
+        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        Uri.parse("package:$packageName")
+    )
+    try {
         overlayPermissionLauncher.launch(intent)
+    } catch (e: android.content.ActivityNotFoundException) {
+        // Some OEMs (Samsung, Xiaomi) reject the package-scoped URI.
+        // Fall back to the generic overlay-permission settings page.
+        overlayPermissionLauncher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
     }
+}
 
     private fun isIgnoringBatteryOptimizations(): Boolean {
         val powerManager = getSystemService(POWER_SERVICE) as android.os.PowerManager

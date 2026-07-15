@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -30,9 +31,11 @@ class AppRepository(context: Context) {
 
     // Audit L3: cancel any in-flight icon preload jobs. Called from FloatingPanelService.onDestroy
     // so we don't leak a SupervisorJob past the service lifetime.
-    // Safe to call multiple times — cancel() is idempotent.
+    // Round-1 audit: cancel() destroys the scope's Job permanently — if AppRepository is reused
+    // (e.g. service restart), future launches silently fail. Use cancelChildren() instead,
+    // which cancels running jobs but leaves the scope alive for the next icon preload batch.
     fun clear() {
-        iconPreloadScope.cancel()
+        iconPreloadScope.coroutineContext.cancelChildren()
     }
 
     companion object {
