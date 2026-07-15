@@ -809,7 +809,7 @@ class AppPickerPanelView @JvmOverloads constructor(
                     val msg = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
                         "Requires Android 7.1+"
                     } else {
-                        "No shortcuts available. Set Smart Edge as default launcher to read app shortcuts."
+                        "No static shortcuts found on this device.\nApps that declare shortcuts (e.g. Gmail, WhatsApp, Spotify) will appear here.\nSetting Smart Edge as the default launcher additionally unlocks live/dynamic shortcuts."
                     }
                     result.add(PickerItem.EmptyState(msg))
                 } else {

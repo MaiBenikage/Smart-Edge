@@ -446,18 +446,33 @@ class AppRepository(context: Context) {
     private suspend fun getStaticShortcutsByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
         val result = mutableListOf<Pair<String, List<AppInfo>>>()
         try {
+            // Round-17: must include GET_ACTIVITIES so pkg.activities is non-null.
+            // android.app.shortcuts meta-data is declared on the MAIN/LAUNCHER
+            // activity, not on the <application> tag, so we must iterate activities
+            // to find the xmlResId.
             val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 packageManager.getInstalledPackages(
-                    PackageManager.PackageInfoFlags.of(PackageManager.GET_META_DATA.toLong())
+                    PackageManager.PackageInfoFlags.of(
+                        (PackageManager.GET_META_DATA or PackageManager.GET_ACTIVITIES).toLong()
+                    )
                 )
             } else {
                 @Suppress("DEPRECATION")
-                packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
+                packageManager.getInstalledPackages(
+                    PackageManager.GET_META_DATA or PackageManager.GET_ACTIVITIES
+                )
             }
             for (pkg in packages) {
                 try {
-                    val metaData = pkg.applicationInfo?.metaData ?: continue
-                    val xmlResId = metaData.getInt("android.app.shortcuts", 0)
+                    // First check application-level meta-data (uncommon but possible).
+                    var xmlResId = pkg.applicationInfo?.metaData?.getInt("android.app.shortcuts", 0) ?: 0
+                    // Fall back to activity-level meta-data (the standard location).
+                    if (xmlResId <= 0) {
+                        for (act in pkg.activities ?: emptyArray()) {
+                            xmlResId = act.metaData?.getInt("android.app.shortcuts", 0) ?: 0
+                            if (xmlResId > 0) break
+                        }
+                    }
                     if (xmlResId <= 0) continue
                     // getResourcesForApplication returns the app's own APK resources
                     // without elevating our privileges - this is the trick that lets us
@@ -578,8 +593,12 @@ class AppRepository(context: Context) {
                     XmlPullParser.START_TAG -> {
                         when (parser.name) {
                             "shortcut" -> {
-                                currentShortcutId = parser.getAttributeValue(null, "android:shortcutId")
-                                currentEnabled = parser.getAttributeBooleanValue(null, "android:enabled", true)
+                                // Round-17: null namespace → ANDROID_NS. The previous code passed `null`
+                                // for the android: prefixed attributes, causing getAttributeValue() to
+                                // return null on any parser that respects XML namespaces (i.e. most
+                                // devices). Every static shortcut was silently dropped during parsing.
+                                currentShortcutId = parser.getAttributeValue(ANDROID_NS, "shortcutId")
+                                currentEnabled = parser.getAttributeBooleanValue(ANDROID_NS, "enabled", true)
 
                                 // Label may be a string-resource ref (@string/foo) or a literal.
                                 val labelResId = parser.getAttributeResourceValue(ANDROID_NS, "shortcutShortLabel", 0)
@@ -589,10 +608,10 @@ class AppRepository(context: Context) {
                                 }
                             }
                             "intent" -> {
-                                icAction = parser.getAttributeValue(null, "android:action")
-                                icData = parser.getAttributeValue(null, "android:data")
-                                icTargetPackage = parser.getAttributeValue(null, "android:targetPackage")
-                                icTargetClass = parser.getAttributeValue(null, "android:targetClass")
+                                icAction = parser.getAttributeValue(ANDROID_NS, "action")
+                                icData = parser.getAttributeValue(ANDROID_NS, "data")
+                                icTargetPackage = parser.getAttributeValue(ANDROID_NS, "targetPackage")
+                                icTargetClass = parser.getAttributeValue(ANDROID_NS, "targetClass")
                             }
                         }
                     }
