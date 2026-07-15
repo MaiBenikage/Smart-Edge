@@ -1225,7 +1225,6 @@ class FloatingPanelService : Service() {
         if (isPickerOpen) return
         isPickerOpen = true
         sidePanelView?.setColumns(1)
-        sidePanelView?.setEditButtonVisible(true)
         sidePanelView?.scrollToBottom()
         sidePanelView?.animatePickerToggle(true)
         pickerPanelView?.let { picker ->
