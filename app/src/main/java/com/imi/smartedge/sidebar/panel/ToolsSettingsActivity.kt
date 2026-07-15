@@ -64,6 +64,7 @@ class ToolsSettingsActivity : AppCompatActivity() {
         binding.featureVolumeKeys.isChecked = panelPrefs.showVolumeKeys
         binding.featureBrightnessKeys.isChecked = panelPrefs.showBrightnessKeys
         binding.featureScreenshot.isChecked = panelPrefs.showScreenshotTool
+        binding.featureBlackScreen.isChecked = panelPrefs.showBlackScreenTool
         binding.featureToolsPanel.isChecked = panelPrefs.showToolsPanelButton
     }
 
@@ -98,6 +99,11 @@ class ToolsSettingsActivity : AppCompatActivity() {
 
         binding.featureScreenshot.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.showScreenshotTool = isChecked
+            applyOnly()
+        }
+
+        binding.featureBlackScreen.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.showBlackScreenTool = isChecked
             applyOnly()
         }
 

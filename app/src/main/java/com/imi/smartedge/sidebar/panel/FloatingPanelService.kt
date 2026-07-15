@@ -506,6 +506,9 @@ class FloatingPanelService : Service() {
 
     private fun activateBlackScreen() {
         try {
+            // Guard against re-entrant activation — if overlay already exists, ignore.
+            if (blackScreenOverlay != null) return
+
             closePanel()
             val resolver = contentResolver
 
@@ -530,29 +533,22 @@ class FloatingPanelService : Service() {
                 125
             )
 
-            // 3. Set brightness to minimum
+            // 3. Set brightness to minimum (1 not 0 — some OEMs treat 0 as "auto")
             if (android.provider.Settings.System.canWrite(this)) {
                 android.provider.Settings.System.putInt(
                     resolver,
                     android.provider.Settings.System.SCREEN_BRIGHTNESS,
-                    0
+                    1
                 )
             }
 
-            // 4. Acquire wake lock to keep screen on
-            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-            blackScreenWakeLock = powerManager.newWakeLock(
-                android.os.PowerManager.FULL_WAKE_LOCK or
-                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "SmartEdge:BlackScreen"
-            )
-            blackScreenWakeLock?.acquire()
-
-            // 5. Create full-screen black overlay
+            // 4. Create full-screen black overlay with FLAG_KEEP_SCREEN_ON
+            //    (replaces deprecated FULL_WAKE_LOCK for API 17+)
             blackScreenOverlay = android.widget.FrameLayout(this).apply {
                 setBackgroundColor(android.graphics.Color.BLACK)
                 isClickable = true
                 isFocusable = true
+                keepScreenOn = true
                 setOnClickListener {
                     deactivateBlackScreen()
                 }
@@ -564,7 +560,8 @@ class FloatingPanelService : Service() {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
                 PixelFormat.OPAQUE
             )
 
@@ -585,16 +582,18 @@ class FloatingPanelService : Service() {
 
     private fun deactivateBlackScreen() {
         try {
-            // 1. Remove the black overlay
+            // 1. Remove the black overlay safely
             blackScreenOverlay?.let { overlay ->
                 try {
-                    windowManager.removeView(overlay)
+                    if (overlay.isAttachedToWindow) {
+                        windowManager.removeView(overlay)
+                    }
                 } catch (e: Exception) {}
             }
             blackScreenOverlay = null
             blackScreenOverlayParams = null
 
-            // 2. Release wake lock
+            // 2. Release wake lock if still held (legacy guard for old instances)
             blackScreenWakeLock?.let { wl ->
                 if (wl.isHeld) wl.release()
             }
