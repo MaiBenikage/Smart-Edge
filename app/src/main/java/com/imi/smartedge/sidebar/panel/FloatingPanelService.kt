@@ -549,6 +549,24 @@ class FloatingPanelService : Service() {
                 isClickable = true
                 isFocusable = true
                 keepScreenOn = true
+                // Hide status & navigation bars (immersive mode)
+                @Suppress("DEPRECATION")
+                systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
+                setOnSystemUiVisibilityChangeListener { vis ->
+                    // Re-apply on any change so bars stay hidden until tap
+                    if (vis and View.SYSTEM_UI_FLAG_HIDE_NAVIGATION == 0) {
+                        @Suppress("DEPRECATION")
+                        systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_FULLSCREEN
+                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
+                    }
+                }
                 setOnClickListener {
                     deactivateBlackScreen()
                 }
@@ -561,6 +579,7 @@ class FloatingPanelService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
                 PixelFormat.OPAQUE
             )
@@ -582,7 +601,13 @@ class FloatingPanelService : Service() {
 
     private fun deactivateBlackScreen() {
         try {
-            // 1. Remove the black overlay safely
+            // 1. FIRST: exit immersive mode — restore status & navigation bars
+            blackScreenOverlay?.let { overlay ->
+                @Suppress("DEPRECATION")
+                overlay.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+            }
+
+            // 2. Remove the black overlay safely
             blackScreenOverlay?.let { overlay ->
                 try {
                     if (overlay.isAttachedToWindow) {
