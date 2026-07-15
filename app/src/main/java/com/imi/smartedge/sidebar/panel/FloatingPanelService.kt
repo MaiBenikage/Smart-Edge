@@ -572,15 +572,24 @@ class FloatingPanelService : Service() {
                 }
             }
 
+            // FLAG_NOT_FOCUSABLE is intentionally OMITTED — the overlay MUST
+            // receive touch events so the user can tap to deactivate. Without
+            // focus the WindowManager also draws system bars on top of the
+            // overlay, defeating immersive mode.
+            // FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS tells WM we handle the area
+            // behind status/nav bars ourselves, so our black fill covers them.
+            // FLAG_FULLSCREEN + FLAG_LAYOUT_NO_LIMITS extends the overlay into
+            // the system-bar regions, and systemUiVisibility on the view below
+            // hides the bars entirely.
             blackScreenOverlayParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                 PixelFormat.OPAQUE
             )
 
@@ -618,13 +627,13 @@ class FloatingPanelService : Service() {
             blackScreenOverlay = null
             blackScreenOverlayParams = null
 
-            // 2. Release wake lock if still held (legacy guard for old instances)
+            // 3. Release wake lock if still held (legacy guard for old instances)
             blackScreenWakeLock?.let { wl ->
                 if (wl.isHeld) wl.release()
             }
             blackScreenWakeLock = null
 
-            // 3. Restore brightness
+            // 4. Restore brightness
             val resolver = contentResolver
             if (android.provider.Settings.System.canWrite(this)) {
                 android.provider.Settings.System.putInt(
@@ -632,7 +641,7 @@ class FloatingPanelService : Service() {
                     android.provider.Settings.System.SCREEN_BRIGHTNESS,
                     savedBrightness.coerceIn(1, 255)
                 )
-                // 4. Restore auto-brightness mode
+                // 5. Restore auto-brightness mode
                 android.provider.Settings.System.putInt(
                     resolver,
                     android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,

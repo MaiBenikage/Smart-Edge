@@ -363,7 +363,9 @@ class SidePanelView @JvmOverloads constructor(
             // halved vertically. Keep the 1-col layout generous (84dp) for the
             // original icon + label stack.
             val perToolRowDp = if (currentCols == 2) 60f else 84f
-            nonAppHeightDp += 50f // Divider + Screenshot cell + labels
+            nonAppHeightDp += 50f // Divider cell
+            if (panelPrefs.showScreenshotTool) nonAppHeightDp += perToolRowDp
+            if (panelPrefs.showBlackScreenTool) nonAppHeightDp += perToolRowDp
             if (panelPrefs.showPowerMenu) nonAppHeightDp += perToolRowDp
             if (showSysInfoEffective) nonAppHeightDp += 30f
             if (panelPrefs.showVolumeKeys) nonAppHeightDp += perToolRowDp
@@ -867,35 +869,50 @@ class SidePanelView @JvmOverloads constructor(
         val target = currentCols.coerceIn(1, 2)
         val container = binding.toolsContainer
 
-        // Already at the target column count — nothing to do.
-        if (container.columnCount == target) {
-            if (target == 2) refreshColumnSpanOverrides(target)
-            return
-        }
-
         val FILL = android.widget.GridLayout.FILL
+
+        val needsColumnCountChange = container.columnCount != target
 
         // Step 1: Downgrade ALL children to span=1 FIRST.
         // This guarantees that after setColumnCount, no child claims a span
         // greater than 1, so GridLayout's getMaxIndex() validation always
         // passes regardless of OEM cache bugs or resolved start positions.
+        //
+        // VISIBLE children → FILL + weight=1 (normal grid cell).
+        // GONE children    → 0-weight, 0×0 size so they collapse and don't
+        //                    reserve grid cells (fixes the "empty cell gap"
+        //                    when a tool is disabled in settings).
         for (i in 0 until container.childCount) {
             val child = container.getChildAt(i) ?: continue
             val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
                 ?: android.widget.GridLayout.LayoutParams().apply {
                     width = 0; height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 }
-            lp.columnSpec = android.widget.GridLayout.spec(
-                android.widget.GridLayout.UNDEFINED,
-                1,
-                FILL,
-                1.0f
-            )
+            if (child.visibility == View.GONE) {
+                lp.columnSpec = android.widget.GridLayout.spec(
+                    android.widget.GridLayout.UNDEFINED,
+                    1,
+                    0f
+                )
+                lp.width = 0
+                lp.height = 0
+            } else {
+                lp.columnSpec = android.widget.GridLayout.spec(
+                    android.widget.GridLayout.UNDEFINED,
+                    1,
+                    FILL,
+                    1.0f
+                )
+            }
             child.layoutParams = lp
         }
 
-        // Step 2: Now safe to change column count.
-        container.columnCount = target
+        // Step 2: Only change column count if actually different (avoids
+        // unnecessary re-layout), but ALWAYS proceed to step 3 so that
+        // visibility changes from applyTheme() update columnSpec.
+        if (needsColumnCountChange) {
+            container.columnCount = target
+        }
 
         // Step 3: Apply span=2 overrides only when expanding to 2 columns.
         refreshColumnSpanOverrides(target)
