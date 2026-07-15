@@ -903,11 +903,18 @@ class SidePanelView @JvmOverloads constructor(
                     FILL,
                     1.0f
                 )
-                // Reset dimensions for VISIBLE children — stale 0×0 from a
-                // previous GONE state would otherwise make the tool invisible
-                // after the user toggles it back on in Dashboard Tools settings.
-                lp.width = 0
-                lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                // Detect stale 0×0 dimensions left over from a previous GONE
+                // state (syncToolsGridColumns zaps GONE children to 0×0).
+                // Restore them to XML-equivalent defaults (0dp width + weight
+                // = fill column; WRAP_CONTENT height) so the tool becomes
+                // visible again after the user toggles it back on. We MUST NOT
+                // unconditionally overwrite width/height on every VISIBLE child
+                // because that breaks the GridLayout's internal measurement
+                // cache and collapses cell allocations.
+                if (lp.width == 0 && lp.height == 0) {
+                    lp.width = 0
+                    lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                }
             }
             child.layoutParams = lp
         }
