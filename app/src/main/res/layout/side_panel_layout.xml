@@ -204,6 +204,37 @@
                 android:layout_marginBottom="4dp" />
         </LinearLayout>
 
+        <!-- Black Screen cell -->
+        <LinearLayout
+            android:id="@+id/layoutBlackScreenTools"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <ImageButton
+                android:id="@+id/btnBlackScreen"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_close_btn"
+                android:backgroundTint="#1AFFFFFF"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_brightness_down"
+                android:tint="#D9FFFFFF" />
+
+            <TextView
+                android:id="@+id/tvBlackScreenLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BLK"
+                android:textColor="#80FFFFFF"
+                android:textSize="9sp"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+        </LinearLayout>
+
         <!-- System Info cell: spans the full row width (1 col in 1-col mode, 2 cols in 2-col mode) -->
         <LinearLayout
             android:id="@+id/layoutSysInfo"

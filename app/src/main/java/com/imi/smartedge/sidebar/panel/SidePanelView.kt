@@ -33,6 +33,7 @@ class SidePanelView @JvmOverloads constructor(
     var onFolderOpen: ((String) -> Unit)? = null
     var onBackNavigation: (() -> Unit)? = null
     var onToolClick: ((String) -> Unit)? = null
+    var onBlackScreen: (() -> Unit)? = null
 
     private val binding: SidePanelLayoutBinding = SidePanelLayoutBinding.inflate(LayoutInflater.from(context), this, true)
     private val adapter: PanelAppsAdapter
@@ -243,6 +244,14 @@ class SidePanelView @JvmOverloads constructor(
             }
             SpringAnimator.scalePulse(it)
             onScreenshot?.invoke()
+        }
+
+        binding.btnBlackScreen.setOnClickListener {
+            if (panelPrefs.hapticEnabled) {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+            }
+            SpringAnimator.scalePulse(it)
+            onBlackScreen?.invoke()
         }
 
         // ── Drag-to-adjust buttons (Volume + Brightness) ──
@@ -520,6 +529,10 @@ class SidePanelView @JvmOverloads constructor(
         binding.btnScreenshot.visibility = scVisibility
         binding.tvScreenshotLabel.visibility = scVisibility
 
+        val showBlackScreen = panelPrefs.showBlackScreenTool
+        val blkVisibility = if (showBlackScreen) View.VISIBLE else View.GONE
+        binding.layoutBlackScreenTools.visibility = blkVisibility
+
         if (panelPrefs.hideBackground) {
             binding.panelCard.background = null
         } else {
@@ -560,6 +573,7 @@ class SidePanelView @JvmOverloads constructor(
             binding.btnVolumeDrag.imageTintList = iconColorList
             binding.btnBrightnessDrag.imageTintList = iconColorList
             binding.btnReboot.imageTintList = iconColorList
+            binding.btnBlackScreen.imageTintList = iconColorList
             binding.btnBack.imageTintList = iconColorList
 
             binding.tvRamUsage.setTextColor(Color.WHITE)
@@ -576,7 +590,7 @@ class SidePanelView @JvmOverloads constructor(
         binding.layoutSysInfo.visibility = if (showSysInfoEffective) View.VISIBLE else View.GONE
 
         // Final visibility check for tools container: hide if all sub-elements are gone
-        val hasAnyVisibleTool = showPower || showVolume || showBrightness || showScreenshot || showSysInfoEffective
+        val hasAnyVisibleTool = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen || showSysInfoEffective
         binding.toolsContainer.visibility = if (showTools && hasAnyVisibleTool) View.VISIBLE else View.GONE
 
         // Sync tools grid columns after theme-related visibility changes since they

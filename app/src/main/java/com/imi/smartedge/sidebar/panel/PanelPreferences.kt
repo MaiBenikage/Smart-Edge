@@ -58,6 +58,7 @@ class PanelPreferences(context: Context) {
         private const val KEY_SHOW_POWER_MENU = "show_power_menu"
         private const val KEY_SHOW_VOLUME_KEYS = "show_volume_keys"
         private const val KEY_SHOW_BRIGHTNESS_KEYS = "show_brightness_keys"
+        private const val KEY_SHOW_BLACK_SCREEN_TOOL = "show_black_screen_tool"
         private const val KEY_HOME_BUTTON_STYLE = "home_button_style"
         private const val KEY_FREEFORM_ENABLED = "freeform_enabled"
         private const val KEY_FREEFORM_WINDOW_MODE = "freeform_window_mode"
@@ -283,6 +284,7 @@ class PanelPreferences(context: Context) {
             KEY_SHOW_POWER_MENU to showPowerMenu,
             KEY_SHOW_VOLUME_KEYS to showVolumeKeys,
             KEY_SHOW_BRIGHTNESS_KEYS to showBrightnessKeys,
+            KEY_SHOW_BLACK_SCREEN_TOOL to showBlackScreenTool,
             KEY_SLIDE_BRIGHTNESS_ENABLED to slideBrightnessEnabled,
             KEY_SLIDE_VOLUME_ENABLED to slideVolumeEnabled,
             KEY_FREEFORM_ENABLED to freeformEnabled,
@@ -382,6 +384,7 @@ class PanelPreferences(context: Context) {
                 putBoolIfPresent(KEY_SHOW_POWER_MENU, showPowerMenu)
                 putBoolIfPresent(KEY_SHOW_VOLUME_KEYS, showVolumeKeys)
                 putBoolIfPresent(KEY_SHOW_BRIGHTNESS_KEYS, showBrightnessKeys)
+                putBoolIfPresent(KEY_SHOW_BLACK_SCREEN_TOOL, showBlackScreenTool)
                 putBoolIfPresent(KEY_SLIDE_BRIGHTNESS_ENABLED, slideBrightnessEnabled)
                 putBoolIfPresent(KEY_SLIDE_VOLUME_ENABLED, slideVolumeEnabled)
                 putBoolIfPresent(KEY_FREEFORM_ENABLED, freeformEnabled)
@@ -440,6 +443,7 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_SHOW_POWER_MENU, false)
             putBoolean(KEY_SHOW_VOLUME_KEYS, false)
             putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, false)
+            putBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, true)
             putBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, DEFAULT_SLIDE_BRIGHTNESS)
             putBoolean(KEY_SLIDE_VOLUME_ENABLED, DEFAULT_SLIDE_VOLUME)
             putInt(KEY_SLIDE_SENSITIVITY, DEFAULT_SLIDE_SENSITIVITY)
@@ -551,6 +555,10 @@ class PanelPreferences(context: Context) {
     var showBrightnessKeys: Boolean
         get() = prefs.getBoolean(KEY_SHOW_BRIGHTNESS_KEYS, false)
         set(value) = prefs.edit { putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, value) }
+
+    var showBlackScreenTool: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, true)
+        set(value) = prefs.edit { putBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, value) }
 
     var homeButtonStyle: String
         get() = prefs.getString(KEY_HOME_BUTTON_STYLE, DEFAULT_HOME_BUTTON_STYLE) ?: DEFAULT_HOME_BUTTON_STYLE

@@ -136,6 +136,8 @@
     <string name="indicator_flashlight_off">Flashlight OFF</string>
     <string name="indicator_rotation_on">Auto-Rotation ON</string>
     <string name="indicator_rotation_off">Auto-Rotation OFF</string>
+    <string name="indicator_black_screen_on">Black Screen ON — tap to exit</string>
+    <string name="indicator_black_screen_off">Black Screen OFF</string>
     
     <string name="status_service_active">Service is Active</string>
     <string name="status_automation_stopped">Automation Stopped</string>

@@ -54,6 +54,13 @@ class FloatingPanelService : Service() {
     private var dragOverlay: android.widget.FrameLayout? = null
     private var dragOverlayParams: WindowManager.LayoutParams? = null
 
+    // Black Screen state
+    private var blackScreenOverlay: android.widget.FrameLayout? = null
+    private var blackScreenOverlayParams: WindowManager.LayoutParams? = null
+    private var blackScreenWakeLock: android.os.PowerManager.WakeLock? = null
+    private var savedBrightness: Int = 0
+    private var savedBrightnessMode: Int = android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+
     private var isPanelOpen = false
     private var isPickerOpen = false
     private var isImmersiveMode = false
@@ -497,6 +504,124 @@ class FloatingPanelService : Service() {
         }
     }
 
+    private fun activateBlackScreen() {
+        try {
+            closePanel()
+            val resolver = contentResolver
+
+            // 1. Save and disable auto-brightness mode
+            savedBrightnessMode = android.provider.Settings.System.getInt(
+                resolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+            )
+            if (android.provider.Settings.System.canWrite(this)) {
+                android.provider.Settings.System.putInt(
+                    resolver,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+                )
+            }
+
+            // 2. Save current brightness
+            savedBrightness = android.provider.Settings.System.getInt(
+                resolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                125
+            )
+
+            // 3. Set brightness to minimum
+            if (android.provider.Settings.System.canWrite(this)) {
+                android.provider.Settings.System.putInt(
+                    resolver,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                    0
+                )
+            }
+
+            // 4. Acquire wake lock to keep screen on
+            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            blackScreenWakeLock = powerManager.newWakeLock(
+                android.os.PowerManager.FULL_WAKE_LOCK or
+                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "SmartEdge:BlackScreen"
+            )
+            blackScreenWakeLock?.acquire()
+
+            // 5. Create full-screen black overlay
+            blackScreenOverlay = android.widget.FrameLayout(this).apply {
+                setBackgroundColor(android.graphics.Color.BLACK)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    deactivateBlackScreen()
+                }
+            }
+
+            blackScreenOverlayParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.OPAQUE
+            )
+
+            handler.postDelayed({
+                blackScreenOverlay?.let { overlay ->
+                    blackScreenOverlayParams?.let { params ->
+                        windowManager.addView(overlay, params)
+                    }
+                }
+            }, 150)
+
+            showIndicator(getString(R.string.indicator_black_screen_on))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to activate black screen", e)
+            showIndicator("Black screen failed")
+        }
+    }
+
+    private fun deactivateBlackScreen() {
+        try {
+            // 1. Remove the black overlay
+            blackScreenOverlay?.let { overlay ->
+                try {
+                    windowManager.removeView(overlay)
+                } catch (e: Exception) {}
+            }
+            blackScreenOverlay = null
+            blackScreenOverlayParams = null
+
+            // 2. Release wake lock
+            blackScreenWakeLock?.let { wl ->
+                if (wl.isHeld) wl.release()
+            }
+            blackScreenWakeLock = null
+
+            // 3. Restore brightness
+            val resolver = contentResolver
+            if (android.provider.Settings.System.canWrite(this)) {
+                android.provider.Settings.System.putInt(
+                    resolver,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                    savedBrightness.coerceIn(1, 255)
+                )
+                // 4. Restore auto-brightness mode
+                android.provider.Settings.System.putInt(
+                    resolver,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                    savedBrightnessMode
+                )
+            }
+
+            showIndicator(getString(R.string.indicator_black_screen_off))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to deactivate black screen", e)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
@@ -539,6 +664,10 @@ class FloatingPanelService : Service() {
         removeView(edgeHandleView)
         removeView(notchHandleView)
         removeView(rootLayout)
+        // Release black screen resources if active
+        blackScreenWakeLock?.let { if (it.isHeld) it.release() }
+        blackScreenWakeLock = null
+        removeView(blackScreenOverlay)
     }
 
     // Audit U-Med: this service is the live overlay panel; it MUST outlive
@@ -811,11 +940,14 @@ class FloatingPanelService : Service() {
                     currentFolderId = null // Simple logic for now: only 1-level folders
                     refreshApps()
                 }
-                onToolClick = { toolId ->
-                    when (toolId) {
-                        "smartedge.tool.screenshot" -> triggerScreenshot()
-                    }
+            onToolClick = { toolId ->
+                when (toolId) {
+                    "smartedge.tool.screenshot" -> triggerScreenshot()
                 }
+            }
+            onBlackScreen = {
+                activateBlackScreen()
+            }
                 visibility = View.GONE
             }
             refreshApps()
