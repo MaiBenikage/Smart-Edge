@@ -1489,13 +1489,16 @@ class FloatingPanelService : Service() {
             } else {
                 val baseApps = repository.getPanelApps().toMutableList()
                 
-                // Add "Tools" folder button at the top if enabled
-                if (panelPrefs.showToolsPanelButton) {
-                    val toolsBtn = AppInfo("smartedge.tool.tools", "Tools", type = AppInfo.Type.TOOL)
-                    if (baseApps.none { it.identifier == toolsBtn.identifier }) {
-                        baseApps.add(0, toolsBtn)
-                    }
-                }
+        // Add "Tools" folder button at the top if enabled.
+        // The master "showTools" switch gates both the inline tools section
+        // AND the app-grid Tools folder so toggling the master switch off
+        // hides all tool-related UI consistently.
+        if (panelPrefs.showToolsPanelButton && panelPrefs.showTools) {
+            val toolsBtn = AppInfo("smartedge.tool.tools", "Tools", type = AppInfo.Type.TOOL)
+            if (baseApps.none { it.identifier == toolsBtn.identifier }) {
+                baseApps.add(0, toolsBtn)
+            }
+        }
                 
                 baseApps
             }
