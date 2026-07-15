@@ -32,6 +32,9 @@ class SettingsMainActivity : AppCompatActivity() {
     private val allSettings = mutableListOf<SettingItem>()
     private lateinit var searchAdapter: SearchResultsAdapter
 
+    // Named property so expandSearch() can re-enable it after collapseSearch() disables it.
+    private lateinit var searchBackCallback: androidx.activity.OnBackPressedCallback
+
     companion object {
         const val EXTRA_SCROLL_TO = "extra_scroll_to"
     }
@@ -57,19 +60,20 @@ class SettingsMainActivity : AppCompatActivity() {
             openGithub()
         }
 
-        // Handle System Back to close search
-        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+        // Handle System Back to close search.
+        // Disable BEFORE passing through to break infinite recursion,
+        // then re-enable in expandSearch() for subsequent search cycles.
+        searchBackCallback = object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (binding.rvSettingsResults.visibility == View.VISIBLE || binding.etSettingsSearch.visibility == View.VISIBLE) {
                     collapseSearch()
                 } else {
-                    // Round-1 audit: do NOT disable — the callback must stay alive for
-                    // subsequent search-open cycles. When search is closed we simply
-                    // pass the back press up to the dispatcher.
+                    isEnabled = false  // break recursion before pass-through
                     onBackPressedDispatcher.onBackPressed()
                 }
             }
-        })
+        }
+        onBackPressedDispatcher.addCallback(this, searchBackCallback)
     }
 
     private fun initializeSettingsList() {
@@ -285,6 +289,12 @@ class SettingsMainActivity : AppCompatActivity() {
         binding.tvSearchHint.visibility = View.GONE
         binding.etSettingsSearch.visibility = View.VISIBLE
         binding.etSettingsSearch.requestFocus()
+
+        // Re-enable the back callback so it can intercept future back presses
+        // (was disabled in handleOnBackPressed to break infinite recursion).
+        if (::searchBackCallback.isInitialized) {
+            searchBackCallback.isEnabled = true
+        }
         
         // Show keyboard
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
