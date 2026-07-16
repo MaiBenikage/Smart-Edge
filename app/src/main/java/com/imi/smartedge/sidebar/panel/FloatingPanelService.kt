@@ -540,9 +540,37 @@ class FloatingPanelService : Service() {
                     android.provider.Settings.System.SCREEN_BRIGHTNESS,
                     1
                 )
+                // Also set the float variant (used by Android 12+)
+                // as a fallback. The int-based SCREEN_BRIGHTNESS may be rounded or
+                // ignored on newer devices; the float setting is the canonical
+                // control from API 31 onward. Use the string key directly since
+                // the SDK constant may not be visible on all compile targets.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try {
+                        android.provider.Settings.System.putFloat(
+                            resolver,
+                            "screen_brightness_float",
+                            0.0f
+                        )
+                    } catch (_: Exception) {}
+                }
             }
 
-            // 4. Create full-screen black overlay with FLAG_KEEP_SCREEN_ON
+            // 4. Acquire wake lock to guarantee screen stays on regardless of
+            //    the overlay window's FLAG_KEEP_SCREEN_ON behavior on OEM forks.
+            //    Some manufacturers ignore keepScreenOn on TYPE_APPLICATION_OVERLAY
+            //    windows; the WakeLock provides a hardware-level screen-on guarantee.
+            try {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                blackScreenWakeLock = powerManager.newWakeLock(
+                    android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    android.os.PowerManager.ON_AFTER_RELEASE,
+                    "SmartEdge:BlackScreen"
+                )
+                blackScreenWakeLock?.acquire(10 * 60 * 1000L) // max 10 min timeout
+            } catch (_: Exception) {}
+
+            // 5. Create full-screen black overlay with FLAG_KEEP_SCREEN_ON
             //    (replaces deprecated FULL_WAKE_LOCK for API 17+)
             blackScreenOverlay = android.widget.FrameLayout(this).apply {
                 setBackgroundColor(android.graphics.Color.BLACK)

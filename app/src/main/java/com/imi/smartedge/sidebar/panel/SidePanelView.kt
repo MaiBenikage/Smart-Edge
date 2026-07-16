@@ -364,12 +364,29 @@ class SidePanelView @JvmOverloads constructor(
             // original icon + label stack.
             val perToolRowDp = if (currentCols == 2) 60f else 84f
             nonAppHeightDp += 50f // Divider cell
-            if (panelPrefs.showScreenshotTool) nonAppHeightDp += perToolRowDp
-            if (panelPrefs.showBlackScreenTool) nonAppHeightDp += perToolRowDp
-            if (panelPrefs.showPowerMenu) nonAppHeightDp += perToolRowDp
+
+            // Count enabled tools to compute the NUMBER OF ROWS the GridLayout
+            // will actually occupy. In 2-col mode, two tools share a single row,
+            // so rows = ceil(enabled / 2). Previously we added perToolRowDp per
+            // tool unconditionally, overestimating the tools-section height by
+            // ~60dp per extra-tool-in-the-same-row, which compressed the app
+            // RecyclerView and left the sidebar looking cramped.
+            val enabledTools: List<Boolean> = listOf(
+                panelPrefs.showScreenshotTool,
+                panelPrefs.showBlackScreenTool,
+                panelPrefs.showPowerMenu,
+                panelPrefs.showVolumeKeys,
+                panelPrefs.showBrightnessKeys
+            )
+            val enabledCount = enabledTools.count { it }
+            val toolRows = if (currentCols == 2) {
+                (enabledCount + 1) / 2  // ceil division
+            } else {
+                enabledCount
+            }
+            nonAppHeightDp += perToolRowDp * toolRows
+
             if (showSysInfoEffective) nonAppHeightDp += 30f
-            if (panelPrefs.showVolumeKeys) nonAppHeightDp += perToolRowDp
-            if (panelPrefs.showBrightnessKeys) nonAppHeightDp += perToolRowDp
         }
 
         // Maximum allowed height for RV to keep panel within screen (with 24dp safety margin)
