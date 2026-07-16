@@ -932,29 +932,53 @@ class SidePanelView @JvmOverloads constructor(
     /**
      * Apply span=2 overrides for the full-width cells
      * (divider and System Info) in 2-column mode.
+     *
+     * ROUND-17 (FINAL) — visibility-aware weight assignment:
+     *
+     * ROOT CAUSE:
+     *   The previous implementation unconditionally set `weight=1.0f` and
+     *   `span=2` on the divider and layoutSysInfo whenever `target == 2`.
+     *   When either of those views was `View.GONE`, GridLayout's constraint
+     *   solver would still account for the non-zero column weight
+     *   (because the spec is applied unconditionally before measurement),
+     *   causing the layout to collapse or appear empty in 2-column mode —
+     *   even when the user had several tools enabled in Dashboard Tools.
+     *
+     * FIX:
+     *   For each overridden view, check its current visibility BEFORE
+     *   constructing the spec:
+     *     - VISIBLE → `weight=1.0f` (claim the full row of space).
+     *     - GONE    → `weight=0f`     (no space reservation despite
+     *                                  consuming a logical row span).
+     *   This mirrors the Step-1 weight logic in `syncToolsGridColumns`
+     *   so visibility is consistent across both passes.
      */
     private fun refreshColumnSpanOverrides(target: Int) {
         if (target != 2) return
         val FILL = android.widget.GridLayout.FILL
-        binding.toolsDivider?.let { divider ->
-            val lp = divider.layoutParams as? android.widget.GridLayout.LayoutParams ?: return@let
-            lp.columnSpec = android.widget.GridLayout.spec(
+        val divider = binding.toolsDivider
+        val dividerLp = divider.layoutParams as? android.widget.GridLayout.LayoutParams
+        if (dividerLp != null) {
+            val dividerWeight = if (divider.visibility == View.GONE) 0f else 1.0f
+            dividerLp.columnSpec = android.widget.GridLayout.spec(
                 android.widget.GridLayout.UNDEFINED,
                 2,
                 FILL,
-                1.0f
+                dividerWeight
             )
-            divider.layoutParams = lp
+            divider.layoutParams = dividerLp
         }
-        val siLp = binding.layoutSysInfo.layoutParams as? android.widget.GridLayout.LayoutParams
-        if (siLp != null) {
-            siLp.columnSpec = android.widget.GridLayout.spec(
+        val sysInfo = binding.layoutSysInfo
+        val sysInfoLp = sysInfo.layoutParams as? android.widget.GridLayout.LayoutParams
+        if (sysInfoLp != null) {
+            val sysInfoWeight = if (sysInfo.visibility == View.GONE) 0f else 1.0f
+            sysInfoLp.columnSpec = android.widget.GridLayout.spec(
                 android.widget.GridLayout.UNDEFINED,
                 2,
                 FILL,
-                1.0f
+                sysInfoWeight
             )
-            binding.layoutSysInfo.layoutParams = siLp
+            sysInfo.layoutParams = sysInfoLp
         }
     }
 
