@@ -407,8 +407,11 @@ class SidePanelView @JvmOverloads constructor(
             binding.panelContainer.layoutParams = containerLp
         }
 
-        // Refresh tools-grid column mirror so the tools layout tracks the app column count.
-        syncToolsGridColumns()
+        // Tools-grid sync is handled by applyTheme() which runs after
+        // updateSideLayout() in updateStyles(). The column-count mirroring
+        // here was the THIRD call in a single updateStyles() → applyTheme()
+        // → updateSideLayout() chain, causing GridLayout measurement thrash
+        // on OEM forks. Removing this eliminates the triple-call pattern.
     }
 
     fun scrollToTop() {
@@ -502,7 +505,12 @@ class SidePanelView @JvmOverloads constructor(
             currentCols = (if (isGameMode) 2 else panelPrefs.panelColumns).coerceIn(1, 2)
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
-            syncToolsGridColumns()
+            // syncToolsGridColumns() is now called only from applyTheme()
+            // via post() to guarantee the GridLayout measures after all
+            // visibility changes settle. Removing this pre-emptive call
+            // eliminates one leg of the triple-call pattern identified in
+            // the v1.5.0 audit (updateStyles → applyTheme → updateSideLayout
+            // each called syncToolsGridColumns).
         }
         applyTheme()
         updateSideLayout()
@@ -594,9 +602,16 @@ class SidePanelView @JvmOverloads constructor(
         val hasAnyVisibleTool = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen || showSysInfoEffective
         binding.toolsContainer.visibility = if (showTools && hasAnyVisibleTool) View.VISIBLE else View.GONE
 
-        // Sync tools grid columns after theme-related visibility changes since they
-        // can affect the visible cell count.
-        syncToolsGridColumns()
+        // Sync tools grid columns AFTER the toolsContainer has become
+        // VISIBLE and its measurement tree is fully staged. Use post() so
+        // the GridLayout's internal measurement cache is fresh and won't
+        // hold onto stale zero-size dimensions from a prior GONE state.
+        // This is the ONLY call site for syncToolsGridColumns() in the
+        // normal update path — eliminates the triple-call pattern from
+        // updateStyles() → applyTheme() → updateSideLayout().
+        post {
+            syncToolsGridColumns()
+        }
 
         if (showSysInfoEffective) {
             updateSystemInfo()

@@ -549,13 +549,18 @@ class FloatingPanelService : Service() {
                 isClickable = true
                 isFocusable = true
                 keepScreenOn = true
-                // Hide status & navigation bars (immersive mode)
+                // Hide status & navigation bars (immersive mode).
+                // SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN ensures the overlay
+                // extends into the status-bar area on all OEMs, not just
+                // the content area. This is critical for apps that draw
+                // behind the status bar (games, video players, etc.).
                 @Suppress("DEPRECATION")
                 systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     or View.SYSTEM_UI_FLAG_FULLSCREEN
                     or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                     or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
                 setOnSystemUiVisibilityChangeListener { vis ->
                     // Re-apply on any change so bars stay hidden until tap
                     if (vis and View.SYSTEM_UI_FLAG_HIDE_NAVIGATION == 0) {
@@ -564,7 +569,8 @@ class FloatingPanelService : Service() {
                             or View.SYSTEM_UI_FLAG_FULLSCREEN
                             or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                             or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
+                            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
                     }
                 }
                 setOnClickListener {
@@ -591,7 +597,16 @@ class FloatingPanelService : Service() {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                 PixelFormat.OPAQUE
-            )
+            ).apply {
+                // Extend into display cutouts (notch, hole-punch, etc.) so
+                // the black fill reaches the physical screen edge, not just
+                // the safe-area inset. Without this, apps that draw behind
+                // cutouts leave a bright strip at the top.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
 
             handler.postDelayed({
                 blackScreenOverlay?.let { overlay ->
