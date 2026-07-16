@@ -842,27 +842,40 @@ class SidePanelView @JvmOverloads constructor(
      *    the System Info cell each span both columns so their full-width visual
      *    treatment isn't stranded on one side.
      *
-     * ROUND-16 (FINAL) — pre-emptive span downgrade strategy:
+     * ROUND-18 (FINAL) — three-round-fortified sync:
      *
-     * ROOT CAUSE (confirmed across OEM GridLayout forks):
-     *   AOSP [GridLayout.Axis.setCount] validates the new columnCount against
-     *   every child's resolved start index + span via [getMaxIndex()]. Once a
-     *   layout pass resolves children's [UNDEFINED] start values to concrete
-     *   positions, [setColumnCount] throws [IllegalArgumentException] if those
-     *   resolved indices don't fit. Additionally, many OEM GridLayout
-     *   implementations cache [mMaxIndex] and fail to invalidate it on
-     *   [removeAllViews()], so even a detach→setCount→reattach cycle crashes.
+     * ROOT CAUSES across past rounds:
+     *   Round 16: AOSP [GridLayout.Axis.setCount] validates new columnCount
+     *   against children's resolved start indices via [getMaxIndex()]. Downgrading
+     *   all specs to span=1 FIRST and then setting columnCount is required to
+     *   avoid IllegalArgumentException crashes.
      *
-     * FIX (single deterministic pass):
-     *   1. If columnCount already matches target → no-op (avoid redundant work).
-     *   2. Downgrade ALL children's [columnSpec] to span=1 BEFORE calling
-     *      [setColumnCount]. Since every child now claims span=1 with
-     *      UNDEFINED start, the maximum possible index is always ≤ childCount,
-     *      and any target ≥ 1 satisfies the validation.
-     *   3. Set [columnCount] — guaranteed safe because no child claims span > 1.
-     *   4. If target == 2, re-apply span=2 overrides for divider+SysInfo.
+     *   Round 17 (visibility-aware weight): When [refreshColumnSpanOverrides]
+     *   applied weight=1.0f unconditionally to a GONE child (e.g. layoutSysInfo
+     *   which defaults to visibility=gone in XML), GridLayout's constraint
+     *   solver would allocate phantom weight to a zero-sized cell, collapsing
+     *   the entire row. Fixed by sensing visibility before picking weight.
      *
-     * No try-catch, no detach-reattach. One linear, crash-proof sequence.
+     *   Round 18 (this round — measurement cache busting): When columnSpec and
+     *   LayoutParams change programmatically without a layout pass, several OEM
+     *   GridLayout forks (notably Xiaomi MIUI / ColorOS / OneUI) cache the
+     *   previous measured sizes and don't re-trigger measure/layout when only
+     *   columnSpec/width/height change. The result is that after a settings
+     *   change, the tools section can visually appear empty or stuck in the
+     *   previous column layout. Fix:
+     *     a) Set an explicit [rowSpec] on every child — GridLayout's row
+     *        placement becomes deterministic and never falls back to a stale row.
+     *     b) Call [container.requestLayout] at the end of sync — this flushes
+     *        the measurement cache and forces a fresh pass even on forks that
+     *        cache on programmatic spec changes.
+     *
+     * FIX (single deterministic pass with explicit rowSpec + layout flush):
+     *   1. If columnCount already matches target → no-op.
+     *   2. For every child: reset columnSpec to span=1 with visibility-aware
+     *      weight/alignment and width/height, AND reset rowSpec explicitly.
+     *   3. Set columnCount only if changed.
+     *   4. Apply span=2 overrides for divider+SysInfo (still visibility-aware).
+     *   5. Force a layout pass to flush OEM measurement caches.
      */
     private fun syncToolsGridColumns() {
         val target = currentCols.coerceIn(1, 2)
@@ -881,6 +894,11 @@ class SidePanelView @JvmOverloads constructor(
         // GONE children    → 0-weight, 0×0 size so they collapse and don't
         //                    reserve grid cells (fixes the "empty cell gap"
         //                    when a tool is disabled in settings).
+        //
+        // Critically we also REWRITE rowSpec for each child — without this,
+        // OEM GridLayout forks leave stale row weights after column changes
+        // and pack children incorrectly, manifesting as "tools in single
+        // column even though colCount=2".
         for (i in 0 until container.childCount) {
             val child = container.getChildAt(i) ?: continue
             val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
@@ -915,6 +933,16 @@ class SidePanelView @JvmOverloads constructor(
                     lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 }
             }
+            // Reset rowSpec explicitly. Without this, residual row weights from
+            // a prior column change (especially 1→2 or 2→1 transitions) cause
+            // GridLayout to mispack children into rows on some OEM forks and
+            // the tools section appears collapsed or stuck in 1-column layout.
+            lp.rowSpec = android.widget.GridLayout.spec(
+                android.widget.GridLayout.UNDEFINED,
+                1,
+                FILL,
+                0f
+            )
             child.layoutParams = lp
         }
 
@@ -927,6 +955,14 @@ class SidePanelView @JvmOverloads constructor(
 
         // Step 3: Apply span=2 overrides only when expanding to 2 columns.
         refreshColumnSpanOverrides(target)
+
+        // Step 4 (Round-18): explicitly request a layout pass to flush the
+        // GridLayout measurement cache. Without this, several OEM GridLayout
+        // forks keep stale measured sizes after programmatic spec changes,
+        // which is the root cause of the v1.4.8 regression where the tools
+        // section visually appeared empty or stuck in 1-column layout even
+        // after the visibility-aware weight fix was applied.
+        container.requestLayout()
     }
 
     /**
