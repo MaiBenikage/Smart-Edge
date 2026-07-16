@@ -512,49 +512,59 @@ class FloatingPanelService : Service() {
             closePanel()
             val resolver = contentResolver
 
-            // 1. Save and disable auto-brightness mode
-            savedBrightnessMode = android.provider.Settings.System.getInt(
-                resolver,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
-            )
-            if (android.provider.Settings.System.canWrite(this)) {
-                android.provider.Settings.System.putInt(
-                    resolver,
-                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
-                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
-                )
-            }
-
-            // 2. Save current brightness
-            savedBrightness = android.provider.Settings.System.getInt(
-                resolver,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS,
-                125
-            )
-
-            // 3. Set brightness to minimum (1 not 0 — some OEMs treat 0 as "auto")
-            if (android.provider.Settings.System.canWrite(this)) {
-                android.provider.Settings.System.putInt(
-                    resolver,
-                    android.provider.Settings.System.SCREEN_BRIGHTNESS,
-                    1
-                )
-                // Also set the float variant (used by Android 12+)
-                // as a fallback. The int-based SCREEN_BRIGHTNESS may be rounded or
-                // ignored on newer devices; the float setting is the canonical
-                // control from API 31 onward. Use the string key directly since
-                // the SDK constant may not be visible on all compile targets.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // 1. Save brightness state + dim to minimum via the pure helper.
+            //    The lambda bridge lets us call Settings.System without making
+            //    the helper depend on ContentResolver (keeps it unit-testable).
+            val canWrite = android.provider.Settings.System.canWrite(this)
+            val snapshot = saveAndDimBrightness(
+                readAutoMode = {
+                    android.provider.Settings.System.getInt(
+                        resolver,
+                        android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+                    ) == android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+                },
+                readBrightness = {
+                    android.provider.Settings.System.getInt(
+                        resolver,
+                        android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                        125
+                    )
+                },
+                setAutoMode = { auto ->
+                    if (canWrite) {
+                        android.provider.Settings.System.putInt(
+                            resolver,
+                            android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                            if (auto) android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+                            else android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+                        )
+                    }
+                },
+                setBrightness = { value ->
+                    if (canWrite) {
+                        android.provider.Settings.System.putInt(
+                            resolver,
+                            android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                            value
+                        )
+                    }
+                },
+                setFloatBrightness = if (canWrite && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {{
                     try {
                         android.provider.Settings.System.putFloat(
                             resolver,
                             "screen_brightness_float",
-                            0.0f
+                            it
                         )
                     } catch (_: Exception) {}
-                }
-            }
+                }} else null
+            )
+            savedBrightnessMode = if (snapshot.autoMode)
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+            else
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            savedBrightness = snapshot.brightness
 
             // 4. Acquire wake lock to guarantee screen stays on regardless of
             //    the overlay window's FLAG_KEEP_SCREEN_ON behavior on OEM forks.
@@ -676,21 +686,36 @@ class FloatingPanelService : Service() {
             }
             blackScreenWakeLock = null
 
-            // 4. Restore brightness
+            // 4. Restore brightness + auto-mode via the pure helper.
+            //    The BrightnessSnapshot was constructed by activateBlackScreen
+            //    and stored in savedBrightness / savedBrightnessMode fields.
             val resolver = contentResolver
-            if (android.provider.Settings.System.canWrite(this)) {
-                android.provider.Settings.System.putInt(
-                    resolver,
-                    android.provider.Settings.System.SCREEN_BRIGHTNESS,
-                    savedBrightness.coerceIn(1, 255)
-                )
-                // 5. Restore auto-brightness mode
-                android.provider.Settings.System.putInt(
-                    resolver,
-                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
-                    savedBrightnessMode
-                )
-            }
+            val canWrite = android.provider.Settings.System.canWrite(this)
+            restoreBrightness(
+                snapshot = BrightnessSnapshot(
+                    autoMode = savedBrightnessMode == android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC,
+                    brightness = savedBrightness
+                ),
+                setBrightness = { value ->
+                    if (canWrite) {
+                        android.provider.Settings.System.putInt(
+                            resolver,
+                            android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                            value
+                        )
+                    }
+                },
+                setAutoMode = { auto ->
+                    if (canWrite) {
+                        android.provider.Settings.System.putInt(
+                            resolver,
+                            android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                            if (auto) android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+                            else android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+                        )
+                    }
+                }
+            )
 
             showIndicator(getString(R.string.indicator_black_screen_off))
         } catch (e: Exception) {
