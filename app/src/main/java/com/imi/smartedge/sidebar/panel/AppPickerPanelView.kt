@@ -724,10 +724,18 @@ class AppPickerPanelView @JvmOverloads constructor(
     private fun onCustomEditButtonTapped(id: String) {
         if (editingItemId == id) {
             // Save & exit
-            saveEditingItem()
+            if (!saveEditingItem()) {
+                showInvalidCustomUriToast()
+            }
         } else {
-            // Save previous, then enter edit on new
-            if (editingItemId != null) saveEditingItem()
+            // Save previous (forceDiscard=true so invalid edits don't block),
+            // then enter edit on new. Show toast so user knows invalid content
+            // was dropped.
+            if (editingItemId != null) {
+                if (!saveEditingItem(forceDiscard = true)) {
+                    showInvalidCustomUriToast()
+                }
+            }
             editingItemId = id
             // Round-13 audit M4: same fix as addNewCustomItem — run the focus
             // lookup AFTER submitList's commit callback fires, so the holder
@@ -978,8 +986,13 @@ class AppPickerPanelView @JvmOverloads constructor(
 
             override fun getMovementFlags(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
                 if (activeTab != PickerTab.CUSTOM) return 0
-                if (editingItemId != null) return 0  // block gestures while editing
+                if (editingItemId != null)            return 0  // block gestures while editing
                 if (vh !is PickerAdapter.CustomViewHolder) return 0
+                // Audit v1.5.3: prevent drag/swipe while a search query is active.
+                // onMove/onSwiped use adapter positions which index the FILTERED
+                // list; indexing into the unfiltered customItems with those
+                // positions would corrupt data (remove/add at wrong indices).
+                if (currentQuery().isNotEmpty()) return 0
                 return super.getMovementFlags(rv, vh)
             }
 
@@ -993,9 +1006,19 @@ class AppPickerPanelView @JvmOverloads constructor(
                 val fromPos = from.bindingAdapterPosition
                 val toPos = to.bindingAdapterPosition
                 if (fromPos == RecyclerView.NO_POSITION || toPos == RecyclerView.NO_POSITION) return false
-                // Swap in the underlying data + UI list
-                val item = customItems.removeAt(fromPos)
-                customItems.add(toPos, item)
+                // Audit v1.5.3: retrieve the actual item from the ADAPTER's
+                // currentList (which may be filtered) and find its real index in
+                // the customItems backing list. Using filtered positions to index
+                // into the unfiltered customItems would cause data corruption
+                // when a search query is active.
+                val adapterList = adapter.currentList
+                val fromItem = (adapterList.getOrNull(fromPos) as? PickerItem.CustomRow)?.item ?: return false
+                val toItem = (adapterList.getOrNull(toPos) as? PickerItem.CustomRow)?.item ?: return false
+                val realFrom = customItems.indexOfFirst { it.id == fromItem.id }
+                val realTo = customItems.indexOfFirst { it.id == toItem.id }
+                if (realFrom < 0 || realTo < 0) return false
+                val item = customItems.removeAt(realFrom)
+                customItems.add(realTo, item)
                 adapter.notifyItemMoved(fromPos, toPos)
                 return true
             }
@@ -1004,7 +1027,12 @@ class AppPickerPanelView @JvmOverloads constructor(
                 val h = viewHolder as? PickerAdapter.CustomViewHolder ?: return
                 val pos = h.bindingAdapterPosition
                 if (pos == RecyclerView.NO_POSITION) return
-                val item = customItems.getOrNull(pos) ?: return
+                // Audit v1.5.3: find the item by stable ID from the adapter list
+                // rather than indexing into customItems with a potentially-filtered
+                // position. The actual removal uses item.id which is always safe,
+                // but the item variable itself was potentially wrong when search
+                // query is active.
+                val item = (adapter.currentList.getOrNull(pos) as? PickerItem.CustomRow)?.item ?: return
                 removeCustomItem(item.id)
             }
 
@@ -1439,7 +1467,11 @@ class AppPickerPanelView @JvmOverloads constructor(
      * don't reach into `editingItemId` themselves.
      */
     internal fun commitPendingEdits() {
-        if (editingItemId != null) saveEditingItem()
+        // Use forceDiscard=true so invalid edits are cleaned up silently rather
+        // than leaving stale pendingCustomEdits and editingItemId state across
+        // picker close/open cycles. The caller (closePicker) is closing the UI
+        // so in-edit feedback would not be visible anyway.
+        if (editingItemId != null) saveEditingItem(forceDiscard = true)
     }
 
     /**
