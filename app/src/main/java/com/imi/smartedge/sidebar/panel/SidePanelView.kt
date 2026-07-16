@@ -362,8 +362,8 @@ class SidePanelView @JvmOverloads constructor(
             // In 2-column mode tools share a row, so per-tool allocation is roughly
             // halved vertically. Keep the 1-col layout generous (84dp) for the
             // original icon + label stack.
-            val perToolRowDp = if (currentCols == 2) 60f else 84f
-            nonAppHeightDp += 50f // Divider cell
+            val perToolRowDp = if (currentCols == 2) 48f else 64f
+            nonAppHeightDp += 16f // Divider (1dp line + 8dp margin)
 
             // Count enabled tools to compute the NUMBER OF ROWS the GridLayout
             // will actually occupy. In 2-col mode, two tools share a single row,
@@ -517,20 +517,15 @@ class SidePanelView @JvmOverloads constructor(
     fun updateStyles() {
         if (!isPickerOpenInternal) {
             val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
-            // Round-13 audit M1: also coerce here so a stale or hand-edited
-            // panelColumns preference cannot drive a 0/3 syncToolsGridColumns call.
             currentCols = (if (isGameMode) 2 else panelPrefs.panelColumns).coerceIn(1, 2)
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
-            // syncToolsGridColumns() is now called only from applyTheme()
-            // via post() to guarantee the GridLayout measures after all
-            // visibility changes settle. Removing this pre-emptive call
-            // eliminates one leg of the triple-call pattern identified in
-            // the v1.5.0 audit (updateStyles → applyTheme → updateSideLayout
-            // each called syncToolsGridColumns).
         }
         applyTheme()
         updateSideLayout()
+        // Belt-and-suspenders: post a second pass after the current frame
+        // layout pass settles, so OEM GridLayout forks get refreshed specs.
+        post { syncToolsGridColumns() }
     }
 
     fun refreshIcons() {
@@ -619,16 +614,12 @@ class SidePanelView @JvmOverloads constructor(
         val hasAnyVisibleTool = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen || showSysInfoEffective
         binding.toolsContainer.visibility = if (showTools && hasAnyVisibleTool) View.VISIBLE else View.GONE
 
-        // Sync tools grid columns AFTER the toolsContainer has become
-        // VISIBLE and its measurement tree is fully staged. Use post() so
-        // the GridLayout's internal measurement cache is fresh and won't
-        // hold onto stale zero-size dimensions from a prior GONE state.
-        // This is the ONLY call site for syncToolsGridColumns() in the
-        // normal update path — eliminates the triple-call pattern from
-        // updateStyles() → applyTheme() → updateSideLayout().
-        post {
-            syncToolsGridColumns()
-        }
+        // Sync tools grid columns synchronously IMMEDIATELY after all
+        // visibility changes — the GridLayout must have correct specs
+        // before its first measurement pass, not after a post() delay.
+        // updateStyles() also schedules a post() second-pass at the end
+        // as belt-and-suspenders for OEM GridLayout forks.
+        syncToolsGridColumns()
 
         if (showSysInfoEffective) {
             updateSystemInfo()
