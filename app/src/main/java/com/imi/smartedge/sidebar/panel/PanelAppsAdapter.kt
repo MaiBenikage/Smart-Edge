@@ -173,6 +173,7 @@ class PanelAppsAdapter(
                 val iconRes = when {
                     app.type == AppInfo.Type.FOLDER -> R.drawable.ic_section_tools
                     app.packageName == "smartedge.tool.screenshot" -> android.R.drawable.ic_menu_camera
+                    app.packageName == "smartedge.tool.blackscreen" -> R.drawable.ic_brightness_down
                     app.packageName == "smartedge.tool.tools" -> R.drawable.ic_section_tools
                     app.packageName == "smartedge.tool.volume_up" -> R.drawable.ic_brightness_up // Using placeholders if specific ones not available
                     app.packageName == "smartedge.tool.volume_down" -> R.drawable.ic_brightness_down

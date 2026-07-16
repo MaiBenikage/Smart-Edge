@@ -528,8 +528,7 @@ class SidePanelView @JvmOverloads constructor(
 
         val showScreenshot = panelPrefs.showScreenshotTool
         val scVisibility = if (showScreenshot) View.VISIBLE else View.GONE
-        binding.btnScreenshot.visibility = scVisibility
-        binding.tvScreenshotLabel.visibility = scVisibility
+        binding.layoutScreenshotTools.visibility = scVisibility
 
         val showBlackScreen = panelPrefs.showBlackScreenTool
         val blkVisibility = if (showBlackScreen) View.VISIBLE else View.GONE

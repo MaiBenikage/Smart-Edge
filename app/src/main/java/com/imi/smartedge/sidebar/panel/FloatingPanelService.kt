@@ -976,6 +976,26 @@ class FloatingPanelService : Service() {
             onToolClick = { toolId ->
                 when (toolId) {
                     "smartedge.tool.screenshot" -> triggerScreenshot()
+                    "smartedge.tool.blackscreen" -> activateBlackScreen()
+                    "smartedge.tool.volume_up" -> {
+                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val step = kotlin.math.max(1, max / 15)
+                        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, (current + step).coerceAtMost(max), 0)
+                        closePanel()
+                    }
+                    "smartedge.tool.brightness_up" -> {
+                        try {
+                            if (android.provider.Settings.System.canWrite(this@FloatingPanelService)) {
+                                val resolver = contentResolver
+                                android.provider.Settings.System.putInt(resolver, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                                val current = android.provider.Settings.System.getInt(resolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, 125)
+                                android.provider.Settings.System.putInt(resolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, (current + 16).coerceAtMost(255))
+                            }
+                        } catch (_: Exception) {}
+                        closePanel()
+                    }
                 }
             }
             onBlackScreen = {
@@ -1473,14 +1493,21 @@ class FloatingPanelService : Service() {
                     "smartedge.folder.tools" -> {
                         val tools = mutableListOf<AppInfo>()
 
-                        // Always include screenshot in the folder if the folder is active
-                        tools.add(AppInfo("smartedge.tool.screenshot", "Screenshot", type = AppInfo.Type.TOOL))
-
-                        // Always include power menu in the folder if the folder is active.
-                        // The volume / brightness tools were removed in v1.3.7 audit fix
-                        // (Audit M2) — users now use the two drag handles in the panel,
-                        // which provide a richer drag-up / drag-down experience.
-                        tools.add(AppInfo("smartedge.shortcut.reboot", "Power Menu", type = AppInfo.Type.SHORTCUT))
+                        if (panelPrefs.showScreenshotTool) {
+                            tools.add(AppInfo("smartedge.tool.screenshot", "Screenshot", type = AppInfo.Type.TOOL))
+                        }
+                        if (panelPrefs.showBlackScreenTool) {
+                            tools.add(AppInfo("smartedge.tool.blackscreen", "Black Screen", type = AppInfo.Type.TOOL))
+                        }
+                        if (panelPrefs.showPowerMenu) {
+                            tools.add(AppInfo("smartedge.shortcut.reboot", "Power Menu", type = AppInfo.Type.SHORTCUT))
+                        }
+                        if (panelPrefs.showVolumeKeys) {
+                            tools.add(AppInfo("smartedge.tool.volume_up", "Volume", type = AppInfo.Type.TOOL))
+                        }
+                        if (panelPrefs.showBrightnessKeys) {
+                            tools.add(AppInfo("smartedge.tool.brightness_up", "Brightness", type = AppInfo.Type.TOOL))
+                        }
                         
                         tools
                     }
