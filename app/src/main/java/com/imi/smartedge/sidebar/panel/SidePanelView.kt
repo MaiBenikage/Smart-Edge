@@ -901,40 +901,20 @@ class SidePanelView @JvmOverloads constructor(
      *    spans both columns. SysInfo is now a standalone section outside the
      *    GridLayout, always centered regardless of column mode.
      *
-     * ROUND-18 (FINAL) — three-round-fortified sync:
+     * REVISED STRATEGY (v1.6.0):
+     *   The fundamental problem with GridLayout + GONE children is that
+     *   even though GONE children can be skipped in layout measurement,
+     *   the auto-positioning algorithm (spec(UNDEFINED, ...)) still
+     *   advances the internal cell-position counter per-child-index,
+     *   not per-visible-child. In 2-column mode this causes VISIBLE
+     *   tools to land at non-consecutive rows, creating empty gaps in
+     *   the grid and corrupting the height calculation.
      *
-     * ROOT CAUSES across past rounds:
-     *   Round 16: AOSP [GridLayout.Axis.setCount] validates new columnCount
-     *   against children's resolved start indices via [getMaxIndex()]. Downgrading
-     *   all specs to span=1 FIRST and then setting columnCount is required to
-     *   avoid IllegalArgumentException crashes.
-     *
-     *   Round 17 (visibility-aware weight): When [refreshColumnSpanOverrides]
-     *   applied weight=1.0f unconditionally to a GONE child, GridLayout's
-     *   constraint solver would allocate phantom weight to a zero-sized cell,
-     *   collapsing the entire row. Fixed by sensing visibility before picking
-     *   weight. SysInfo was later moved outside the GridLayout entirely.
-     *
-     *   Round 18 (this round — measurement cache busting): When columnSpec and
-     *   LayoutParams change programmatically without a layout pass, several OEM
-     *   GridLayout forks (notably Xiaomi MIUI / ColorOS / OneUI) cache the
-     *   previous measured sizes and don't re-trigger measure/layout when only
-     *   columnSpec/width/height change. The result is that after a settings
-     *   change, the tools section can visually appear empty or stuck in the
-     *   previous column layout. Fix:
-     *     a) Set an explicit [rowSpec] on every child — GridLayout's row
-     *        placement becomes deterministic and never falls back to a stale row.
-     *     b) Call [container.requestLayout] at the end of sync — this flushes
-     *        the measurement cache and forces a fresh pass even on forks that
-     *        cache on programmatic spec changes.
-     *
-     * FIX (single deterministic pass with explicit rowSpec + layout flush):
-     *   1. If columnCount already matches target → no-op.
-     *   2. For every child: reset columnSpec to span=1 with visibility-aware
-     *      weight/alignment and width/height, AND reset rowSpec explicitly.
-     *   3. Set columnCount only if changed.
-     *   4. Apply span=2 overrides for divider+SysInfo (still visibility-aware).
-     *   5. Force a layout pass to flush OEM measurement caches.
+     *   FIX: Instead of leaving GONE children to confuse GridLayout's
+     *   auto-positioning, we now assign EXPLICIT row/col positions to
+     *   every VISIBLE tool child so they pack into consecutive rows.
+     *   GONE children are told to occupy row=99 (outside the visible
+     *   area) with 0x0 dimensions, so they never affect the grid.
      */
     private fun syncToolsGridColumns() {
         val target = currentCols.coerceIn(1, 2)
@@ -944,127 +924,129 @@ class SidePanelView @JvmOverloads constructor(
 
         val needsColumnCountChange = container.columnCount != target
 
-        // Step 1: Downgrade ALL children to span=1 FIRST.
-        // This guarantees that after setColumnCount, no child claims a span
-        // greater than 1, so GridLayout's getMaxIndex() validation always
-        // passes regardless of OEM cache bugs or resolved start positions.
-        //
-        // VISIBLE children → FILL + weight=1 (normal grid cell).
-        // GONE children    → 0-weight, 0×0 size so they collapse and don't
-        //                    reserve grid cells (fixes the "empty cell gap"
-        //                    when a tool is disabled in settings).
-        //
-        // Critically we also REWRITE rowSpec for each child — without this,
-        // OEM GridLayout forks leave stale row weights after column changes
-        // and pack children incorrectly, manifesting as "tools in single
-        // column even though colCount=2".
+        // Step 1: Downgrade ALL children to span=1 FIRST (crash-safety
+        // for setColumnCount validation).
         for (i in 0 until container.childCount) {
             val child = container.getChildAt(i) ?: continue
             val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
                 ?: android.widget.GridLayout.LayoutParams().apply {
                     width = 0; height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 }
-            if (child.visibility == View.GONE) {
-                lp.columnSpec = android.widget.GridLayout.spec(
-                    android.widget.GridLayout.UNDEFINED,
-                    1,
-                    0f
-                )
-                lp.width = 0
-                lp.height = 0
-            } else {
-                lp.columnSpec = android.widget.GridLayout.spec(
-                    android.widget.GridLayout.UNDEFINED,
-                    1,
-                    FILL,
-                    1.0f
-                )
-                // Detect stale 0×0 dimensions left over from a previous GONE
-                // state (syncToolsGridColumns zaps GONE children to 0×0).
-                // Restore them to XML-equivalent defaults (0dp width + weight
-                // = fill column; WRAP_CONTENT height) so the tool becomes
-                // visible again after the user toggles it back on. We MUST NOT
-                // unconditionally overwrite width/height on every VISIBLE child
-                // because that breaks the GridLayout's internal measurement
-                // cache and collapses cell allocations.
-                if (lp.width == 0 && lp.height == 0) {
-                    lp.width = 0
-                    lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                }
-            }
-            // Reset rowSpec explicitly. Without this, residual row weights from
-            // a prior column change (especially 1→2 or 2→1 transitions) cause
-            // GridLayout to mispack children into rows on some OEM forks and
-            // the tools section appears collapsed or stuck in 1-column layout.
-            lp.rowSpec = android.widget.GridLayout.spec(
+            // Temporarily set uniform span=1 with 0-weight so setColumnCount
+            // cannot fail on stale span=2 specs.
+            lp.columnSpec = android.widget.GridLayout.spec(
                 android.widget.GridLayout.UNDEFINED,
                 1,
-                FILL,
                 0f
             )
             child.layoutParams = lp
         }
 
-        // Step 2: Only change column count if actually different (avoids
-        // unnecessary re-layout), but ALWAYS proceed to step 3 so that
-        // visibility changes from applyTheme() update columnSpec.
+        // Step 2: Set column count (safe now that all spans are 1).
         if (needsColumnCountChange) {
             container.columnCount = target
         }
 
-        // Step 3: Apply span=2 overrides for divider only when expanding
-        // to 2 columns. SysInfo is now a standalone section outside the grid.
-        refreshColumnSpanOverrides(target)
+        // Step 3: Assign EXPLICIT row/col positions to every child so
+        // that VISIBLE tools pack into consecutive rows regardless of
+        // GONE children. GONE children are sent to row=99 (nowhere).
+        val visibleToolCells = mutableListOf<View>()
+        val goneToolCells = mutableListOf<View>()
+        val dividerViews = mutableListOf<View>()
 
-        // Step 4 (Round-18): explicitly request a layout pass to flush the
-        // GridLayout measurement cache. Without this, several OEM GridLayout
-        // forks keep stale measured sizes after programmatic spec changes,
-        // which is the root cause of the v1.4.8 regression where the tools
-        // section visually appeared empty or stuck in 1-column layout even
-        // after the visibility-aware weight fix was applied.
+        for (i in 0 until container.childCount) {
+            val child = container.getChildAt(i) ?: continue
+            when (child.id) {
+                R.id.toolsDivider -> dividerViews.add(child)
+                R.id.layoutPowerTools,
+                R.id.layoutVolumeTools,
+                R.id.layoutBrightnessTools,
+                R.id.layoutScreenshotTools,
+                R.id.layoutBlackScreenTools,
+                R.id.layoutLockScreenTools -> {
+                    if (child.visibility == View.VISIBLE) {
+                        visibleToolCells.add(child)
+                    } else {
+                        goneToolCells.add(child)
+                    }
+                }
+                else -> { /* unknown child, leave as-is */ }
+            }
+        }
+
+        // Assign tool cells to explicit rows.
+        //   Divider:   row=0, span=2 in 2-col mode
+        //   Tool[i]:   row for 2-col = 1 + (i / 2), col = i % 2
+        //              row for 1-col = 1 + i,       col = 0
+        //   GONE tool: row=99, 0x0
+        var toolIdx = 0
+        for (child in visibleToolCells) {
+            val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
+                ?: android.widget.GridLayout.LayoutParams().apply {
+                    width = 0; height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                }
+            val row = if (target == 2) 1 + (toolIdx / 2) else 1 + toolIdx
+            val col = if (target == 2) toolIdx % 2 else 0
+
+            lp.columnSpec = android.widget.GridLayout.spec(
+                col, 1, FILL, 1.0f
+            )
+            lp.rowSpec = android.widget.GridLayout.spec(
+                row, 1, FILL, 0f
+            )
+            // Restore dimensions from GONE→VISIBLE transition
+            if (lp.width == 0 && lp.height == 0) {
+                lp.width = 0
+                lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            child.layoutParams = lp
+            toolIdx++
+        }
+
+        // Move GONE tool cells to row=99 (outside visible area).
+        // The GridLayout still has them as children (so re-adding via
+        // XML inflation isn't needed), but they occupy no visible space
+        // and don't affect visible row counting.
+        for (child in goneToolCells) {
+            val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
+                ?: android.widget.GridLayout.LayoutParams().apply {
+                    width = 0; height = 0
+                }
+            lp.columnSpec = android.widget.GridLayout.spec(
+                0, 1, 0f
+            )
+            lp.rowSpec = android.widget.GridLayout.spec(
+                99, 1, 0f
+            )
+            lp.width = 0
+            lp.height = 0
+            child.layoutParams = lp
+        }
+
+        // Step 4: Apply span=2 override for the divider in 2-column mode.
+        if (target == 2) {
+            for (child in dividerViews) {
+                val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
+                if (lp != null) {
+                    val dividerWeight = if (child.visibility == View.GONE) 0f else 1.0f
+                    lp.columnSpec = android.widget.GridLayout.spec(
+                        0, 2, FILL, dividerWeight
+                    )
+                    lp.rowSpec = android.widget.GridLayout.spec(
+                        0, 1, FILL, 0f
+                    )
+                    child.layoutParams = lp
+                }
+            }
+        }
+
+        // Final layout flush.
         container.requestLayout()
     }
 
-    /**
-     * Apply span=2 overrides for the full-width cells
-     * (divider only) in 2-column mode.
-     *
-     * SysInfo is now a standalone LinearLayout outside the GridLayout,
-     * so it no longer needs span=2 override. It's always centered
-     * regardless of the tools column mode.
-     *
-     * ROUND-17 (FINAL) — visibility-aware weight assignment:
-     *
-     * ROOT CAUSE:
-     *   The previous implementation unconditionally set `weight=1.0f` and
-     *   `span=2` on the divider and layoutSysInfo whenever `target == 2`.
-     *   When either of those views was `View.GONE`, GridLayout's constraint
-     *   solver would still account for the non-zero column weight
-     *   (because the spec is applied unconditionally before measurement),
-     *   causing the layout to collapse or appear empty in 2-column mode.
-     *
-     * FIX:
-     *   For the divider, check its current visibility BEFORE
-     *   constructing the spec:
-     *     - VISIBLE → `weight=1.0f` (claim the full row of space).
-     *     - GONE    → `weight=0f`     (no space reservation).
-     */
-    private fun refreshColumnSpanOverrides(target: Int) {
-        if (target != 2) return
-        val FILL = android.widget.GridLayout.FILL
-        val divider = binding.toolsDivider
-        val dividerLp = divider.layoutParams as? android.widget.GridLayout.LayoutParams
-        if (dividerLp != null) {
-            val dividerWeight = if (divider.visibility == View.GONE) 0f else 1.0f
-            dividerLp.columnSpec = android.widget.GridLayout.spec(
-                android.widget.GridLayout.UNDEFINED,
-                2,
-                FILL,
-                dividerWeight
-            )
-            divider.layoutParams = dividerLp
-        }
-    }
+    // refreshColumnSpanOverrides removed in v1.6.0 — its logic is now
+    // inlined directly in syncToolsGridColumns() via the dividerViews
+    // explicit-position block.
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()

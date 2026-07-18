@@ -1588,24 +1588,16 @@ class FloatingPanelService : Service() {
                     "smartedge.folder.tools" -> {
                         val tools = mutableListOf<AppInfo>()
 
-                        if (panelPrefs.showScreenshotTool) {
-                            tools.add(AppInfo("smartedge.tool.screenshot", "Screenshot", type = AppInfo.Type.TOOL))
-                        }
-                        if (panelPrefs.showBlackScreenTool) {
-                            tools.add(AppInfo("smartedge.tool.blackscreen", "Black Screen", type = AppInfo.Type.TOOL))
-                        }
-                        if (panelPrefs.showPowerMenu) {
-                            tools.add(AppInfo("smartedge.shortcut.reboot", "Power Menu", type = AppInfo.Type.SHORTCUT))
-                        }
-                        if (panelPrefs.showVolumeKeys) {
-                            tools.add(AppInfo("smartedge.tool.volume_up", "Volume", type = AppInfo.Type.TOOL))
-                        }
-                        if (panelPrefs.showBrightnessKeys) {
-                            tools.add(AppInfo("smartedge.tool.brightness_up", "Brightness", type = AppInfo.Type.TOOL))
-                        }
-                        if (panelPrefs.showLockScreenTool) {
-                            tools.add(AppInfo("smartedge.tool.lockscreen", "Lock Screen", type = AppInfo.Type.TOOL))
-                        }
+                        // Tools folder always shows ALL available tools regardless
+                        // of individual dashboard toggles. The dashboard toggles
+                        // only control the inline tools GridLayout below the app
+                        // list in the sidebar panel (applyTheme() in SidePanelView).
+                        tools.add(AppInfo("smartedge.tool.screenshot", "Screenshot", type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.tool.blackscreen", "Black Screen", type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.shortcut.reboot", "Power Menu", type = AppInfo.Type.SHORTCUT))
+                        tools.add(AppInfo("smartedge.tool.volume_up", "Volume", type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.tool.brightness_up", "Brightness", type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.tool.lockscreen", "Lock Screen", type = AppInfo.Type.TOOL))
                         
                         tools
                     }
