@@ -21,7 +21,8 @@ class PanelAppsAdapter(
     private val onAddClick: (Boolean) -> Unit,
     private val onAppLaunched: () -> Unit,
     private val onFolderClick: (String) -> Unit,
-    private val onToolClick: (String) -> Unit
+    private val onToolClick: (String) -> Unit,
+    private val onToolDrag: ((toolId: String, direction: Int) -> Unit)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val panelPrefs = PanelPreferences(context)
@@ -81,6 +82,37 @@ class PanelAppsAdapter(
         private const val VIEW_TYPE_ADD = 1
         private const val VIEW_TYPE_FOLDER = 2
         private const val VIEW_TYPE_TOOL = 3
+
+        /** Emoji characters for each tool, used in the Tools folder. */
+        private val TOOL_EMOJI = mapOf(
+            "smartedge.tool.screenshot" to "\uD83D\uDCF8",
+            "smartedge.tool.blackscreen" to "\uD83C\uDF11",
+            "smartedge.shortcut.reboot" to "\u26A1",
+            "smartedge.tool.volume_up" to "\uD83D\uDD0A",
+            "smartedge.tool.brightness_up" to "\u2600\uFE0F",
+            "smartedge.tool.lockscreen" to "\uD83D\uDD12"
+        )
+
+        /** Tool IDs that support drag-to-adjust gesture. */
+        private val DRAG_TOOLS = setOf(
+            "smartedge.tool.volume_up",
+            "smartedge.tool.brightness_up"
+        )
+
+        private fun emojiToBitmap(context: Context, emoji: String, sizeDp: Int): android.graphics.Bitmap {
+            val density = context.resources.displayMetrics.density
+            val sizePx = (sizeDp * density).toInt().coerceAtLeast(32)
+            val bitmap = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            val paint = android.graphics.Paint().apply {
+                textSize = sizePx * 0.55f
+                textAlign = android.graphics.Paint.Align.CENTER
+                isAntiAlias = true
+            }
+            val y = sizePx / 2f - (paint.descent() + paint.ascent()) / 2f
+            canvas.drawText(emoji, sizePx / 2f, y, paint)
+            return bitmap
+        }
     }
 
     inner class AppViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -170,33 +202,33 @@ class PanelAppsAdapter(
             
             if (app.type == AppInfo.Type.FOLDER || app.type == AppInfo.Type.TOOL || app.packageName.startsWith("smartedge.shortcut.")) {
                 Glide.with(context.applicationContext).clear(holder.ivIcon)
-                val iconRes = when {
-                    app.type == AppInfo.Type.FOLDER -> R.drawable.ic_section_tools
-                    app.packageName == "smartedge.tool.screenshot" -> android.R.drawable.ic_menu_camera
-                    app.packageName == "smartedge.tool.blackscreen" -> R.drawable.ic_brightness_down
-                    app.packageName == "smartedge.tool.tools" -> R.drawable.ic_section_tools
-                    app.packageName == "smartedge.tool.volume_up" -> R.drawable.ic_brightness_up // Using placeholders if specific ones not available
-                    app.packageName == "smartedge.tool.volume_down" -> R.drawable.ic_brightness_down
-                    app.packageName == "smartedge.tool.brightness_up" -> R.drawable.ic_brightness_up
-                    app.packageName == "smartedge.tool.brightness_down" -> R.drawable.ic_brightness_down
-                    app.packageName == "smartedge.shortcut.one_hand" -> android.R.drawable.ic_menu_crop
-                    app.packageName == "smartedge.shortcut.reboot" -> android.R.drawable.ic_lock_power_off
-                    else -> android.R.drawable.sym_def_app_icon
-                }
-                
-                // Specific adjustments for placeholders to look like volume
-                if (app.packageName.contains("volume")) {
-                    holder.ivIcon.setImageResource(R.drawable.ic_plus) // Better placeholder for +
-                    if (app.packageName.endsWith("down")) holder.ivIcon.setImageResource(R.drawable.ic_minus)
-                }
 
-                holder.ivIcon.setImageResource(iconRes)
-                holder.ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
-                holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(android.graphics.Color.parseColor("#33FFFFFF"))
-                    cornerRadius = context.dpToPx(12).toFloat()
+                // Use emoji icons for all tools (not folders/shortcuts with own icons)
+                val emoji = TOOL_EMOJI[app.packageName]
+                if (emoji != null && app.type == AppInfo.Type.TOOL) {
+                    holder.ivIcon.setImageBitmap(emojiToBitmap(context, emoji, (baseIconSize * scale).toInt()))
+                    holder.ivIcon.imageTintList = null
+                    holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                        cornerRadius = context.dpToPx(12).toFloat()
+                    }
+                    holder.ivIcon.setPadding(context.dpToPx(4), context.dpToPx(4), context.dpToPx(4), context.dpToPx(4))
+                } else {
+                    val iconRes = when {
+                        app.type == AppInfo.Type.FOLDER -> R.drawable.ic_section_tools
+                        app.packageName == "smartedge.tool.tools" -> R.drawable.ic_section_tools
+                        app.packageName == "smartedge.shortcut.one_hand" -> android.R.drawable.ic_menu_crop
+                        app.packageName == "smartedge.shortcut.reboot" -> android.R.drawable.ic_lock_power_off
+                        else -> android.R.drawable.sym_def_app_icon
+                    }
+                    holder.ivIcon.setImageResource(iconRes)
+                    holder.ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+                    holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                        cornerRadius = context.dpToPx(12).toFloat()
+                    }
+                    holder.ivIcon.setPadding(context.dpToPx(8), context.dpToPx(8), context.dpToPx(8), context.dpToPx(8))
                 }
-                holder.ivIcon.setPadding(context.dpToPx(8), context.dpToPx(8), context.dpToPx(8), context.dpToPx(8))
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                     holder.ivIcon.clipToOutline = true
                 }
@@ -304,6 +336,53 @@ class PanelAppsAdapter(
                     }
                     // Close panel AFTER initiating launch
                     onAppLaunched()
+                }
+            }
+
+            // Add drag-to-adjust touch handling for volume/brightness tools in the folder
+            if (app.type == AppInfo.Type.TOOL && DRAG_TOOLS.contains(app.packageName) && onToolDrag != null) {
+                val dragState = FloatArray(3)
+                val density = context.resources.displayMetrics.density
+                val tickPx = 14f * density
+                val tapSlopPx = 8f * density
+                holder.itemView.setOnTouchListener { v, event ->
+                    when (event.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> {
+                            dragState[0] = event.rawY
+                            dragState[1] = event.rawY
+                            dragState[2] = event.rawY
+                            if (panelPrefs.hapticEnabled) {
+                                v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+                            }
+                            SpringAnimator.scalePulse(v)
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_MOVE -> {
+                            val sinceLastTick = dragState[1] - event.rawY
+                            if (Math.abs(sinceLastTick) >= tickPx) {
+                                val direction = if (sinceLastTick > 0f) +1 else -1
+                                val ticks = (Math.abs(sinceLastTick) / tickPx).toInt().coerceAtLeast(1)
+                                repeat(ticks) { onToolDrag?.invoke(app.packageName, direction) }
+                                dragState[1] = event.rawY
+                            }
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_UP -> {
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                            val totalTravel = Math.abs(event.rawY - dragState[2])
+                            if (totalTravel < tapSlopPx) {
+                                // Treat as tap
+                                onToolClick(app.packageName)
+                            }
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_CANCEL -> {
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                            true
+                        }
+                        else -> false
+                    }
                 }
             }
 
