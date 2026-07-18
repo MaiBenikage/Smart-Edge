@@ -524,12 +524,22 @@ class SidePanelView @JvmOverloads constructor(
             currentCols = (if (isGameMode) 2 else panelPrefs.panelColumns).coerceIn(1, 2)
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
+            applyTheme()
+            updateSideLayout()
+            // Belt-and-suspenders: post a second pass after the current frame
+            // layout pass settles, so OEM GridLayout forks get refreshed specs.
+            post { syncToolsGridColumns() }
+        } else {
+            // Picker is open (forced to 1-column via setColumns(1) in openPicker).
+            // DO NOT run applyTheme() or syncToolsGridColumns() here — they would
+            // overwrite the picker's 1-column grid with stale currentCols, causing:
+            //   1. Tools rendered in single column (grid stuck at columnCount=1)
+            //   2. Inflated tools-section height (64dp/row instead of54dp/row)
+            //   3. Enabled tools pushed off-screen
+            // The correct column count is restored when the picker closes via
+            // setColumns(originalCols) in closePicker().
+            updateSideLayout()
         }
-        applyTheme()
-        updateSideLayout()
-        // Belt-and-suspenders: post a second pass after the current frame
-        // layout pass settles, so OEM GridLayout forks get refreshed specs.
-        post { syncToolsGridColumns() }
     }
 
     fun refreshIcons() {
