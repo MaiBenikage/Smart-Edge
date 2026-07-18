@@ -399,7 +399,7 @@ class SidePanelView @JvmOverloads constructor(
 
         // Apply dynamic height using ConstraintLayout's max-height constraint instead of brittle manual item height guessing
         val rvLp = binding.rvPanelApps.layoutParams
-        val maxRvHeightPx = context.dpToPx((targetRvHeightDp * scale).toInt())
+        val maxRvHeightPx = context.dpToPx(targetRvHeightDp.toInt())
 
         val constraintSet = androidx.constraintlayout.widget.ConstraintSet()
         constraintSet.clone(binding.panelCard)
