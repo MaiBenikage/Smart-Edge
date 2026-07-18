@@ -945,7 +945,19 @@ class SidePanelView @JvmOverloads constructor(
         val FILL = android.widget.GridLayout.FILL
 
         val gridCols = if (isPickerOpenInternal) 1 else panelPrefs.panelColumns.coerceIn(1, 2)
+
+        // SAFETY: downgrade ALL children to col=0, span=1 BEFORE changing columnCount.
+        // Without this, setColumnCount(1) crashes because existing children may have
+        // columnSpec referencing col=1 from the previous 2-column layout.
         if (container.columnCount != gridCols) {
+            for (i in 0 until container.childCount) {
+                val child = container.getChildAt(i) ?: continue
+                val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
+                    ?: android.widget.GridLayout.LayoutParams()
+                lp.columnSpec = android.widget.GridLayout.spec(0, 1, 0f)
+                lp.rowSpec = android.widget.GridLayout.spec(0, 1, 0f)
+                child.layoutParams = lp
+            }
             container.columnCount = gridCols
         }
 
