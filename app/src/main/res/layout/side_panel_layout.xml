@@ -180,7 +180,8 @@
             android:layout_height="wrap_content"
             android:layout_columnWeight="1"
             android:orientation="vertical"
-            android:gravity="center_horizontal">
+            android:gravity="center_horizontal"
+            android:visibility="gone">
 
             <ImageButton
                 android:id="@+id/btnScreenshot"
@@ -211,7 +212,8 @@
             android:layout_height="wrap_content"
             android:layout_columnWeight="1"
             android:orientation="vertical"
-            android:gravity="center_horizontal">
+            android:gravity="center_horizontal"
+            android:visibility="gone">
 
             <ImageButton
                 android:id="@+id/btnBlackScreen"

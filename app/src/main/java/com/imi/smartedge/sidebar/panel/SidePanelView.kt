@@ -359,18 +359,6 @@ class SidePanelView @JvmOverloads constructor(
         val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
 
         if (panelPrefs.showTools && navigationStack.isEmpty()) {
-            // In 2-column mode tools share a row, so per-tool allocation is roughly
-            // halved vertically. Keep the 1-col layout generous (84dp) for the
-            // original icon + label stack.
-            val perToolRowDp = if (currentCols == 2) 48f else 64f
-            nonAppHeightDp += 16f // Divider (1dp line + 8dp margin)
-
-            // Count enabled tools to compute the NUMBER OF ROWS the GridLayout
-            // will actually occupy. In 2-col mode, two tools share a single row,
-            // so rows = ceil(enabled / 2). Previously we added perToolRowDp per
-            // tool unconditionally, overestimating the tools-section height by
-            // ~60dp per extra-tool-in-the-same-row, which compressed the app
-            // RecyclerView and left the sidebar looking cramped.
             val enabledTools: List<Boolean> = listOf(
                 panelPrefs.showScreenshotTool,
                 panelPrefs.showBlackScreenTool,
@@ -379,14 +367,30 @@ class SidePanelView @JvmOverloads constructor(
                 panelPrefs.showBrightnessKeys
             )
             val enabledCount = enabledTools.count { it }
-            val toolRows = if (currentCols == 2) {
-                (enabledCount + 1) / 2  // ceil division
-            } else {
-                enabledCount
-            }
-            nonAppHeightDp += perToolRowDp * toolRows
+            val hasStandardTools = enabledCount > 0
 
-            if (showSysInfoEffective) nonAppHeightDp += 30f
+            // Only allocate height for tools section if something is actually
+            // visible (either standard tools or SysInfo). This prevents
+            // compressing the RecyclerView when the tools container is GONE
+            // (e.g., all individual tools disabled but showTools master ON).
+            if (hasStandardTools || showSysInfoEffective) {
+                // In 2-col mode two tools share a single GridLayout row.
+                // Actual cell height: 32dp button + 2dp gap + ~12dp label + 4dp margin ≈ 50dp
+                val perToolRowDp = if (currentCols == 2) 54f else 64f
+
+                if (hasStandardTools) {
+                    // Divider: 1dp line + 8dp bottom margin = 9dp
+                    nonAppHeightDp += 9f
+                    val toolRows = if (currentCols == 2) {
+                        (enabledCount + 1) / 2  // ceil division
+                    } else {
+                        enabledCount
+                    }
+                    nonAppHeightDp += perToolRowDp * toolRows
+                }
+
+                if (showSysInfoEffective) nonAppHeightDp += 30f
+            }
         }
 
         // Maximum allowed height for RV to keep panel within screen (with 24dp safety margin)
@@ -554,6 +558,11 @@ class SidePanelView @JvmOverloads constructor(
         val blkVisibility = if (showBlackScreen) View.VISIBLE else View.GONE
         binding.layoutBlackScreenTools.visibility = blkVisibility
 
+        // Hide divider when no standard interactive tools are visible
+        // (only SysInfo enabled = no divider needed)
+        val hasStandardTools = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen
+        binding.toolsDivider.visibility = if (hasStandardTools) View.VISIBLE else View.GONE
+
         if (panelPrefs.hideBackground) {
             binding.panelCard.background = null
         } else {
@@ -611,7 +620,7 @@ class SidePanelView @JvmOverloads constructor(
         binding.layoutSysInfo.visibility = if (showSysInfoEffective) View.VISIBLE else View.GONE
 
         // Final visibility check for tools container: hide if all sub-elements are gone
-        val hasAnyVisibleTool = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen || showSysInfoEffective
+        val hasAnyVisibleTool = hasStandardTools || showSysInfoEffective
         binding.toolsContainer.visibility = if (showTools && hasAnyVisibleTool) View.VISIBLE else View.GONE
 
         // Sync tools grid columns synchronously IMMEDIATELY after all

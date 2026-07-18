@@ -41,15 +41,18 @@ class ToolsVisibilityMappingTest {
         screenshot: Boolean, blackScreen: Boolean, sysInfo: Boolean
     ): Boolean = showTools && hasAnyVisibleTool(power, volume, brightness, screenshot, blackScreen, sysInfo)
 
-    // ─── Row-counting formula (from updateSideLayout, v1.5.2) ─────
+    // ─── Row-counting formula (from updateSideLayout, v1.5.4) ─────
     //
     //   enabledCount = count of: showScreenshot, showBlackScreen,
     //                            showPowerMenu, showVolumeKeys,
     //                            showBrightnessKeys
-    //   toolRows = if (2col) (enabledCount + 1) / 2  else enabledCount
-    //   nonAppHeightDp += 16   // divider
-    //   nonAppHeightDp += perToolRowDp * toolRows
-    //   if (showSysInfo) nonAppHeightDp += 30
+    //   hasStandardTools = enabledCount > 0
+    //   if (hasStandardTools || showSysInfo):
+    //     if (hasStandardTools):
+    //       nonAppHeightDp += 9   // divider (1dp line + 8dp margin)
+    //       toolRows = if (2col) (enabledCount + 1) / 2  else enabledCount
+    //       nonAppHeightDp += perToolRowDp * toolRows
+    //     if (showSysInfo) nonAppHeightDp += 30
 
     private fun toolRows2Col(enabledCount: Int): Int = (enabledCount + 1) / 2
 
@@ -63,10 +66,17 @@ class ToolsVisibilityMappingTest {
         if (!showTools || inFolder) return 68  // base only
         val tools = listOf(ss, bs, pm, vk, bk)
         val count = tools.count { it }
-        val perRow = if (twoCol) 48f else 64f
-        val rows = if (twoCol) (count + 1) / 2 else count
-        var h = 68f + 16f + perRow * rows
-        if (sysInfo) h += 30f
+        val hasStandardTools = count > 0
+        var h = 68f
+        if (hasStandardTools || sysInfo) {
+            if (hasStandardTools) {
+                h += 9f  // divider (1dp line + 8dp margin)
+                val perRow = if (twoCol) 54f else 64f
+                val rows = if (twoCol) (count + 1) / 2 else count
+                h += perRow * rows
+            }
+            if (sysInfo) h += 30f
+        }
         return h.toInt()
     }
 
@@ -205,7 +215,7 @@ class ToolsVisibilityMappingTest {
             showTools = true, inFolder = false, twoCol = true,
             sysInfo = false, ss = false, bs = false, pm = false, vk = false, bk = false
         )
-        assertEquals(84, h)  // 68 base + 16 divider + 48*0 rows
+        assertEquals(68, h)  // 68 base only (no divider/tools when all disabled)
     }
 
     @Test
@@ -234,8 +244,8 @@ class ToolsVisibilityMappingTest {
             showTools = true, inFolder = false, twoCol = true,
             sysInfo = false, ss = true, bs = false, pm = false, vk = false, bk = false
         )
-        // 68 base + 16 divider + 48*1 row = 132
-        assertEquals(132, h)
+        // 68 base + 9 divider + 54*1 row = 131
+        assertEquals(131, h)
     }
 
     @Test
@@ -244,8 +254,8 @@ class ToolsVisibilityMappingTest {
             showTools = true, inFolder = false, twoCol = true,
             sysInfo = false, ss = true, bs = true, pm = false, vk = false, bk = false
         )
-        // 68 base + 16 divider + 48*1 row = 132
-        assertEquals(132, h)
+        // 68 base + 9 divider + 54*1 row = 131
+        assertEquals(131, h)
     }
 
     @Test
@@ -254,8 +264,8 @@ class ToolsVisibilityMappingTest {
             showTools = true, inFolder = false, twoCol = true,
             sysInfo = true, ss = true, bs = true, pm = false, vk = false, bk = false
         )
-        // 68 base + 16 divider + 48*1 row + 30 sysInfo = 162
-        assertEquals(162, h)
+        // 68 base + 9 divider + 54*1 row + 30 sysInfo = 161
+        assertEquals(161, h)
     }
 
     @Test
@@ -265,8 +275,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false,
             ss = true, bs = true, pm = true, vk = false, bk = false
         )
-        // 68 base + 16 divider + 48*2 rows = 180
-        assertEquals(180, h)
+        // 68 base + 9 divider + 54*2 rows = 185
+        assertEquals(185, h)
     }
 
     @Test
@@ -276,8 +286,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false,
             ss = true, bs = true, pm = true, vk = true, bk = false
         )
-        // 68 base + 16 divider + 48*2 rows = 180
-        assertEquals(180, h)
+        // 68 base + 9 divider + 54*2 rows = 185
+        assertEquals(185, h)
     }
 
     @Test
@@ -287,8 +297,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false,
             ss = true, bs = true, pm = true, vk = true, bk = true
         )
-        // 68 base + 16 divider + 48*3 rows = 228
-        assertEquals(228, h)
+        // 68 base + 9 divider + 54*3 rows = 239
+        assertEquals(239, h)
     }
 
     @Test
@@ -298,8 +308,28 @@ class ToolsVisibilityMappingTest {
             sysInfo = true,
             ss = true, bs = true, pm = true, vk = true, bk = true
         )
-        // 68 base + 16 divider + 48*3 rows + 30 sysInfo = 258
-        assertEquals(258, h)
+        // 68 base + 9 divider + 54*3 rows + 30 sysInfo = 269
+        assertEquals(269, h)
+    }
+
+    @Test
+    fun `2col sysInfo only — no divider, just sysInfo height`() {
+        val h = nonAppHeightDp(
+            showTools = true, inFolder = false, twoCol = true,
+            sysInfo = true, ss = false, bs = false, pm = false, vk = false, bk = false
+        )
+        // 68 base + 30 sysInfo = 98 (no divider when no standard tools)
+        assertEquals(98, h)
+    }
+
+    @Test
+    fun `1col sysInfo only — no divider, just sysInfo height`() {
+        val h = nonAppHeightDp(
+            showTools = true, inFolder = false, twoCol = false,
+            sysInfo = true, ss = false, bs = false, pm = false, vk = false, bk = false
+        )
+        // 68 base + 30 sysInfo = 98 (no divider when no standard tools)
+        assertEquals(98, h)
     }
 
     // ── 1-col scenarios ──────────────────────────────────────────
@@ -310,8 +340,8 @@ class ToolsVisibilityMappingTest {
             showTools = true, inFolder = false, twoCol = false,
             sysInfo = false, ss = true, bs = false, pm = false, vk = false, bk = false
         )
-        // 68 base + 16 divider + 64*1 row = 148
-        assertEquals(148, h)
+        // 68 base + 9 divider + 64*1 row = 141
+        assertEquals(141, h)
     }
 
     @Test
@@ -320,8 +350,8 @@ class ToolsVisibilityMappingTest {
             showTools = true, inFolder = false, twoCol = false,
             sysInfo = false, ss = true, bs = true, pm = false, vk = false, bk = false
         )
-        // 68 base + 16 divider + 64*2 rows = 212
-        assertEquals(212, h)
+        // 68 base + 9 divider + 64*2 rows = 205
+        assertEquals(205, h)
     }
 
     @Test
@@ -331,8 +361,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false,
             ss = true, bs = true, pm = true, vk = true, bk = true
         )
-        // 68 base + 16 divider + 64*5 rows = 404
-        assertEquals(404, h)
+        // 68 base + 9 divider + 64*5 rows = 397
+        assertEquals(397, h)
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -350,7 +380,7 @@ class ToolsVisibilityMappingTest {
             sysInfo = false,
             ss = true, bs = false, pm = false, vk = false, bk = false
         )
-        assertEquals(132, h)
+        assertEquals(131, h)
     }
 
     @Test
@@ -369,7 +399,7 @@ class ToolsVisibilityMappingTest {
             sysInfo = false,
             ss = false, bs = false, pm = true, vk = false, bk = false
         )
-        assertEquals(132, h)
+        assertEquals(131, h)
     }
 
     // ════════════════════════════════════════════════════════════════
