@@ -85,12 +85,12 @@ class PanelAppsAdapter(
 
         /** Emoji characters for each tool, used in the Tools folder. */
         private val TOOL_EMOJI = mapOf(
-            "smartedge.tool.screenshot" to "\uD83D\uDCF8",
-            "smartedge.tool.blackscreen" to "\uD83C\uDF11",
-            "smartedge.shortcut.reboot" to "\u26A1",
-            "smartedge.tool.volume_up" to "\uD83D\uDD0A",
-            "smartedge.tool.brightness_up" to "\u2600\uFE0F",
-            "smartedge.tool.lockscreen" to "\uD83D\uDD12"
+            "smartedge.tool.screenshot" to "\uD83D\uDCF1",
+            "smartedge.tool.blackscreen" to "\u2B1B",
+            "smartedge.shortcut.reboot" to "\u26D4",
+            "smartedge.tool.volume_up" to "\uD83C\uDFB5",
+            "smartedge.tool.brightness_up" to "\u2728",
+            "smartedge.tool.lockscreen" to "\uD83D\uDECF\uFE0F"
         )
 
         /** Tool IDs that support drag-to-adjust gesture. */
