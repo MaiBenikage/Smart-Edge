@@ -88,7 +88,7 @@ class PanelAppsAdapter(
             "smartedge.tool.screenshot" to "\uD83D\uDCF1",
             "smartedge.tool.blackscreen" to "\u2B1B",
             "smartedge.shortcut.reboot" to "\u26D4",
-            "smartedge.tool.volume_up" to "\uD83C\uDFB5",
+            "smartedge.tool.volume_up" to "\uD83C\uDFB6",
             "smartedge.tool.brightness_up" to "\u2728",
             "smartedge.tool.lockscreen" to "\uD83D\uDECF\uFE0F"
         )

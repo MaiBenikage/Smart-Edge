@@ -112,7 +112,7 @@
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:gravity="center"
-                android:text="🎵"
+                android:text="🎶"
                 android:textColor="#D9FFFFFF"
                 android:textSize="16sp"
                 android:contentDescription="Drag to adjust volume (up increases, down decreases)" />
