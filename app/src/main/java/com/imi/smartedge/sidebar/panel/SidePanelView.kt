@@ -960,8 +960,8 @@ class SidePanelView @JvmOverloads constructor(
         if (divider.visibility == View.VISIBLE) {
             val span = if (gridCols == 2) 2 else 1
             val divLp = android.widget.GridLayout.LayoutParams(
-                android.widget.GridLayout.spec(0, span, FILL, 1.0f),
-                android.widget.GridLayout.spec(0, 1, FILL, 0f)
+                android.widget.GridLayout.spec(0, 1, FILL, 0f),
+                android.widget.GridLayout.spec(0, span, FILL, 1.0f)
             )
             divider.layoutParams = divLp
             container.addView(divider)
@@ -977,8 +977,8 @@ class SidePanelView @JvmOverloads constructor(
                 val row = rowOffset + if (gridCols == 2) toolIdx / 2 else toolIdx
                 val col = if (gridCols == 2) toolIdx % 2 else 0
                 val lp = android.widget.GridLayout.LayoutParams(
-                    android.widget.GridLayout.spec(col, 1, FILL, 1.0f),
-                    android.widget.GridLayout.spec(row, 1, FILL, 0f)
+                    android.widget.GridLayout.spec(row, 1, FILL, 0f),
+                    android.widget.GridLayout.spec(col, 1, FILL, 1.0f)
                 )
                 lp.width = 0
                 lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
