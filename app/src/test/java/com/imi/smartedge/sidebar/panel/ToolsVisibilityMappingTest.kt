@@ -77,7 +77,7 @@ class ToolsVisibilityMappingTest {
             if (hasStdTools) {
                 h += 9f  // divider (1dp line + 8dp margin)
                 val rows = if (twoCol) (count + 1) / 2 else count
-                h += 72f * rows  // unified 72dp per row (v1.8.x)
+                h += 76f * rows  // 76dp per row (matches app icon row height)
             }
             if (sysInfo) h += 30f
         }
@@ -290,8 +290,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false, pm = true, vk = false, bk = false,
             ss = false, bs = false, ls = false
         )
-        // 68 base + 9 divider + 72*1 = 149
-        assertEquals(149, h)
+        // 68 base + 9 divider + 76*1 = 153
+        assertEquals(153, h)
     }
 
     @Test
@@ -301,8 +301,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false, pm = false, vk = false, bk = false,
             ss = true, bs = true, ls = false
         )
-        // 68 + 9 + 72*1 = 149
-        assertEquals(149, h)
+        // 68 + 9 + 76*1 = 153
+        assertEquals(153, h)
     }
 
     @Test
@@ -312,8 +312,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false, pm = true, vk = true, bk = false,
             ss = true, bs = false, ls = false
         )
-        // 68 + 9 + 72*2 = 221
-        assertEquals(221, h)
+        // 68 + 9 + 76*2 = 229
+        assertEquals(229, h)
     }
 
     @Test
@@ -323,8 +323,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false, pm = true, vk = true, bk = true,
             ss = true, bs = true, ls = true
         )
-        // 68 + 9 + 72*3 = 293
-        assertEquals(293, h)
+        // 68 + 9 + 76*3 = 305
+        assertEquals(305, h)
     }
 
     @Test
@@ -334,8 +334,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = true, pm = true, vk = true, bk = true,
             ss = true, bs = true, ls = true
         )
-        // 68 + 9 + 72*3 + 30 = 323
-        assertEquals(323, h)
+        // 68 + 9 + 76*3 + 30 = 335
+        assertEquals(335, h)
     }
 
     @Test
@@ -358,8 +358,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false, pm = false, vk = false, bk = false,
             ss = true, bs = false, ls = false
         )
-        // 68 + 9 + 72*1 = 149
-        assertEquals(149, h)
+        // 68 + 9 + 76*1 = 153
+        assertEquals(153, h)
     }
 
     @Test
@@ -369,8 +369,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false, pm = true, vk = true, bk = false,
             ss = false, bs = false, ls = false
         )
-        // 68 + 9 + 72*2 = 221
-        assertEquals(221, h)
+        // 68 + 9 + 76*2 = 229
+        assertEquals(229, h)
     }
 
     @Test
@@ -380,8 +380,8 @@ class ToolsVisibilityMappingTest {
             sysInfo = false, pm = true, vk = true, bk = true,
             ss = true, bs = true, ls = true
         )
-        // 68 + 9 + 72*6 = 509
-        assertEquals(509, h)
+        // 68 + 9 + 76*6 = 533
+        assertEquals(533, h)
     }
 
     // ════════════════════════════════════════════════════════════════

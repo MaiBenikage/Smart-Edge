@@ -86,8 +86,8 @@
             android:visibility="gone">
             <Button
                 android:id="@+id/btnReboot"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:gravity="center"
@@ -107,8 +107,8 @@
             android:visibility="gone">
             <Button
                 android:id="@+id/btnVolumeDrag"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:gravity="center"
@@ -129,8 +129,8 @@
             android:visibility="gone">
             <Button
                 android:id="@+id/btnBrightnessDrag"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:gravity="center"
@@ -151,8 +151,8 @@
             android:visibility="gone">
             <Button
                 android:id="@+id/btnScreenshot"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:gravity="center"
@@ -172,8 +172,8 @@
             android:visibility="gone">
             <Button
                 android:id="@+id/btnBlackScreen"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:gravity="center"
@@ -193,8 +193,8 @@
             android:visibility="gone">
             <Button
                 android:id="@+id/btnLockScreen"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:gravity="center"
@@ -238,8 +238,8 @@
             <!-- Back button for folder navigation -->
             <ImageButton
                 android:id="@+id/btnBack"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="8dp"
                 android:background="@drawable/bg_close_btn"
@@ -258,8 +258,8 @@
             <!-- Chevron at bottom of pill (now handles picker toggle) -->
             <ImageButton
                 android:id="@+id/btnClose"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="8dp"
                 android:background="@drawable/bg_close_btn"

@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.util.AttributeSet
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -396,7 +397,7 @@ class SidePanelView @JvmOverloads constructor(
             if (hasStandardTools || showSysInfoEffective) {
                 // In 2-col mode two tools share a single GridLayout row.
                 // Actual cell height: 32dp button + 2dp gap + ~12dp label + 4dp margin ≈ 50dp
-                val perToolRowDp = 72f
+                val perToolRowDp = 76f
 
                 if (hasStandardTools) {
                     // Divider: 1dp line + 8dp bottom margin = 9dp
@@ -941,6 +942,16 @@ class SidePanelView @JvmOverloads constructor(
     private fun syncToolsGridColumns() {
         if (!isAttachedToWindow) return
 
+        try {
+            syncToolsGridColumnsInner()
+        } catch (e: Exception) {
+            // Safety net: GridLayout operations can throw during view detachment
+            // or OEM-specific layout passes. Never crash the service.
+            Log.w("SidePanelView", "syncToolsGridColumns failed", e)
+        }
+    }
+
+    private fun syncToolsGridColumnsInner() {
         val container = binding.toolsContainer
         val FILL = android.widget.GridLayout.FILL
 
@@ -1014,6 +1025,14 @@ class SidePanelView @JvmOverloads constructor(
         container.requestLayout()
     }
 
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // Sync tools grid columns now that the view is attached.
+        // During init, syncToolsGridColumns() returns early because
+        // isAttachedToWindow is false. This override catches that case.
+        syncToolsGridColumns()
+    }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
