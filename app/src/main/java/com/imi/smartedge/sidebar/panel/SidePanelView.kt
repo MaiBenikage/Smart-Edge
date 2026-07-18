@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.util.AttributeSet
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -375,7 +374,7 @@ class SidePanelView @JvmOverloads constructor(
         // Top Padding (12) + Bottom Padding (4) + Tools Margin (4) + Close Btn (48) = 68dp
         var nonAppHeightDp = 68f
 
-        val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
+        val isGameMode = false // game mode detection not yet implemented
         val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
 
         if (panelPrefs.showTools && navigationStack.isEmpty()) {
@@ -541,7 +540,7 @@ class SidePanelView @JvmOverloads constructor(
 
     fun updateStyles() {
         if (!isPickerOpenInternal) {
-            val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
+            val isGameMode = false // game mode detection not yet implemented
             currentCols = (if (isGameMode) 2 else panelPrefs.panelColumns).coerceIn(1, 2)
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
@@ -652,7 +651,7 @@ class SidePanelView @JvmOverloads constructor(
             }
         }
 
-        val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
+        val isGameMode = false // game mode detection not yet implemented
         val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
 
         // SysInfo is now a standalone section outside the tools GridLayout,
@@ -1003,9 +1002,6 @@ class SidePanelView @JvmOverloads constructor(
         container.requestLayout()
     }
 
-    // refreshColumnSpanOverrides removed in v1.6.0 — its logic is now
-    // inlined directly in syncToolsGridColumns() via the dividerViews
-    // explicit-position block.
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()

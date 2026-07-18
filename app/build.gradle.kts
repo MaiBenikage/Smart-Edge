@@ -14,8 +14,8 @@ android {
         applicationId = "com.imi.smartedge.sidebar.panel"
         minSdk = 26
         targetSdk = 34
-        versionCode = 43
-        versionName = "1.8.2"
+        versionCode = 44
+        versionName = "1.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Audit/M: AGP 8.x deprecated `resConfigs("en", "es")` in favour of
