@@ -627,11 +627,13 @@ class SidePanelView @JvmOverloads constructor(
         val isGameMode = false // panelPrefs.getGameApps().contains(panelPrefs.currentForegroundPackage)
         val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
 
-        binding.layoutSysInfo.visibility = if (showSysInfoEffective) View.VISIBLE else View.GONE
+        // SysInfo is now a standalone section outside the tools GridLayout,
+        // so it's always centered regardless of the tools column mode.
+        binding.layoutSysInfo.visibility = if (showTools && showSysInfoEffective) View.VISIBLE else View.GONE
 
-        // Final visibility check for tools container: hide if all sub-elements are gone
-        val hasAnyVisibleTool = hasStandardTools || showSysInfoEffective
-        binding.toolsContainer.visibility = if (showTools && hasAnyVisibleTool) View.VISIBLE else View.GONE
+        // Tools container only depends on standard interactive tools.
+        // SysInfo is independent and doesn't affect tools grid visibility.
+        binding.toolsContainer.visibility = if (showTools && hasStandardTools) View.VISIBLE else View.GONE
 
         // Sync tools grid columns synchronously IMMEDIATELY after all
         // visibility changes — the GridLayout must have correct specs
@@ -880,9 +882,9 @@ class SidePanelView @JvmOverloads constructor(
      *
      * Behavior:
      *  • [currentCols] == 1 → tools stack vertically (1 cell per row).
-     *  • [currentCols] == 2 → tools flow into a 2-column grid; the divider and
-     *    the System Info cell each span both columns so their full-width visual
-     *    treatment isn't stranded on one side.
+     *  • [currentCols] == 2 → tools flow into a 2-column grid; the divider
+     *    spans both columns. SysInfo is now a standalone section outside the
+     *    GridLayout, always centered regardless of column mode.
      *
      * ROUND-18 (FINAL) — three-round-fortified sync:
      *
@@ -893,10 +895,10 @@ class SidePanelView @JvmOverloads constructor(
      *   avoid IllegalArgumentException crashes.
      *
      *   Round 17 (visibility-aware weight): When [refreshColumnSpanOverrides]
-     *   applied weight=1.0f unconditionally to a GONE child (e.g. layoutSysInfo
-     *   which defaults to visibility=gone in XML), GridLayout's constraint
-     *   solver would allocate phantom weight to a zero-sized cell, collapsing
-     *   the entire row. Fixed by sensing visibility before picking weight.
+     *   applied weight=1.0f unconditionally to a GONE child, GridLayout's
+     *   constraint solver would allocate phantom weight to a zero-sized cell,
+     *   collapsing the entire row. Fixed by sensing visibility before picking
+     *   weight. SysInfo was later moved outside the GridLayout entirely.
      *
      *   Round 18 (this round — measurement cache busting): When columnSpec and
      *   LayoutParams change programmatically without a layout pass, several OEM
@@ -995,7 +997,8 @@ class SidePanelView @JvmOverloads constructor(
             container.columnCount = target
         }
 
-        // Step 3: Apply span=2 overrides only when expanding to 2 columns.
+        // Step 3: Apply span=2 overrides for divider only when expanding
+        // to 2 columns. SysInfo is now a standalone section outside the grid.
         refreshColumnSpanOverrides(target)
 
         // Step 4 (Round-18): explicitly request a layout pass to flush the
@@ -1009,7 +1012,11 @@ class SidePanelView @JvmOverloads constructor(
 
     /**
      * Apply span=2 overrides for the full-width cells
-     * (divider and System Info) in 2-column mode.
+     * (divider only) in 2-column mode.
+     *
+     * SysInfo is now a standalone LinearLayout outside the GridLayout,
+     * so it no longer needs span=2 override. It's always centered
+     * regardless of the tools column mode.
      *
      * ROUND-17 (FINAL) — visibility-aware weight assignment:
      *
@@ -1019,17 +1026,13 @@ class SidePanelView @JvmOverloads constructor(
      *   When either of those views was `View.GONE`, GridLayout's constraint
      *   solver would still account for the non-zero column weight
      *   (because the spec is applied unconditionally before measurement),
-     *   causing the layout to collapse or appear empty in 2-column mode —
-     *   even when the user had several tools enabled in Dashboard Tools.
+     *   causing the layout to collapse or appear empty in 2-column mode.
      *
      * FIX:
-     *   For each overridden view, check its current visibility BEFORE
+     *   For the divider, check its current visibility BEFORE
      *   constructing the spec:
      *     - VISIBLE → `weight=1.0f` (claim the full row of space).
-     *     - GONE    → `weight=0f`     (no space reservation despite
-     *                                  consuming a logical row span).
-     *   This mirrors the Step-1 weight logic in `syncToolsGridColumns`
-     *   so visibility is consistent across both passes.
+     *     - GONE    → `weight=0f`     (no space reservation).
      */
     private fun refreshColumnSpanOverrides(target: Int) {
         if (target != 2) return
@@ -1045,18 +1048,6 @@ class SidePanelView @JvmOverloads constructor(
                 dividerWeight
             )
             divider.layoutParams = dividerLp
-        }
-        val sysInfo = binding.layoutSysInfo
-        val sysInfoLp = sysInfo.layoutParams as? android.widget.GridLayout.LayoutParams
-        if (sysInfoLp != null) {
-            val sysInfoWeight = if (sysInfo.visibility == View.GONE) 0f else 1.0f
-            sysInfoLp.columnSpec = android.widget.GridLayout.spec(
-                android.widget.GridLayout.UNDEFINED,
-                2,
-                FILL,
-                sysInfoWeight
-            )
-            sysInfo.layoutParams = sysInfoLp
         }
     }
 

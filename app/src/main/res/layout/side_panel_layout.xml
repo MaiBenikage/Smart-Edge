@@ -64,7 +64,7 @@
         android:layout_marginTop="4dp"
         android:visibility="gone"
         app:layout_constraintTop_toBottomOf="@id/rvPanelApps"
-        app:layout_constraintBottom_toTopOf="@id/btnClose">
+        app:layout_constraintBottom_toTopOf="@id/layoutSysInfo">
 
         <!-- Divider (spanned by id so SidePanelView can safely re-apply span=2
              for 2-col mode; its XML columnSpan is intentionally NOT set so
@@ -237,17 +237,22 @@
                 android:layout_marginBottom="4dp" />
         </LinearLayout>
 
-        <!-- System Info cell: spans the full row width (1 col in 1-col mode, 2 cols in 2-col mode) -->
+    </android.widget.GridLayout>
+
+        <!-- System Info: standalone section below tools grid, always centered.
+             Separated from the GridLayout so column-mode changes don't affect it. -->
         <LinearLayout
             android:id="@+id/layoutSysInfo"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_columnWeight="1"
-            android:layout_columnSpan="1"
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:layout_marginTop="4dp"
-            android:visibility="gone">
+            android:visibility="gone"
+            app:layout_constraintTop_toBottomOf="@id/toolsContainer"
+            app:layout_constraintBottom_toTopOf="@id/btnClose"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
             <TextView
                 android:id="@+id/tvRamUsage"
                 android:layout_width="wrap_content"
@@ -263,8 +268,6 @@
                 android:textColor="#B3FFFFFF"
                 android:textSize="10sp" />
         </LinearLayout>
-
-    </android.widget.GridLayout>
 
 
             <!-- Back button for folder navigation -->
@@ -284,8 +287,8 @@
                 android:visibility="gone"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/toolsContainer"
-                app:layout_constraintBottom_toBottomOf="parent" />
+            app:layout_constraintTop_toBottomOf="@id/layoutSysInfo"
+            app:layout_constraintBottom_toBottomOf="parent" />
 
             <!-- Chevron at bottom of pill (now handles picker toggle) -->
             <ImageButton
@@ -305,7 +308,7 @@
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/toolsContainer" />
+                app:layout_constraintTop_toBottomOf="@id/layoutSysInfo" />
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 
