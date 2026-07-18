@@ -254,6 +254,14 @@ class SidePanelView @JvmOverloads constructor(
             onBlackScreen?.invoke()
         }
 
+        binding.btnLockScreen.setOnClickListener {
+            if (panelPrefs.hapticEnabled) {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+            }
+            SpringAnimator.scalePulse(it)
+            onToolClick?.invoke("smartedge.tool.lockscreen")
+        }
+
         // ── Drag-to-adjust buttons (Volume + Brightness) ──
         // Replaces the 4 old ±buttons. Each drag button:
         //   • tap (no drag)          → single forward bump
@@ -364,7 +372,8 @@ class SidePanelView @JvmOverloads constructor(
                 panelPrefs.showBlackScreenTool,
                 panelPrefs.showPowerMenu,
                 panelPrefs.showVolumeKeys,
-                panelPrefs.showBrightnessKeys
+                panelPrefs.showBrightnessKeys,
+                panelPrefs.showLockScreenTool
             )
             val enabledCount = enabledTools.count { it }
             val hasStandardTools = enabledCount > 0
@@ -568,9 +577,12 @@ class SidePanelView @JvmOverloads constructor(
         val blkVisibility = if (showBlackScreen) View.VISIBLE else View.GONE
         binding.layoutBlackScreenTools.visibility = blkVisibility
 
+        val showLockScreen = panelPrefs.showLockScreenTool
+        binding.layoutLockScreenTools.visibility = if (showLockScreen) View.VISIBLE else View.GONE
+
         // Hide divider when no standard interactive tools are visible
         // (only SysInfo enabled = no divider needed)
-        val hasStandardTools = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen
+        val hasStandardTools = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen || showLockScreen
         binding.toolsDivider.visibility = if (hasStandardTools) View.VISIBLE else View.GONE
 
         if (panelPrefs.hideBackground) {
@@ -608,13 +620,16 @@ class SidePanelView @JvmOverloads constructor(
 
             // Force white/light icons and text for dark floating panel
             val iconColorList = ColorStateList.valueOf(Color.WHITE)
+            // btnClose and btnBack still use ImageButton with drawable icons
             binding.btnClose.imageTintList = iconColorList
-            binding.btnScreenshot.imageTintList = iconColorList
-            binding.btnVolumeDrag.imageTintList = iconColorList
-            binding.btnBrightnessDrag.imageTintList = iconColorList
-            binding.btnReboot.imageTintList = iconColorList
-            binding.btnBlackScreen.imageTintList = iconColorList
             binding.btnBack.imageTintList = iconColorList
+            // Tool buttons now use Button with emoji text — set text color
+            binding.btnScreenshot.setTextColor(Color.WHITE)
+            binding.btnVolumeDrag.setTextColor(Color.WHITE)
+            binding.btnBrightnessDrag.setTextColor(Color.WHITE)
+            binding.btnReboot.setTextColor(Color.WHITE)
+            binding.btnBlackScreen.setTextColor(Color.WHITE)
+            binding.btnLockScreen.setTextColor(Color.WHITE)
 
             binding.tvRamUsage.setTextColor(Color.WHITE)
             binding.tvBatTemp.setTextColor(Color.WHITE)

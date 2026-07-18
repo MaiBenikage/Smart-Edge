@@ -485,6 +485,19 @@ class FloatingPanelService : Service() {
         }
     }
 
+    private fun activateLockScreen() {
+        try {
+            closePanel(immediate = true)
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+            dpm.lockNow()
+        } catch (e: SecurityException) {
+            // Device admin not granted - lock via accessibility if possible
+            Log.e(TAG, "Device admin required for lock screen", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to lock screen", e)
+        }
+    }
+
     private fun openFavoriteApp() {
         val pkg = panelPrefs.favoriteAppPackage
         if (pkg.isEmpty()) {
@@ -1048,6 +1061,7 @@ class FloatingPanelService : Service() {
                 when (toolId) {
                     "smartedge.tool.screenshot" -> triggerScreenshot()
                     "smartedge.tool.blackscreen" -> activateBlackScreen()
+                    "smartedge.tool.lockscreen" -> activateLockScreen()
                     "smartedge.tool.volume_up" -> {
                         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
                         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
@@ -1588,6 +1602,9 @@ class FloatingPanelService : Service() {
                         }
                         if (panelPrefs.showBrightnessKeys) {
                             tools.add(AppInfo("smartedge.tool.brightness_up", "Brightness", type = AppInfo.Type.TOOL))
+                        }
+                        if (panelPrefs.showLockScreenTool) {
+                            tools.add(AppInfo("smartedge.tool.lockscreen", "Lock Screen", type = AppInfo.Type.TOOL))
                         }
                         
                         tools

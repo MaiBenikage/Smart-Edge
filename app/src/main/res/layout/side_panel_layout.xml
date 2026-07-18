@@ -66,10 +66,7 @@
         app:layout_constraintTop_toBottomOf="@id/rvPanelApps"
         app:layout_constraintBottom_toTopOf="@id/layoutSysInfo">
 
-        <!-- Divider (spanned by id so SidePanelView can safely re-apply span=2
-             for 2-col mode; its XML columnSpan is intentionally NOT set so
-             init-time inflation doesn't pre-create an over-wide spec that
-             AOSP GridLayout.setColumnCount(1) would later reject). -->
+        <!-- Divider -->
         <View
             android:id="@+id/toolsDivider"
             android:layout_width="0dp"
@@ -78,7 +75,7 @@
             android:layout_columnWeight="1"
             android:layout_marginBottom="8dp" />
 
-        <!-- Power Menu cell -->
+        <!-- Power Menu -->
         <LinearLayout
             android:id="@+id/layoutPowerTools"
             android:layout_width="0dp"
@@ -87,29 +84,19 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-
-            <ImageButton
+            <Button
                 android:id="@+id/btnReboot"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_lock_power_off"
-                android:tint="#D9FFFFFF" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="PWR"
-                android:textColor="#80FFFFFF"
-                android:textSize="9sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="8dp" />
+                android:gravity="center"
+                android:text="⚡"
+                android:textColor="#D9FFFFFF"
+                android:textSize="16sp" />
         </LinearLayout>
 
-        <!-- Volume drag cell: drag up = increase, drag down = decrease -->
+        <!-- Volume -->
         <LinearLayout
             android:id="@+id/layoutVolumeTools"
             android:layout_width="0dp"
@@ -118,30 +105,20 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-
-            <ImageButton
+            <Button
                 android:id="@+id/btnVolumeDrag"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_media_play"
-                android:tint="#D9FFFFFF"
+                android:gravity="center"
+                android:text="🔊"
+                android:textColor="#D9FFFFFF"
+                android:textSize="16sp"
                 android:contentDescription="Drag to adjust volume (up increases, down decreases)" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="VOL"
-                android:textColor="#80FFFFFF"
-                android:textSize="9sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="4dp" />
         </LinearLayout>
 
-        <!-- Brightness drag cell: drag up = increase, drag down = decrease -->
+        <!-- Brightness -->
         <LinearLayout
             android:id="@+id/layoutBrightnessTools"
             android:layout_width="0dp"
@@ -150,30 +127,20 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-
-            <ImageButton
+            <Button
                 android:id="@+id/btnBrightnessDrag"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_brightness_up"
-                android:tint="#D9FFFFFF"
+                android:gravity="center"
+                android:text="☀️"
+                android:textColor="#D9FFFFFF"
+                android:textSize="16sp"
                 android:contentDescription="Drag to adjust brightness (up increases, down decreases)" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="BRI"
-                android:textColor="#80FFFFFF"
-                android:textSize="9sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="4dp" />
         </LinearLayout>
 
-        <!-- Screenshot cell (wrapped so the SC label is a stable peer of the button) -->
+        <!-- Screenshot -->
         <LinearLayout
             android:id="@+id/layoutScreenshotTools"
             android:layout_width="0dp"
@@ -182,30 +149,19 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-
-            <ImageButton
+            <Button
                 android:id="@+id/btnScreenshot"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_menu_camera"
-                android:tint="#D9FFFFFF" />
-
-            <TextView
-                android:id="@+id/tvScreenshotLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="SC"
-                android:textColor="#80FFFFFF"
-                android:textSize="9sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="4dp" />
+                android:gravity="center"
+                android:text="📸"
+                android:textColor="#D9FFFFFF"
+                android:textSize="16sp" />
         </LinearLayout>
 
-        <!-- Black Screen cell -->
+        <!-- Black Screen -->
         <LinearLayout
             android:id="@+id/layoutBlackScreenTools"
             android:layout_width="0dp"
@@ -214,33 +170,42 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-
-            <ImageButton
+            <Button
                 android:id="@+id/btnBlackScreen"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_brightness_down"
-                android:tint="#D9FFFFFF" />
+                android:gravity="center"
+                android:text="🌑"
+                android:textColor="#D9FFFFFF"
+                android:textSize="16sp" />
+        </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvBlackScreenLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="BLK"
-                android:textColor="#80FFFFFF"
-                android:textSize="9sp"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="4dp" />
+        <!-- Lock Screen -->
+        <LinearLayout
+            android:id="@+id/layoutLockScreenTools"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:visibility="gone">
+            <Button
+                android:id="@+id/btnLockScreen"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_close_btn"
+                android:backgroundTint="#1AFFFFFF"
+                android:gravity="center"
+                android:text="🔒"
+                android:textColor="#D9FFFFFF"
+                android:textSize="16sp" />
         </LinearLayout>
 
     </android.widget.GridLayout>
 
-        <!-- System Info: standalone section below tools grid, always centered.
-             Separated from the GridLayout so column-mode changes don't affect it. -->
+        <!-- System Info: standalone section below tools grid, always centered. -->
         <LinearLayout
             android:id="@+id/layoutSysInfo"
             android:layout_width="match_parent"
@@ -315,4 +280,3 @@
         </LinearLayout>
 
 </RelativeLayout>
-
