@@ -1526,7 +1526,15 @@ class FloatingPanelService : Service() {
     private fun closePicker() {
         if (!isPickerOpen) return
         isPickerOpen = false
-        sidePanelView?.animatePickerToggle(false)
+        // IMPORTANT: Do NOT call animatePickerToggle(false) here!
+        // animatePickerToggle sets isPickerOpenInternal=false, which would
+        // remove the guard in updateStyles() BEFORE setColumns(originalCols)
+        // runs in the delayed block below. Any ACTION_REFRESH during that
+        // 250ms window would call updateStyles() → applyTheme() →
+        // syncToolsGridColumns() with stale currentCols=1, causing the
+        // tools grid to desync. Instead, defer animatePickerToggle(false)
+        // to the same delayed block that restores the column count.
+        //
         // Round-12 audit L-Medium: same fix as triggerScreenshot() — reuse
         // the service-level `handler` rather than allocating a fresh
         // `Handler(Looper.getMainLooper())` per closePicker invocation. A
@@ -1537,6 +1545,7 @@ class FloatingPanelService : Service() {
                 val originalCols = panelPrefs.panelColumns
                 sidePanelView?.setEditButtonVisible(false)
                 sidePanelView?.setColumns(originalCols)
+                sidePanelView?.animatePickerToggle(false)
             }
         }, 250)
         pickerPanelView?.let { picker ->
