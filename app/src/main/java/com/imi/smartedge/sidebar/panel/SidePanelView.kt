@@ -549,7 +549,8 @@ class SidePanelView @JvmOverloads constructor(
             updateSideLayout()
             // Belt-and-suspenders: post a second pass after the current frame
             // layout pass settles, so OEM GridLayout forks get refreshed specs.
-            post { if (isAttachedToWindow && !isPickerOpenInternal) syncToolsGridColumns() }
+            // Removed post{} second-pass: the clear-and-re-add strategy in
+            // syncToolsGridColumns() produces a correct layout on the first pass.
         } else {
             // Picker is open (forced to 1-column via setColumns(1) in openPicker).
             // DO NOT run applyTheme() or syncToolsGridColumns() here — they would
@@ -944,75 +945,48 @@ class SidePanelView @JvmOverloads constructor(
         val container = binding.toolsContainer
         val FILL = android.widget.GridLayout.FILL
 
-        // Use panelPrefs.panelColumns as the source of truth for the tools grid,
-        // NOT currentCols (which may be temporarily 1 during picker transitions).
-        // Only honour currentCols if it matches the user's configured value or
-        // we're not in a transitional state.
         val gridCols = if (isPickerOpenInternal) 1 else panelPrefs.panelColumns.coerceIn(1, 2)
-        val needsColumnCountChange = container.columnCount != gridCols
 
-        // Step 1: Downgrade ALL children to span=1 FIRST (crash-safety
-        // for setColumnCount validation). Use the container loop here
-        // because this is a safety reset of ALL children.
-        for (i in 0 until container.childCount) {
-            val child = container.getChildAt(i) ?: continue
-            val lp = child.layoutParams as? android.widget.GridLayout.LayoutParams
-                ?: android.widget.GridLayout.LayoutParams()
-            lp.columnSpec = android.widget.GridLayout.spec(
-                android.widget.GridLayout.UNDEFINED, 1, 0f
+        // CLEAR AND RE-ADD strategy: removeAllViews() + sequential addView()
+        // completely eliminates GridLayout's internal child-reorder bugs.
+        // Previously, iterating getChildAt(i) to reset spans triggered
+        // GridLayout's internal reorder, corrupting positions before the
+        // explicit row/col assignment could run.
+        container.removeAllViews()
+        container.columnCount = gridCols  // safe on empty container
+
+        // Re-add divider first (row 0) if visible
+        val divider = binding.toolsDivider
+        if (divider.visibility == View.VISIBLE) {
+            val span = if (gridCols == 2) 2 else 1
+            val divLp = android.widget.GridLayout.LayoutParams(
+                android.widget.GridLayout.spec(0, span, FILL, 1.0f),
+                android.widget.GridLayout.spec(0, 1, FILL, 0f)
             )
-            child.layoutParams = lp
+            divider.layoutParams = divLp
+            container.addView(divider)
         }
 
-        // Step 2: Set column count.
-        if (needsColumnCountChange) {
-            container.columnCount = gridCols
-        }
-
-        // Step 3: Assign EXPLICIT row/col positions using BINDING REFERENCES.
-        // This avoids the getChildAt(i) reorder bug entirely.
+        // Re-add ONLY visible tools with explicit row/col positions
+        val rowOffset = if (divider.visibility == View.VISIBLE) 1 else 0
         val allToolCells = getToolCellList()
         var toolIdx = 0
 
         for (cell in allToolCells) {
             if (cell.visibility == View.VISIBLE) {
-                val row = if (gridCols == 2) 1 + (toolIdx / 2) else 1 + toolIdx
+                val row = rowOffset + if (gridCols == 2) toolIdx / 2 else toolIdx
                 val col = if (gridCols == 2) toolIdx % 2 else 0
-                val lp = cell.layoutParams as? android.widget.GridLayout.LayoutParams
-                    ?: android.widget.GridLayout.LayoutParams()
-                lp.columnSpec = android.widget.GridLayout.spec(col, 1, FILL, 1.0f)
-                lp.rowSpec = android.widget.GridLayout.spec(row, 1, FILL, 0f)
-                if (lp.width == 0 && lp.height == 0) {
-                    lp.width = 0
-                    lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                }
-                cell.layoutParams = lp
-                toolIdx++
-            } else {
-                // GONE tool: move to row=99 with 0x0 dimensions.
-                val lp = cell.layoutParams as? android.widget.GridLayout.LayoutParams
-                    ?: android.widget.GridLayout.LayoutParams()
-                lp.columnSpec = android.widget.GridLayout.spec(0, 1, 0f)
-                lp.rowSpec = android.widget.GridLayout.spec(99, 1, 0f)
+                val lp = android.widget.GridLayout.LayoutParams(
+                    android.widget.GridLayout.spec(col, 1, FILL, 1.0f),
+                    android.widget.GridLayout.spec(row, 1, FILL, 0f)
+                )
                 lp.width = 0
-                lp.height = 0
+                lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 cell.layoutParams = lp
+                container.addView(cell)
+                toolIdx++
             }
-        }
-
-        // Step 4: Divider span override.
-        val divider = binding.toolsDivider
-        if (divider.visibility != View.GONE) {
-            val divLp = divider.layoutParams as? android.widget.GridLayout.LayoutParams
-            if (divLp != null) {
-                if (gridCols == 2) {
-                    divLp.columnSpec = android.widget.GridLayout.spec(0, 2, FILL, 1.0f)
-                } else {
-                    divLp.columnSpec = android.widget.GridLayout.spec(0, 1, FILL, 1.0f)
-                }
-                divLp.rowSpec = android.widget.GridLayout.spec(0, 1, FILL, 0f)
-                divider.layoutParams = divLp
-            }
+            // GONE tools are simply not added — they take zero space.
         }
 
         container.requestLayout()
