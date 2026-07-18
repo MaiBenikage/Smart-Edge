@@ -397,7 +397,7 @@ class SidePanelView @JvmOverloads constructor(
             if (hasStandardTools || showSysInfoEffective) {
                 // In 2-col mode two tools share a single GridLayout row.
                 // Actual cell height: 32dp button + 2dp gap + ~12dp label + 4dp margin ≈ 50dp
-                val perToolRowDp = if (currentCols == 2) 62f else 76f
+                val perToolRowDp = 72f
 
                 if (hasStandardTools) {
                     // Divider: 1dp line + 8dp bottom margin = 9dp
