@@ -537,7 +537,7 @@ class SidePanelView @JvmOverloads constructor(
             updateSideLayout()
             // Belt-and-suspenders: post a second pass after the current frame
             // layout pass settles, so OEM GridLayout forks get refreshed specs.
-            post { syncToolsGridColumns() }
+            post { if (isAttachedToWindow) syncToolsGridColumns() }
         } else {
             // Picker is open (forced to 1-column via setColumns(1) in openPicker).
             // DO NOT run applyTheme() or syncToolsGridColumns() here — they would
@@ -917,6 +917,15 @@ class SidePanelView @JvmOverloads constructor(
      *   area) with 0x0 dimensions, so they never affect the grid.
      */
     private fun syncToolsGridColumns() {
+        // Guard: modifying GridLayout child layout params while the view is
+        // being detached from the window hierarchy corrupts ViewGroup's
+        // internal mChildren array (null entry → NPE in
+        // dispatchDetachedFromWindow). This is the root cause of the crash:
+        //   NullPointerException: Attempt to invoke virtual method
+        //   'void android.view.View.dispatchDetachedFromWindow()' on a null
+        //   object reference at android.view.ViewGroup.dispatchDetachedFromWindow
+        if (!isAttachedToWindow) return
+
         val target = currentCols.coerceIn(1, 2)
         val container = binding.toolsContainer
 
