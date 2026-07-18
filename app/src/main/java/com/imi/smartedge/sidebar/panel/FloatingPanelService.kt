@@ -223,7 +223,7 @@ class FloatingPanelService : Service() {
         // RECEIVER_EXPORTED declaration to suppress strict-mode warnings and to
         // future-proof against background-receiver policy changes.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(packageReceiver, pkgFilter, Context.RECEIVER_EXPORTED)
+            registerReceiver(packageReceiver, pkgFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(packageReceiver, pkgFilter)
@@ -440,10 +440,11 @@ class FloatingPanelService : Service() {
             Log.d(TAG, "toggleFlashlight: Toggling to $newState (current state: $currentState, activeTorches: $activeTorches)")
             
             lastManualToggleTime = System.currentTimeMillis()
+            manager.setTorchMode(cameraId, newState)
+            // Update state AFTER the hardware call succeeds to prevent
+            // desync if setTorchMode throws CameraAccessException.
             isFlashlightOn = newState
             if (newState) activeTorches.add(cameraId) else activeTorches.clear()
-            
-            manager.setTorchMode(cameraId, newState)
             showIndicator(if (newState) getString(R.string.indicator_flashlight_on) else getString(R.string.indicator_flashlight_off))
             
         } catch (e: Exception) {
@@ -762,9 +763,11 @@ class FloatingPanelService : Service() {
             unregisterReceiver(systemDialogsReceiver)
             unregisterReceiver(packageReceiver)
         } catch (e: Exception) {}
-        removeView(edgeHandleView)
-        removeView(notchHandleView)
-        removeView(rootLayout)
+            removeView(edgeHandleView)
+            removeView(notchHandleView)
+            removeView(rootLayout)
+            removeView(dragOverlay)
+            dragOverlay = null
         // Release black screen resources if active
         blackScreenWakeLock?.let { if (it.isHeld) it.release() }
         blackScreenWakeLock = null
@@ -1325,6 +1328,7 @@ class FloatingPanelService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to add rootLayout overlay; rolling back openPanel()", e)
                 isPanelOpen = false
+                rootLayout?.removeAllViews()
                 rootLayout = null
                 rootParams = null
                 sidePanelView?.visibility = View.GONE
