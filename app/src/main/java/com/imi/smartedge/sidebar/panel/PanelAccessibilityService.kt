@@ -10,6 +10,14 @@ class PanelAccessibilityService : AccessibilityService() {
     private lateinit var panelPrefs: PanelPreferences
     private var lastImmersiveState = false
     private var lastPackageName: String? = null
+    // Round-12 audit L-Medium: pre-allocate a single main-looper Handler
+    // for the few postDelayed sites in this class. Previously each call to
+    // ACTION_PREVIOUS_APP allocated a fresh `Handler(Looper.getMainLooper())`
+    // (now fixed below to use this field instead). Holding the reference
+    // here also lets onDestroy sweep pending runnables when the system
+    // un-binds the service, preventing the Looper from holding a lambda
+    // that captures `this` past the service's death.
+    private val accessibilityHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
@@ -80,6 +88,16 @@ class PanelAccessibilityService : AccessibilityService() {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                     performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
                 }
+                // Tell the overlay service it is safe to restore alphas after the
+                // system has had a moment to start the capture pipeline.
+                accessibilityHandler.postDelayed({
+                    try {
+                        val restore = Intent(this, FloatingPanelService::class.java).apply {
+                            action = FloatingPanelService.ACTION_SCREENSHOT_UI_RESTORE
+                        }
+                        startService(restore)
+                    } catch (_: Exception) {}
+                }, 350L)
             }
             ACTION_SHOW_POWER_MENU -> {
                 performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
@@ -97,16 +115,39 @@ class PanelAccessibilityService : AccessibilityService() {
                 }
             }
             ACTION_ONE_HANDED -> {
-                val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                handler.post {
-                    android.widget.Toast.makeText(this, "One-Handed Mode triggered", android.widget.Toast.LENGTH_SHORT).show()
-                }
+                // Round-12 audit L-Low: Toast.makeText is already main-thread
+                // safe and runs the show on the calling thread. Wrapping the
+                // show in another `Handler(Looper.getMainLooper()).post { … }`
+                // only added an extra main-looper round trip; this branch
+                // already runs on the main looper (AccessibilityService
+                // onStartCommand dispatches on the main thread by contract).
+                android.widget.Toast.makeText(this, getString(R.string.one_handed_not_supported), android.widget.Toast.LENGTH_SHORT).show()
             }
             ACTION_PREVIOUS_APP -> {
+                // Double-tap KEYCODE_APP_SWITCH to switch to the previous app.
+                // The interval is scaled by the device's animator_duration_scale
+                // so it adapts automatically to each OEM's animation speed:
+                //   scale 0   (animations off)  → 150ms
+                //   scale 0.5 (reduced)         → 200ms
+                //   scale 1.0 (default)          → 350ms
+                //   scale >1  (slow / accessibility) → 500ms
+                val animScale = try {
+                    android.provider.Settings.Global.getFloat(
+                        contentResolver,
+                        android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                        1f
+                    )
+                } catch (_: Exception) { 1f }
+                val intervalMs = when {
+                    animScale <= 0f  -> 150L
+                    animScale < 0.8f -> 200L
+                    animScale < 1.5f -> 350L
+                    else             -> 500L
+                }
                 performGlobalAction(GLOBAL_ACTION_RECENTS)
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                accessibilityHandler.postDelayed({
                     performGlobalAction(GLOBAL_ACTION_RECENTS)
-                }, 200)
+                }, intervalMs)
             }
             ACTION_BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
             ACTION_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
@@ -121,10 +162,10 @@ class PanelAccessibilityService : AccessibilityService() {
             ACTION_TRIGGER_SHORTCUT -> {
                 val shortcut = intent.getStringExtra("shortcut")
                 if (shortcut == "smartedge.shortcut.one_hand") {
-                    val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                    handler.post {
-                        android.widget.Toast.makeText(this, "One-Handed Mode triggered", android.widget.Toast.LENGTH_SHORT).show()
-                    }
+                    // Round-12 audit L-Low: same drop-the-redundant-Handler fix
+                    // as ACTION_ONE_HANDED above. Toast from the main thread is
+                    // already main-thread safe.
+                    android.widget.Toast.makeText(this, getString(R.string.one_handed_not_supported), android.widget.Toast.LENGTH_SHORT).show()
                     // Attempting standard fallback if the OEM supports it via AccessibilityService
                     // true specific one-handed mode intents are heavily fragmented
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -147,7 +188,6 @@ class PanelAccessibilityService : AccessibilityService() {
      *   own window manager handles placing it in split.
      */
     private fun triggerSplitScreen(pkg: String, mode: Int) {
-        val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val isVivo = VivoUtils.isVivo()
 
         if (isVivo) {
@@ -159,7 +199,7 @@ class PanelAccessibilityService : AccessibilityService() {
             // On many AOSP/Pixel versions, we need a significant delay for the system to dock the first app.
             // If toggle failed (e.g. only one app open), we still try to launch adjacent.
             val delay = if (toggled) 1000L else 500L
-            handler.postDelayed({
+            accessibilityHandler.postDelayed({
                 SplitScreenHelper.launchApp(this, pkg, mode)
             }, delay)
         }
@@ -173,8 +213,6 @@ class PanelAccessibilityService : AccessibilityService() {
             if (packageName == lastPackageName) return
             lastPackageName = packageName
 
-            val className = event.className?.toString() ?: ""
-            
             // Store current foreground package for Context/Game mode
             panelPrefs.currentForegroundPackage = packageName
             
@@ -203,9 +241,16 @@ class PanelAccessibilityService : AccessibilityService() {
             }
         }
         
-        // Check for immersive mode on window content changes too, as bounds might change
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
-            event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+        // Audit U-High: only re-evaluate immersive state on full window
+        // STATE changes. The previous logic also fired on every
+        // TYPE_WINDOW_CONTENT_CHANGED event, which arrives frequently during
+        // progress bar / animation / video playback frames — each invocation
+        // makes a synchronous `rootInActiveWindow` IPC + bounds calculation on
+        // the AccessibilityService main thread. Limiting to STATE_CHANGED
+        // drops the per-frame cost without changing visible behavior, since
+        // immersive/fullscreen state only flips at app-change boundaries in
+        // practice (entering/leaving fullscreen video re-issues a STATE event).
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             checkImmersiveMode()
         }
     }
@@ -215,9 +260,19 @@ class PanelAccessibilityService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         isRunning = false
         val stopIntent = Intent(this, FloatingPanelService::class.java).apply {
-            action = FloatingPanelService.ACTION_STOP
+            action = FloatingPanelService.ACTION_STOP_RUNTIME
         }
         startService(stopIntent)
         return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Round-12 audit L-Medium: drain the cached Handler so any pending
+        // postDelayed runnables (e.g. ACTION_PREVIOUS_APP's double-RECENTS)
+        // can't fire after the AccessibilityService is being torn down.
+        // Without this, the Looper keeps the bound lambda (capturing `this`)
+        // alive until it naturally runs, even though the service is gone.
+        accessibilityHandler.removeCallbacksAndMessages(null)
     }
 }

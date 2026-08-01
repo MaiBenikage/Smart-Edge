@@ -16,7 +16,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="12dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -43,7 +43,7 @@
                 android:layout_weight="1"
                 android:background="@android:color/transparent"
                 android:gravity="center_vertical"
-                android:hint="Search Smart Edge..."
+                android:hint="@string/xml_search_smart_edge"
                 android:imeOptions="actionSearch"
                 android:inputType="text"
                 android:maxLines="1"
@@ -67,9 +67,9 @@
             android:tint="#B3FFFFFF" />
     </LinearLayout>
 
-    <!-- Selection Type Toggle (Apps / Activities) -->
+    <!-- 4-tab Selector: APPS / ACTIVITIES / SHORTCUTS / URLS -->
     <LinearLayout
-        android:id="@+id/layoutTypeToggle"
+        android:id="@+id/layoutTabRow"
         android:layout_width="match_parent"
         android:layout_height="32dp"
         android:layout_marginBottom="12dp"
@@ -80,7 +80,7 @@
         android:padding="2dp">
 
         <TextView
-            android:id="@+id/btnTypeApps"
+            android:id="@+id/tabApps"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -88,21 +88,49 @@
             android:backgroundTint="#1AFFFFFF"
             android:fontFamily="sans-serif-medium"
             android:gravity="center"
-            android:text="APPS"
+            android:maxLines="1"
+            android:text="@string/xml_tab_apps"
             android:textColor="#FFFFFF"
-            android:textSize="10sp" />
+            android:textSize="9sp" />
 
         <TextView
-            android:id="@+id/btnTypeActivities"
+            android:id="@+id/tabActivities"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:fontFamily="sans-serif-medium"
             android:gravity="center"
-            android:text="ACTIVITIES"
+            android:maxLines="1"
+            android:text="@string/xml_tab_activities"
             android:textColor="#80FFFFFF"
-            android:textSize="10sp" />
+            android:textSize="9sp" />
+
+        <TextView
+            android:id="@+id/tabShortcuts"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:maxLines="1"
+            android:text="@string/xml_tab_shortcuts"
+            android:textColor="#80FFFFFF"
+            android:textSize="9sp" />
+
+        <TextView
+            android:id="@+id/tabCustom"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:maxLines="1"
+            android:text="@string/xml_tab_custom"
+            android:textColor="#80FFFFFF"
+            android:textSize="9sp" />
     </LinearLayout>
 
     <!-- Header Stats/Actions Row -->
@@ -119,12 +147,29 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:fontFamily="sans-serif-medium"
-            android:text="All Apps"
+            android:text="@string/picker_all_apps"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:alpha="0.8" />
 
-        <!-- Edit/Done Toggle Chip -->
+        <!-- Edit/Done Toggle Chip (apps/activities/shortcuts) -->
+        <!-- OR + Add Chip (intents/urls) -->
+        <TextView
+            android:id="@+id/btnPickerAdd"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_close_btn"
+            android:backgroundTint="#1AFFFFFF"
+            android:fontFamily="sans-serif-medium"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="4dp"
+            android:text="@string/picker_add"
+            android:textColor="#4A9EFF"
+            android:textSize="11sp"
+            android:textAllCaps="true"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/btnPickerEdit"
             android:layout_width="wrap_content"
@@ -134,7 +179,7 @@
             android:fontFamily="sans-serif-medium"
             android:paddingHorizontal="12dp"
             android:paddingVertical="4dp"
-            android:text="EDIT"
+            android:text="@string/xml_edit_upper"
             android:textColor="#4A9EFF"
             android:textSize="11sp"
             android:textAllCaps="true" />
@@ -148,7 +193,7 @@
         android:orientation="vertical"
         android:layout_marginBottom="16dp"
         android:visibility="gone">
-        
+
         <LinearLayout
             android:id="@+id/btnToggleNotifications"
             android:layout_width="match_parent"
@@ -160,12 +205,12 @@
             android:focusable="true"
             android:paddingVertical="4dp"
             android:layout_marginBottom="4dp">
-            
+
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Active Notifications"
+                android:text="@string/xml_active_notifications"
                 android:textColor="#80FFFFFF"
                 android:textSize="11sp"
                 android:textAllCaps="true"
@@ -186,7 +231,7 @@
             android:layout_height="80dp"
             android:clipToPadding="false"
             android:overScrollMode="never" />
-            
+
         <View
             android:id="@+id/divNotifications"
             android:layout_width="match_parent"

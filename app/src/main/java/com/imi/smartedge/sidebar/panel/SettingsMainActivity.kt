@@ -32,6 +32,9 @@ class SettingsMainActivity : AppCompatActivity() {
     private val allSettings = mutableListOf<SettingItem>()
     private lateinit var searchAdapter: SearchResultsAdapter
 
+    // Named property so expandSearch() can re-enable it after collapseSearch() disables it.
+    private lateinit var searchBackCallback: androidx.activity.OnBackPressedCallback
+
     companion object {
         const val EXTRA_SCROLL_TO = "extra_scroll_to"
     }
@@ -57,17 +60,20 @@ class SettingsMainActivity : AppCompatActivity() {
             openGithub()
         }
 
-        // Handle System Back to close search
-        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+        // Handle System Back to close search.
+        // Disable BEFORE passing through to break infinite recursion,
+        // then re-enable in expandSearch() for subsequent search cycles.
+        searchBackCallback = object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (binding.rvSettingsResults.visibility == View.VISIBLE || binding.etSettingsSearch.visibility == View.VISIBLE) {
                     collapseSearch()
                 } else {
-                    isEnabled = false
+                    isEnabled = false  // break recursion before pass-through
                     onBackPressedDispatcher.onBackPressed()
                 }
             }
-        })
+        }
+        onBackPressedDispatcher.addCallback(this, searchBackCallback)
     }
 
     private fun initializeSettingsList() {
@@ -78,7 +84,8 @@ class SettingsMainActivity : AppCompatActivity() {
             R.layout.activity_settings_appearance to AppearanceSettingsActivity::class.java,
             R.layout.activity_settings_interaction to InteractionSettingsActivity::class.java,
             R.layout.activity_settings_handle to HandleSettingsActivity::class.java,
-            R.layout.activity_settings_tools to ToolsSettingsActivity::class.java
+            R.layout.activity_settings_tools to ToolsSettingsActivity::class.java,
+            R.layout.activity_settings_misc to MiscellaneousSettingsActivity::class.java
         )
 
         val inflater = LayoutInflater.from(this)
@@ -90,7 +97,7 @@ class SettingsMainActivity : AppCompatActivity() {
 
         // Add static actions that aren't in standard layouts
         allSettings.add(SettingItem(getString(R.string.add_apps), getString(R.string.manage_apps_desc), getString(R.string.misc_section_general), "apps choose select picker manage add remove", AppPickerActivity::class.java))
-        allSettings.add(SettingItem(getString(R.string.view_repo_title), getString(R.string.view_repo_desc), "Project", "github source code open repo smartedge", SettingsMainActivity::class.java, "btnGithubTop"))
+        allSettings.add(SettingItem(getString(R.string.view_repo_title), getString(R.string.view_repo_desc), getString(R.string.category_project), "github source code open repo smartedge", SettingsMainActivity::class.java, "btnGithubTop"))
         allSettings.add(SettingItem(getString(R.string.btn_reset), getString(R.string.reset_defaults_desc), getString(R.string.misc_section_general), "reset all factory wipe restore settings", SettingsMainActivity::class.java, "btnReset"))
     }
 
@@ -154,11 +161,12 @@ class SettingsMainActivity : AppCompatActivity() {
     }
 
     private fun getCategoryFromLayout(layoutId: Int): String = when (layoutId) {
-        R.layout.activity_settings_appearance -> "Appearance"
-        R.layout.activity_settings_interaction -> "Interaction"
-        R.layout.activity_settings_handle -> "Handle"
-        R.layout.activity_settings_tools -> "Tools"
-        else -> "General"
+        R.layout.activity_settings_appearance -> getString(R.string.section_appearance)
+        R.layout.activity_settings_interaction -> getString(R.string.section_interaction)
+        R.layout.activity_settings_handle -> getString(R.string.section_handle)
+        R.layout.activity_settings_tools -> getString(R.string.section_tools)
+        R.layout.activity_settings_misc -> getString(R.string.section_misc)
+        else -> getString(R.string.misc_section_general)
     }
 
     private fun setupSearch() {
@@ -228,10 +236,6 @@ class SettingsMainActivity : AppCompatActivity() {
             startActivity(Intent(this, ToolsSettingsActivity::class.java))
         }
 
-        binding.btnDonation.setOnClickListener {
-            startActivity(Intent(this, SupportActivity::class.java))
-        }
-
         binding.btnReset.setOnClickListener {
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dialog_reset_title)
@@ -252,10 +256,10 @@ class SettingsMainActivity : AppCompatActivity() {
 
     private fun openGithub() {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Imtiaz-Official/Smart-Edge"))
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/MaiBenikage/Smart-Edge"))
             startActivity(intent)
         } catch (e: Exception) {
-            binding.root.showModernToast("Could not open browser")
+            binding.root.showModernToast(getString(R.string.toast_browser_error))
         }
     }
 
@@ -283,6 +287,12 @@ class SettingsMainActivity : AppCompatActivity() {
         binding.tvSearchHint.visibility = View.GONE
         binding.etSettingsSearch.visibility = View.VISIBLE
         binding.etSettingsSearch.requestFocus()
+
+        // Re-enable the back callback so it can intercept future back presses
+        // (was disabled in handleOnBackPressed to break infinite recursion).
+        if (::searchBackCallback.isInitialized) {
+            searchBackCallback.isEnabled = true
+        }
         
         // Show keyboard
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager

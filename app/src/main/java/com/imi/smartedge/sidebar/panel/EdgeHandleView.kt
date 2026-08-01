@@ -565,13 +565,13 @@ class EdgeHandleView @JvmOverloads constructor(
 
     private fun vibrateHaptic(durationMs: Long = 25) {
         if (!panelPrefs.hapticEnabled) return
-        val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            v.vibrate(durationMs)
-        }
+        // Strongly-typed getSystemService(Class) avoids the deprecated
+        // Context.VIBRATOR_SERVICE String key. minSdk = 26 covers the API surface.
+        val v = context.getSystemService(Vibrator::class.java) ?: return
+        // minSdk = 26, so VibrationEffect.createOneShot(...) is always available —
+        // the pre-O Vibrator.vibrate(long) overload (deprecated in API 26) is
+        // unreachable under our minSdk.
+        v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -579,6 +579,22 @@ class EdgeHandleView @JvmOverloads constructor(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             systemGestureExclusionRects = listOf(Rect(0, 0, width, height))
         }
+    }
+
+    /**
+     * Round-12 audit L-Medium: EdgeHandleView is a WindowManager overlay view
+     * that can be detached (service stop, panel close mid-gesture, screen
+     * rotation, panel re-added at a new position). The 4 Handler-owned
+     * runnables (longPress, hold, tap, resetAlpha) are scheduled in
+     * onTouchEvent but only some are explicitly removed in ACTION_UP/CANCEL.
+     * If the view is detached mid-touch, the Looper keeps the still-bound
+     * lambdas (capturing `this`) alive past the view's natural death, so
+     * a delayed fire can still call `onTrigger`/`vibrateHaptic`/`updatePill`
+     * on a dead view. Cancel everything here.
+     */
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        handler.removeCallbacksAndMessages(null)
     }
 
     fun updateFromPrefs() {

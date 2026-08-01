@@ -21,7 +21,8 @@ class PanelAppsAdapter(
     private val onAddClick: (Boolean) -> Unit,
     private val onAppLaunched: () -> Unit,
     private val onFolderClick: (String) -> Unit,
-    private val onToolClick: (String) -> Unit
+    private val onToolClick: (String) -> Unit,
+    private val onToolDrag: ((toolId: String, direction: Int) -> Unit)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val panelPrefs = PanelPreferences(context)
@@ -81,6 +82,12 @@ class PanelAppsAdapter(
         private const val VIEW_TYPE_ADD = 1
         private const val VIEW_TYPE_FOLDER = 2
         private const val VIEW_TYPE_TOOL = 3
+
+        /** Tool IDs that support drag-to-adjust gesture. */
+        private val DRAG_TOOLS = setOf(
+            "smartedge.tool.volume_up",
+            "smartedge.tool.brightness_up"
+        )
     }
 
     inner class AppViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -110,7 +117,11 @@ class PanelAppsAdapter(
             VIEW_TYPE_APP, VIEW_TYPE_FOLDER, VIEW_TYPE_TOOL -> {
                 val layoutId = if (panelPrefs.uiTheme == PanelPreferences.THEME_RICH)
                     R.layout.item_panel_app_rich else R.layout.item_panel_app
-                
+
+                // Use applicationContext for Glide — the service-context host
+                // outlives the holder, and Glide tracks lifecycle via the app
+                // anyway, so this avoids any chance of holding a reference past
+                // the view's natural destruction.
                 val view = LayoutInflater.from(parent.context)
                     .inflate(layoutId, parent, false)
                 AppViewHolder(view)
@@ -165,50 +176,52 @@ class PanelAppsAdapter(
             val app = if (position < mutableApps.size) mutableApps[position] else return
             
             if (app.type == AppInfo.Type.FOLDER || app.type == AppInfo.Type.TOOL || app.packageName.startsWith("smartedge.shortcut.")) {
-                Glide.with(context).clear(holder.ivIcon)
-                val iconRes = when {
-                    app.type == AppInfo.Type.FOLDER -> R.drawable.ic_section_tools
-                    app.packageName == "smartedge.tool.screenshot" -> android.R.drawable.ic_menu_camera
-                    app.packageName == "smartedge.tool.tools" -> R.drawable.ic_section_tools
-                    app.packageName == "smartedge.tool.volume_up" -> R.drawable.ic_brightness_up // Using placeholders if specific ones not available
-                    app.packageName == "smartedge.tool.volume_down" -> R.drawable.ic_brightness_down
-                    app.packageName == "smartedge.tool.brightness_up" -> R.drawable.ic_brightness_up
-                    app.packageName == "smartedge.tool.brightness_down" -> R.drawable.ic_brightness_down
-                    app.packageName == "smartedge.shortcut.one_hand" -> android.R.drawable.ic_menu_crop
-                    app.packageName == "smartedge.shortcut.reboot" -> android.R.drawable.ic_lock_power_off
-                    else -> android.R.drawable.sym_def_app_icon
-                }
-                
-                // Specific adjustments for placeholders to look like volume
-                if (app.packageName.contains("volume")) {
-                    holder.ivIcon.setImageResource(R.drawable.ic_plus) // Better placeholder for +
-                    if (app.packageName.endsWith("down")) holder.ivIcon.setImageResource(R.drawable.ic_minus)
-                }
+                Glide.with(context.applicationContext).clear(holder.ivIcon)
 
-                holder.ivIcon.setImageResource(iconRes)
-                holder.ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
-                holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(android.graphics.Color.parseColor("#33FFFFFF"))
-                    cornerRadius = context.dpToPx(12).toFloat()
+                // SVG / vector tool icons (assets first, drawable fallback).
+                val toolIcon = if (app.type == AppInfo.Type.TOOL || app.packageName == "smartedge.shortcut.reboot") {
+                    ToolIconHelper.forToolId(context, app.packageName, (baseIconSize * scale).toInt().coerceIn(20, 40))
+                } else null
+                if (toolIcon != null) {
+                    holder.ivIcon.setImageDrawable(toolIcon)
+                    holder.ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+                    holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                        cornerRadius = context.dpToPx(12).toFloat()
+                    }
+                    holder.ivIcon.setPadding(context.dpToPx(6), context.dpToPx(6), context.dpToPx(6), context.dpToPx(6))
+                } else {
+                    val iconRes = when {
+                        app.type == AppInfo.Type.FOLDER -> R.drawable.ic_section_tools
+                        app.packageName == "smartedge.tool.tools" -> R.drawable.ic_section_tools
+                        app.packageName == "smartedge.shortcut.one_hand" -> android.R.drawable.ic_menu_crop
+                        else -> android.R.drawable.sym_def_app_icon
+                    }
+                    holder.ivIcon.setImageResource(iconRes)
+                    holder.ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+                    holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                        cornerRadius = context.dpToPx(12).toFloat()
+                    }
+                    holder.ivIcon.setPadding(context.dpToPx(8), context.dpToPx(8), context.dpToPx(8), context.dpToPx(8))
                 }
-                holder.ivIcon.setPadding(context.dpToPx(8), context.dpToPx(8), context.dpToPx(8), context.dpToPx(8))
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                     holder.ivIcon.clipToOutline = true
                 }
             } else {
-                Glide.with(context).clear(holder.ivIcon)
+                Glide.with(context.applicationContext).clear(holder.ivIcon)
                 holder.ivIcon.imageTintList = null
                 holder.ivIcon.background = null
                 holder.ivIcon.setPadding(0, 0, 0, 0)
-                
-                Glide.with(context)
+
+                Glide.with(context.applicationContext)
                     .load(AppIconRequest(app.packageName, panelPrefs.appearanceKey))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(android.R.drawable.sym_def_app_icon)
                     .error(android.R.drawable.sym_def_app_icon)
                     .override((120 * scale).toInt(), (120 * scale).toInt())
                     .into(holder.ivIcon)
-                    
+
                 IconShapeHelper.applyShape(holder.ivIcon, panelPrefs.iconShape)
             }
                 
@@ -251,6 +264,19 @@ class PanelAppsAdapter(
                         }
                     }
                     app.intentUri != null -> {
+                        // Audit S2 — same safety gate the picker enforces. Without
+                        // this check, a custom `intent:` row that targets another
+                        // package's unexported activity could be launched directly
+                        // from the sidebar, even though the picker would have
+                        // blocked the same row on its preview tap.
+                        if (!context.isSafeIntentUri(app.intentUri)) {
+                            android.widget.Toast.makeText(
+                                context,
+                                context.getString(R.string.toast_custom_item_blocked),
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            return@setOnClickListener
+                        }
                         try {
                             Intent.parseUri(app.intentUri, Intent.URI_INTENT_SCHEME)
                         } catch (e: Exception) {
@@ -289,6 +315,81 @@ class PanelAppsAdapter(
                 }
             }
 
+            // Long-press (1s) then drag to adjust volume/brightness in Tools folder.
+            // Tap without long-press triggers the shared tool click (system volume UI /
+            // auto-brightness toggle). Matches dashboard gesture semantics.
+            if (app.type == AppInfo.Type.TOOL && DRAG_TOOLS.contains(app.packageName) && onToolDrag != null) {
+                val dragState = FloatArray(3)
+                val density = context.resources.displayMetrics.density
+                val tickPx = 14f * density
+                val tapSlopPx = 8f * density
+                val longPressMs = 1000L
+                val armTag = 0x20F15EED
+                holder.itemView.setOnTouchListener { v, event ->
+                    when (event.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> {
+                            dragState[0] = event.rawY
+                            dragState[1] = event.rawY
+                            dragState[2] = event.rawY
+                            v.setTag(armTag, false)
+                            (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
+                            val arm = Runnable {
+                                v.setTag(armTag, true)
+                                dragState[1] = dragState[0]
+                                if (panelPrefs.hapticEnabled) {
+                                    v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                                }
+                            }
+                            v.setTag(armTag + 1, arm)
+                            v.postDelayed(arm, longPressMs)
+                            if (panelPrefs.hapticEnabled) {
+                                v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+                            }
+                            SpringAnimator.scalePulse(v)
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_MOVE -> {
+                            dragState[0] = event.rawY
+                            val armed = v.getTag(armTag) as? Boolean ?: false
+                            if (!armed) {
+                                val travel = Math.abs(event.rawY - dragState[2])
+                                if (travel > tapSlopPx * 2f) {
+                                    (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
+                                }
+                                return@setOnTouchListener true
+                            }
+                            val sinceLastTick = dragState[1] - event.rawY
+                            if (Math.abs(sinceLastTick) >= tickPx) {
+                                val direction = if (sinceLastTick > 0f) +1 else -1
+                                val ticks = (Math.abs(sinceLastTick) / tickPx).toInt().coerceAtLeast(1)
+                                repeat(ticks) { onToolDrag?.invoke(app.packageName, direction) }
+                                dragState[1] = event.rawY
+                            }
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_UP -> {
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                            (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
+                            val armed = v.getTag(armTag) as? Boolean ?: false
+                            val totalTravel = Math.abs(event.rawY - dragState[2])
+                            if (!armed && totalTravel < tapSlopPx) {
+                                onToolClick(app.packageName)
+                            }
+                            v.setTag(armTag, false)
+                            true
+                        }
+                        android.view.MotionEvent.ACTION_CANCEL -> {
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                            (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
+                            v.setTag(armTag, false)
+                            true
+                        }
+                        else -> false
+                    }
+                }
+            }
+
             holder.itemView.setOnLongClickListener {
                 if (isEditMode) {
                     return@setOnLongClickListener false // Let ItemTouchHelper handle it
@@ -307,12 +408,10 @@ class PanelAppsAdapter(
                 val clipData = android.content.ClipData.newPlainText("pkg", app.packageName)
                 val shadow = View.DragShadowBuilder(holder.ivIcon)
                 
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                    holder.itemView.startDragAndDrop(clipData, shadow, app.packageName, 0)
-                } else {
-                    @Suppress("DEPRECATION")
-                    holder.itemView.startDrag(clipData, shadow, app.packageName, 0)
-                }
+                // minSdk = 26, so the SDK_INT >= N (API 24) fork is always true.
+                // View.startDrag is deprecated in API 24; the modern startDragAndDrop
+                // (API 24+) is the only reachable path.
+                holder.itemView.startDragAndDrop(clipData, shadow, app.packageName, 0)
                 
                 true
             }

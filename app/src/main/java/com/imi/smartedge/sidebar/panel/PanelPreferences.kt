@@ -17,6 +17,7 @@ class PanelPreferences(context: Context) {
     companion object {
         private const val PREFS_NAME = "side_panel_prefs"
         private const val KEY_PANEL_APPS = "panel_apps"
+        private const val KEY_PANEL_LABELS = "panel_item_labels"
         private const val KEY_PANEL_SIDE = "panel_side"
         private const val KEY_AUTO_START = "auto_start"
         private const val KEY_SHOW_PILL = "show_pill"
@@ -58,6 +59,8 @@ class PanelPreferences(context: Context) {
         private const val KEY_SHOW_POWER_MENU = "show_power_menu"
         private const val KEY_SHOW_VOLUME_KEYS = "show_volume_keys"
         private const val KEY_SHOW_BRIGHTNESS_KEYS = "show_brightness_keys"
+        private const val KEY_SHOW_BLACK_SCREEN_TOOL = "show_black_screen_tool"
+        private const val KEY_SHOW_LOCK_SCREEN_TOOL = "show_lock_screen_tool"
         private const val KEY_HOME_BUTTON_STYLE = "home_button_style"
         private const val KEY_FREEFORM_ENABLED = "freeform_enabled"
         private const val KEY_FREEFORM_WINDOW_MODE = "freeform_window_mode"
@@ -94,7 +97,20 @@ class PanelPreferences(context: Context) {
         private const val KEY_DOUBLE_TAP_ACTION = "double_tap_action"
         private const val KEY_TRIPLE_TAP_ACTION = "triple_tap_action"
         private const val KEY_LONG_PRESS_ACTION = "long_press_action"
-        
+
+        // --- Custom Intents/URLs (user-added sidebar items) ---
+        private const val KEY_CUSTOM_ITEMS = "custom_items_json"
+        const val CUSTOM_ID_PREFIX = "smartedge.custom."
+
+        /** Maximum number of pinned sidebar entries (apps, activities, shortcuts, custom). */
+        const val MAX_PANEL_APPS = 128
+
+        // Audit U3: UUID v4 `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (8-4-4-4-12 hex
+        // with fixed-position hyphens). Anything else is rejected on addCustomItem
+        // so corrupt prefs or future caller bugs can't smuggle arbitrary bytes
+        // into sidebar identifiers.
+        private val UUID_PATTERN = Regex("""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""")
+
         private const val DELIMITER = ","
 
         const val ACTION_NONE = 0
@@ -182,7 +198,7 @@ class PanelPreferences(context: Context) {
         const val DEFAULT_SLIDE_BRIGHTNESS = true
         const val DEFAULT_SLIDE_VOLUME = true
         const val DEFAULT_SLIDE_SENSITIVITY = 100
-        const val DEFAULT_SWIPE_SENSITIVITY = 100
+        const        val DEFAULT_SWIPE_SENSITIVITY = 100
     }
 
     fun resetUIColors() {
@@ -200,9 +216,21 @@ class PanelPreferences(context: Context) {
         obj.put("_app", "SmartEdge")
 
         // Strings
+        //
+        // Round-13 audit M3 — DELIMITER-ROUND-TRIP DEFENSE: the three lists
+        // keyed below use `encodeDelim()` to escape `,` and `\` on write so
+        // that Intent-URI extras like `tags=a,b,c` survive `split(",")` on
+        // read. Calling `getPanelApps().joinToString(",")` here would discard
+        // the escape sequences the prefs blob still carries, producing a
+        // perfectly valid JSON export that silently corrupts the next
+        // `importFromJson`. Read the persisted blob verbatim instead — this
+        // is also what makes the export idempotent across multiple
+        // export→import round-trips.
         val strings = mapOf(
-            KEY_PANEL_APPS to getPanelApps().joinToString(DELIMITER),
-            KEY_GAME_APPS to getGameApps().joinToString(DELIMITER),
+            KEY_PANEL_APPS to getPanelApps().take(MAX_PANEL_APPS).joinToString(DELIMITER) { encodeDelim(it) },
+            KEY_PANEL_LABELS to (prefs.getString(KEY_PANEL_LABELS, null) ?: ""),
+            KEY_CUSTOM_ITEMS to (prefs.getString(KEY_CUSTOM_ITEMS, null) ?: ""),
+            KEY_GAME_APPS to (prefs.getString(KEY_GAME_APPS, null) ?: ""),
             KEY_PANEL_SIDE to panelSide,
             KEY_ACCENT_COLOR to accentColor,
             KEY_PANEL_BG_COLOR to panelBackgroundColor,
@@ -212,7 +240,9 @@ class PanelPreferences(context: Context) {
             KEY_ICON_PACK to selectedIconPack,
             KEY_ICON_PACK_LABEL to iconPackLabel,
             KEY_HOME_BUTTON_STYLE to homeButtonStyle,
-            KEY_FREEFORM_WINDOW_MODE to freeformWindowMode
+            KEY_FREEFORM_WINDOW_MODE to freeformWindowMode,
+            KEY_FULLSCREEN_WHITELIST to (prefs.getString(KEY_FULLSCREEN_WHITELIST, null) ?: ""),
+            KEY_FAVORITE_APP to favoriteAppPackage
         )
         strings.forEach { (k, v) -> obj.put(k, v) }
 
@@ -234,7 +264,15 @@ class PanelPreferences(context: Context) {
             KEY_SWIPE_SENSITIVITY to swipeSensitivity,
             KEY_FREEFORM_CUSTOM_W to freeformCustomWidth,
             KEY_FREEFORM_CUSTOM_H to freeformCustomHeight,
-            KEY_THEME_MODE to themeMode
+            KEY_THEME_MODE to themeMode,
+            KEY_TAP_ACTION to tapAction,
+            KEY_DOUBLE_TAP_ACTION to doubleTapAction,
+            KEY_TRIPLE_TAP_ACTION to tripleTapAction,
+            KEY_LONG_PRESS_ACTION to longPressAction,
+            KEY_NOTCH_TAP_ACTION to notchTapAction,
+            KEY_NOTCH_DOUBLE_TAP_ACTION to notchDoubleTapAction,
+            KEY_NOTCH_TRIPLE_TAP_ACTION to notchTripleTapAction,
+            KEY_NOTCH_LONG_PRESS_ACTION to notchLongPressAction
         )
         ints.forEach { (k, v) -> obj.put(k, v) }
         
@@ -262,13 +300,22 @@ class PanelPreferences(context: Context) {
             KEY_SHOW_POWER_MENU to showPowerMenu,
             KEY_SHOW_VOLUME_KEYS to showVolumeKeys,
             KEY_SHOW_BRIGHTNESS_KEYS to showBrightnessKeys,
+            KEY_SHOW_BLACK_SCREEN_TOOL to showBlackScreenTool,
+            KEY_SHOW_LOCK_SCREEN_TOOL to showLockScreenTool,
             KEY_SLIDE_BRIGHTNESS_ENABLED to slideBrightnessEnabled,
             KEY_SLIDE_VOLUME_ENABLED to slideVolumeEnabled,
             KEY_FREEFORM_ENABLED to freeformEnabled,
             KEY_SHOW_NOTIFICATION_APPS to showNotificationApps,
             KEY_DRAG_TO_SPLIT to dragToSplit,
             KEY_REMEMBER_SCROLL to rememberScroll,
-            KEY_AUTO_SHOW_KEYBOARD to autoShowKeyboard
+            KEY_AUTO_SHOW_KEYBOARD to autoShowKeyboard,
+            KEY_SHOW_SCREENSHOT_TOOL to showScreenshotTool,
+            KEY_SHOW_TOOLS_PANEL_BUTTON to showToolsPanelButton,
+            KEY_ONLY_ON_HOME to onlyOnHome,
+            KEY_AUTO_HIDE_FULLSCREEN to autoHideInFullscreen,
+            KEY_DELIBERATE_GESTURE_GAMES to deliberateGestureInGames,
+            KEY_NOTCH_GESTURES_ENABLED to notchGesturesEnabled,
+            KEY_USE_AUTOMATION_FOR_GESTURES to useAutomationForGestures
         )
         bools.forEach { (k, v) -> obj.put(k, v) }
 
@@ -278,73 +325,130 @@ class PanelPreferences(context: Context) {
     /**
      * Imports settings from a JSON string. Returns true on success, false on parse error.
      * Unknown keys are silently ignored for forward-compatibility.
+     *
+     * Audit U2: a malicious or corrupt Settings export could be arbitrarily large.
+     * SharedPreferences has a per-key value cap, and reading a multi-MB blob into
+     * RAM while parsing would jank or OOM. Cap incoming JSON at 512 KiB.
      */
     fun importFromJson(json: String): Boolean {
+        if (json.length > 524288) return false
         return try {
             val obj = org.json.JSONObject(json)
+            // Round-12 audit L-High: previous code used getString/getInt/
+            // getBoolean which all throw JSONException on type mismatch
+            // (e.g. a manually-edited export that has a bool where the schema
+            // expects a string). One bad key would abort the entire import,
+            // silently leaving the prefs in a half-imported state. Switching
+            // to opt* makes every key best-effort: missing or wrong-type
+            // values just keep the current pref, while every well-typed
+            // sibling still gets applied.
+            // Safe string import: only write when key exists, is non-null, and is a String.
+            // Avoid JSONObject.optString(key, null) which can coerce non-strings.
+            fun readString(key: String): String? {
+                if (!obj.has(key) || obj.isNull(key)) return null
+                return try { obj.getString(key) } catch (_: Exception) { null }
+            }
             prefs.edit {
                 // Strings
-                if (obj.has(KEY_PANEL_APPS)) putString(KEY_PANEL_APPS, obj.getString(KEY_PANEL_APPS))
-                if (obj.has(KEY_GAME_APPS)) putString(KEY_GAME_APPS, obj.getString(KEY_GAME_APPS))
-                if (obj.has(KEY_PANEL_SIDE)) putString(KEY_PANEL_SIDE, obj.getString(KEY_PANEL_SIDE))
-                if (obj.has(KEY_ACCENT_COLOR)) putString(KEY_ACCENT_COLOR, obj.getString(KEY_ACCENT_COLOR))
-                if (obj.has(KEY_PANEL_BG_COLOR)) putString(KEY_PANEL_BG_COLOR, obj.getString(KEY_PANEL_BG_COLOR))
-                if (obj.has(KEY_UI_THEME)) putString(KEY_UI_THEME, obj.getString(KEY_UI_THEME))
-                if (obj.has(KEY_ICON_SHAPE)) putString(KEY_ICON_SHAPE, obj.getString(KEY_ICON_SHAPE))
-                if (obj.has(KEY_PILL_COLOR)) putString(KEY_PILL_COLOR, obj.getString(KEY_PILL_COLOR))
-                if (obj.has(KEY_ICON_PACK)) putString(KEY_ICON_PACK, obj.getString(KEY_ICON_PACK))
-                if (obj.has(KEY_ICON_PACK_LABEL)) putString(KEY_ICON_PACK_LABEL, obj.getString(KEY_ICON_PACK_LABEL))
-                if (obj.has(KEY_HOME_BUTTON_STYLE)) putString(KEY_HOME_BUTTON_STYLE, obj.getString(KEY_HOME_BUTTON_STYLE))
-                if (obj.has(KEY_FREEFORM_WINDOW_MODE)) putString(KEY_FREEFORM_WINDOW_MODE, obj.getString(KEY_FREEFORM_WINDOW_MODE))
+                readString(KEY_PANEL_APPS)?.let { putString(KEY_PANEL_APPS, it) }
+                readString(KEY_PANEL_LABELS)?.let { putString(KEY_PANEL_LABELS, it) }
+                readString(KEY_CUSTOM_ITEMS)?.let { putString(KEY_CUSTOM_ITEMS, it) }
+                readString(KEY_GAME_APPS)?.let { putString(KEY_GAME_APPS, it) }
+                readString(KEY_PANEL_SIDE)?.let { putString(KEY_PANEL_SIDE, it) }
+                readString(KEY_ACCENT_COLOR)?.let { putString(KEY_ACCENT_COLOR, it) }
+                readString(KEY_PANEL_BG_COLOR)?.let { putString(KEY_PANEL_BG_COLOR, it) }
+                readString(KEY_UI_THEME)?.let { putString(KEY_UI_THEME, it) }
+                readString(KEY_ICON_SHAPE)?.let { putString(KEY_ICON_SHAPE, it) }
+                readString(KEY_PILL_COLOR)?.let { putString(KEY_PILL_COLOR, it) }
+                readString(KEY_ICON_PACK)?.let { putString(KEY_ICON_PACK, it) }
+                readString(KEY_ICON_PACK_LABEL)?.let { putString(KEY_ICON_PACK_LABEL, it) }
+                readString(KEY_HOME_BUTTON_STYLE)?.let { putString(KEY_HOME_BUTTON_STYLE, it) }
+                readString(KEY_FREEFORM_WINDOW_MODE)?.let { putString(KEY_FREEFORM_WINDOW_MODE, it) }
+                readString(KEY_PICKER_ANIM_TYPE)?.let { putString(KEY_PICKER_ANIM_TYPE, it) }
+                readString(KEY_FULLSCREEN_WHITELIST)?.let { putString(KEY_FULLSCREEN_WHITELIST, it) }
+                readString(KEY_FAVORITE_APP)?.let { putString(KEY_FAVORITE_APP, it) }
 
                 // Ints
-                if (obj.has(KEY_PANEL_OPACITY)) putInt(KEY_PANEL_OPACITY, obj.getInt(KEY_PANEL_OPACITY))
-                if (obj.has(KEY_HANDLE_HEIGHT)) putInt(KEY_HANDLE_HEIGHT, obj.getInt(KEY_HANDLE_HEIGHT))
-                if (obj.has(KEY_HANDLE_WIDTH)) putInt(KEY_HANDLE_WIDTH, obj.getInt(KEY_HANDLE_WIDTH))
-                if (obj.has(KEY_HANDLE_OFFSET)) putInt(KEY_HANDLE_OFFSET, obj.getInt(KEY_HANDLE_OFFSET))
-                if (obj.has(KEY_PANEL_COLUMNS)) putInt(KEY_PANEL_COLUMNS, obj.getInt(KEY_PANEL_COLUMNS))
-                if (obj.has(KEY_PANEL_RADIUS)) putInt(KEY_PANEL_RADIUS, obj.getInt(KEY_PANEL_RADIUS))
-                if (obj.has(KEY_PILL_WIDTH)) putInt(KEY_PILL_WIDTH, obj.getInt(KEY_PILL_WIDTH))
-                if (obj.has(KEY_BLUR_AMOUNT)) putInt(KEY_BLUR_AMOUNT, obj.getInt(KEY_BLUR_AMOUNT))
-                if (obj.has(KEY_ANIM_SPEED)) putInt(KEY_ANIM_SPEED, obj.getInt(KEY_ANIM_SPEED))
-                if (obj.has(KEY_PICKER_ANIM_TYPE)) putString(KEY_PICKER_ANIM_TYPE, obj.getString(KEY_PICKER_ANIM_TYPE))
-                if (obj.has(KEY_PICKER_GAP)) putInt(KEY_PICKER_GAP, obj.getInt(KEY_PICKER_GAP))
-                if (obj.has(KEY_PANEL_MAX_HEIGHT)) putInt(KEY_PANEL_MAX_HEIGHT, obj.getInt(KEY_PANEL_MAX_HEIGHT))
-                if (obj.has(KEY_PICKER_MAX_HEIGHT)) putInt(KEY_PICKER_MAX_HEIGHT, obj.getInt(KEY_PICKER_MAX_HEIGHT))
-                if (obj.has(KEY_SLIDE_SENSITIVITY)) putInt(KEY_SLIDE_SENSITIVITY, obj.getInt(KEY_SLIDE_SENSITIVITY))
-                if (obj.has(KEY_SWIPE_SENSITIVITY)) putInt(KEY_SWIPE_SENSITIVITY, obj.getInt(KEY_SWIPE_SENSITIVITY))
-                if (obj.has(KEY_FREEFORM_CUSTOM_W)) putInt(KEY_FREEFORM_CUSTOM_W, obj.getInt(KEY_FREEFORM_CUSTOM_W))
-                if (obj.has(KEY_FREEFORM_CUSTOM_H)) putInt(KEY_FREEFORM_CUSTOM_H, obj.getInt(KEY_FREEFORM_CUSTOM_H))
-                if (obj.has(KEY_THEME_MODE)) putInt(KEY_THEME_MODE, obj.getInt(KEY_THEME_MODE))
+                if (obj.has(KEY_PANEL_OPACITY) && !obj.isNull(KEY_PANEL_OPACITY)) putInt(KEY_PANEL_OPACITY, obj.optInt(KEY_PANEL_OPACITY, panelOpacity))
+                if (obj.has(KEY_HANDLE_HEIGHT) && !obj.isNull(KEY_HANDLE_HEIGHT)) putInt(KEY_HANDLE_HEIGHT, obj.optInt(KEY_HANDLE_HEIGHT, handleHeight))
+                if (obj.has(KEY_HANDLE_WIDTH) && !obj.isNull(KEY_HANDLE_WIDTH)) putInt(KEY_HANDLE_WIDTH, obj.optInt(KEY_HANDLE_WIDTH, handleWidth))
+                if (obj.has(KEY_HANDLE_OFFSET) && !obj.isNull(KEY_HANDLE_OFFSET)) putInt(KEY_HANDLE_OFFSET, obj.optInt(KEY_HANDLE_OFFSET, handleVerticalOffset))
+                if (obj.has(KEY_PANEL_COLUMNS) && !obj.isNull(KEY_PANEL_COLUMNS)) putInt(KEY_PANEL_COLUMNS, obj.optInt(KEY_PANEL_COLUMNS, panelColumns).coerceIn(1, 2))
+                if (obj.has(KEY_PANEL_RADIUS) && !obj.isNull(KEY_PANEL_RADIUS)) putInt(KEY_PANEL_RADIUS, obj.optInt(KEY_PANEL_RADIUS, panelCornerRadius))
+                if (obj.has(KEY_PILL_WIDTH) && !obj.isNull(KEY_PILL_WIDTH)) putInt(KEY_PILL_WIDTH, obj.optInt(KEY_PILL_WIDTH, pillWidth))
+                if (obj.has(KEY_BLUR_AMOUNT) && !obj.isNull(KEY_BLUR_AMOUNT)) putInt(KEY_BLUR_AMOUNT, obj.optInt(KEY_BLUR_AMOUNT, blurAmount))
+                if (obj.has(KEY_ANIM_SPEED) && !obj.isNull(KEY_ANIM_SPEED)) putInt(KEY_ANIM_SPEED, obj.optInt(KEY_ANIM_SPEED, animSpeed))
+                if (obj.has(KEY_PICKER_GAP) && !obj.isNull(KEY_PICKER_GAP)) putInt(KEY_PICKER_GAP, obj.optInt(KEY_PICKER_GAP, pickerGap))
+                if (obj.has(KEY_PANEL_MAX_HEIGHT) && !obj.isNull(KEY_PANEL_MAX_HEIGHT)) putInt(KEY_PANEL_MAX_HEIGHT, obj.optInt(KEY_PANEL_MAX_HEIGHT, panelMaxHeight))
+                if (obj.has(KEY_PICKER_MAX_HEIGHT) && !obj.isNull(KEY_PICKER_MAX_HEIGHT)) putInt(KEY_PICKER_MAX_HEIGHT, obj.optInt(KEY_PICKER_MAX_HEIGHT, pickerMaxHeight))
+                if (obj.has(KEY_SLIDE_SENSITIVITY) && !obj.isNull(KEY_SLIDE_SENSITIVITY)) putInt(KEY_SLIDE_SENSITIVITY, obj.optInt(KEY_SLIDE_SENSITIVITY, slideSensitivity))
+                if (obj.has(KEY_SWIPE_SENSITIVITY) && !obj.isNull(KEY_SWIPE_SENSITIVITY)) putInt(KEY_SWIPE_SENSITIVITY, obj.optInt(KEY_SWIPE_SENSITIVITY, swipeSensitivity))
+                if (obj.has(KEY_FREEFORM_CUSTOM_W) && !obj.isNull(KEY_FREEFORM_CUSTOM_W)) putInt(KEY_FREEFORM_CUSTOM_W, obj.optInt(KEY_FREEFORM_CUSTOM_W, freeformCustomWidth))
+                if (obj.has(KEY_FREEFORM_CUSTOM_H) && !obj.isNull(KEY_FREEFORM_CUSTOM_H)) putInt(KEY_FREEFORM_CUSTOM_H, obj.optInt(KEY_FREEFORM_CUSTOM_H, freeformCustomHeight))
+                if (obj.has(KEY_THEME_MODE) && !obj.isNull(KEY_THEME_MODE)) putInt(KEY_THEME_MODE, obj.optInt(KEY_THEME_MODE, themeMode))
+                if (obj.has(KEY_TAP_ACTION) && !obj.isNull(KEY_TAP_ACTION)) putInt(KEY_TAP_ACTION, obj.optInt(KEY_TAP_ACTION, tapAction))
+                if (obj.has(KEY_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_DOUBLE_TAP_ACTION)) putInt(KEY_DOUBLE_TAP_ACTION, obj.optInt(KEY_DOUBLE_TAP_ACTION, doubleTapAction))
+                if (obj.has(KEY_TRIPLE_TAP_ACTION) && !obj.isNull(KEY_TRIPLE_TAP_ACTION)) putInt(KEY_TRIPLE_TAP_ACTION, obj.optInt(KEY_TRIPLE_TAP_ACTION, tripleTapAction))
+                if (obj.has(KEY_LONG_PRESS_ACTION) && !obj.isNull(KEY_LONG_PRESS_ACTION)) putInt(KEY_LONG_PRESS_ACTION, obj.optInt(KEY_LONG_PRESS_ACTION, longPressAction))
+                if (obj.has(KEY_NOTCH_TAP_ACTION) && !obj.isNull(KEY_NOTCH_TAP_ACTION)) putInt(KEY_NOTCH_TAP_ACTION, obj.optInt(KEY_NOTCH_TAP_ACTION, notchTapAction))
+                if (obj.has(KEY_NOTCH_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_DOUBLE_TAP_ACTION)) putInt(KEY_NOTCH_DOUBLE_TAP_ACTION, obj.optInt(KEY_NOTCH_DOUBLE_TAP_ACTION, notchDoubleTapAction))
+                if (obj.has(KEY_NOTCH_TRIPLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_TRIPLE_TAP_ACTION)) putInt(KEY_NOTCH_TRIPLE_TAP_ACTION, obj.optInt(KEY_NOTCH_TRIPLE_TAP_ACTION, notchTripleTapAction))
+                if (obj.has(KEY_NOTCH_LONG_PRESS_ACTION) && !obj.isNull(KEY_NOTCH_LONG_PRESS_ACTION)) putInt(KEY_NOTCH_LONG_PRESS_ACTION, obj.optInt(KEY_NOTCH_LONG_PRESS_ACTION, notchLongPressAction))
 
                 // Float
-                if (obj.has(KEY_SCALE_FACTOR)) putFloat(KEY_SCALE_FACTOR, obj.getDouble(KEY_SCALE_FACTOR).toFloat())
+                if (obj.has(KEY_SCALE_FACTOR) && !obj.isNull(KEY_SCALE_FACTOR)) {
+                    putFloat(KEY_SCALE_FACTOR, obj.optDouble(KEY_SCALE_FACTOR, scaleFactor.toDouble()).toFloat())
+                }
 
-                // Booleans
-                if (obj.has(KEY_AUTO_START)) putBoolean(KEY_AUTO_START, obj.getBoolean(KEY_AUTO_START))
-                if (obj.has(KEY_SHOW_PILL)) putBoolean(KEY_SHOW_PILL, obj.getBoolean(KEY_SHOW_PILL))
-                if (obj.has(KEY_HAPTIC_ENABLED)) putBoolean(KEY_HAPTIC_ENABLED, obj.getBoolean(KEY_HAPTIC_ENABLED))
-                if (obj.has(KEY_USE_CUSTOM_ACCENT)) putBoolean(KEY_USE_CUSTOM_ACCENT, obj.getBoolean(KEY_USE_CUSTOM_ACCENT))
-                if (obj.has(KEY_HIDE_BG)) putBoolean(KEY_HIDE_BG, obj.getBoolean(KEY_HIDE_BG))
-                if (obj.has(KEY_SHOW_TOOLS)) putBoolean(KEY_SHOW_TOOLS, obj.getBoolean(KEY_SHOW_TOOLS))
-                if (obj.has(KEY_GESTURES_ENABLED)) putBoolean(KEY_GESTURES_ENABLED, obj.getBoolean(KEY_GESTURES_ENABLED))
-                if (obj.has(KEY_SHOW_IN_LANDSCAPE)) putBoolean(KEY_SHOW_IN_LANDSCAPE, obj.getBoolean(KEY_SHOW_IN_LANDSCAPE))
-                if (obj.has(KEY_TAP_TO_OPEN)) putBoolean(KEY_TAP_TO_OPEN, obj.getBoolean(KEY_TAP_TO_OPEN))
-                if (obj.has(KEY_DOUBLE_TAP_TO_OPEN)) putBoolean(KEY_DOUBLE_TAP_TO_OPEN, obj.getBoolean(KEY_DOUBLE_TAP_TO_OPEN))
-                if (obj.has(KEY_TRIPLE_TAP_TO_OPEN)) putBoolean(KEY_TRIPLE_TAP_TO_OPEN, obj.getBoolean(KEY_TRIPLE_TAP_TO_OPEN))
-                if (obj.has(KEY_BLUR_ENABLED)) putBoolean(KEY_BLUR_ENABLED, obj.getBoolean(KEY_BLUR_ENABLED))
-                if (obj.has(KEY_SHOW_LOGS)) putBoolean(KEY_SHOW_LOGS, obj.getBoolean(KEY_SHOW_LOGS))
-                if (obj.has(KEY_SHOW_SYS_INFO)) putBoolean(KEY_SHOW_SYS_INFO, obj.getBoolean(KEY_SHOW_SYS_INFO))
-                if (obj.has(KEY_SHOW_POWER_MENU)) putBoolean(KEY_SHOW_POWER_MENU, obj.getBoolean(KEY_SHOW_POWER_MENU))
-                if (obj.has(KEY_SHOW_VOLUME_KEYS)) putBoolean(KEY_SHOW_VOLUME_KEYS, obj.getBoolean(KEY_SHOW_VOLUME_KEYS))
-                if (obj.has(KEY_SHOW_BRIGHTNESS_KEYS)) putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, obj.getBoolean(KEY_SHOW_BRIGHTNESS_KEYS))
-                if (obj.has(KEY_SLIDE_BRIGHTNESS_ENABLED)) putBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, obj.getBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED))
-                if (obj.has(KEY_SLIDE_VOLUME_ENABLED)) putBoolean(KEY_SLIDE_VOLUME_ENABLED, obj.getBoolean(KEY_SLIDE_VOLUME_ENABLED))
-                if (obj.has(KEY_FREEFORM_ENABLED)) putBoolean(KEY_FREEFORM_ENABLED, obj.getBoolean(KEY_FREEFORM_ENABLED))
-                if (obj.has(KEY_SHOW_NOTIFICATION_APPS)) putBoolean(KEY_SHOW_NOTIFICATION_APPS, obj.getBoolean(KEY_SHOW_NOTIFICATION_APPS))
-                if (obj.has(KEY_DRAG_TO_SPLIT)) putBoolean(KEY_DRAG_TO_SPLIT, obj.getBoolean(KEY_DRAG_TO_SPLIT))
-                if (obj.has(KEY_REMEMBER_SCROLL)) putBoolean(KEY_REMEMBER_SCROLL, obj.getBoolean(KEY_REMEMBER_SCROLL))
-                if (obj.has(KEY_AUTO_SHOW_KEYBOARD)) putBoolean(KEY_AUTO_SHOW_KEYBOARD, obj.getBoolean(KEY_AUTO_SHOW_KEYBOARD))
+                // Booleans — optBoolean's signature is (key, fallback) so
+                // we explicitly read the current value to keep the previous
+                // behavior of "no write" on missing/typed-wrong keys.
+                fun putBoolIfPresent(key: String, current: Boolean) {
+                    if (!obj.has(key) || obj.isNull(key)) return
+                    val v = obj.optBoolean(key, current)
+                    putBoolean(key, v)
+                }
+                putBoolIfPresent(KEY_AUTO_START, autoStart)
+                putBoolIfPresent(KEY_SHOW_PILL, showPill)
+                putBoolIfPresent(KEY_HAPTIC_ENABLED, hapticEnabled)
+                putBoolIfPresent(KEY_USE_CUSTOM_ACCENT, useCustomAccent)
+                putBoolIfPresent(KEY_HIDE_BG, hideBackground)
+                putBoolIfPresent(KEY_SHOW_TOOLS, showTools)
+                putBoolIfPresent(KEY_GESTURES_ENABLED, gesturesEnabled)
+                putBoolIfPresent(KEY_SHOW_IN_LANDSCAPE, showInLandscape)
+                putBoolIfPresent(KEY_TAP_TO_OPEN, tapToOpen)
+                putBoolIfPresent(KEY_DOUBLE_TAP_TO_OPEN, doubleTapToOpen)
+                putBoolIfPresent(KEY_TRIPLE_TAP_TO_OPEN, tripleTapToOpen)
+                putBoolIfPresent(KEY_BLUR_ENABLED, blurEnabled)
+                putBoolIfPresent(KEY_SHOW_LOGS, showLogs)
+                putBoolIfPresent(KEY_SHOW_SYS_INFO, showSysInfo)
+                putBoolIfPresent(KEY_SHOW_POWER_MENU, showPowerMenu)
+                putBoolIfPresent(KEY_SHOW_VOLUME_KEYS, showVolumeKeys)
+                putBoolIfPresent(KEY_SHOW_BRIGHTNESS_KEYS, showBrightnessKeys)
+                putBoolIfPresent(KEY_SHOW_BLACK_SCREEN_TOOL, showBlackScreenTool)
+            putBoolIfPresent(KEY_SHOW_LOCK_SCREEN_TOOL, showLockScreenTool)
+                putBoolIfPresent(KEY_SLIDE_BRIGHTNESS_ENABLED, slideBrightnessEnabled)
+                putBoolIfPresent(KEY_SLIDE_VOLUME_ENABLED, slideVolumeEnabled)
+                putBoolIfPresent(KEY_FREEFORM_ENABLED, freeformEnabled)
+                putBoolIfPresent(KEY_SHOW_NOTIFICATION_APPS, showNotificationApps)
+                putBoolIfPresent(KEY_DRAG_TO_SPLIT, dragToSplit)
+                putBoolIfPresent(KEY_REMEMBER_SCROLL, rememberScroll)
+                putBoolIfPresent(KEY_AUTO_SHOW_KEYBOARD, autoShowKeyboard)
+                putBoolIfPresent(KEY_SHOW_SCREENSHOT_TOOL, showScreenshotTool)
+                putBoolIfPresent(KEY_SHOW_TOOLS_PANEL_BUTTON, showToolsPanelButton)
+                putBoolIfPresent(KEY_ONLY_ON_HOME, onlyOnHome)
+                putBoolIfPresent(KEY_AUTO_HIDE_FULLSCREEN, autoHideInFullscreen)
+                putBoolIfPresent(KEY_DELIBERATE_GESTURE_GAMES, deliberateGestureInGames)
+                putBoolIfPresent(KEY_NOTCH_GESTURES_ENABLED, notchGesturesEnabled)
+                putBoolIfPresent(KEY_USE_AUTOMATION_FOR_GESTURES, useAutomationForGestures)
+            }
+            // Enforce sidebar cap after restore (also drops excess custom pins).
+            val capped = getPanelApps()
+            if (capped.size > MAX_PANEL_APPS) {
+                setPanelApps(capped.take(MAX_PANEL_APPS))
+            } else {
+                // Re-run through setPanelApps so delimiter encoding stays canonical.
+                setPanelApps(capped)
             }
             true
         } catch (e: Exception) {
@@ -396,6 +500,7 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_SHOW_POWER_MENU, false)
             putBoolean(KEY_SHOW_VOLUME_KEYS, false)
             putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, false)
+            putBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, true)
             putBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, DEFAULT_SLIDE_BRIGHTNESS)
             putBoolean(KEY_SLIDE_VOLUME_ENABLED, DEFAULT_SLIDE_VOLUME)
             putInt(KEY_SLIDE_SENSITIVITY, DEFAULT_SLIDE_SENSITIVITY)
@@ -415,10 +520,19 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_REMEMBER_SCROLL, false)
             putBoolean(KEY_AUTO_SHOW_KEYBOARD, false)
             putString(KEY_PANEL_APPS, "")
+            putString(KEY_PANEL_LABELS, "{}")
+            putString(KEY_CUSTOM_ITEMS, "[]")
             putString(KEY_GAME_APPS, "")
             putBoolean(KEY_AUTO_HIDE_FULLSCREEN, false)
             putString(KEY_FULLSCREEN_WHITELIST, "")
             putBoolean(KEY_DELIBERATE_GESTURE_GAMES, true)
+            putBoolean(KEY_ONLY_ON_HOME, false)
+            putString(KEY_FAVORITE_APP, "")
+            putBoolean(KEY_NOTCH_GESTURES_ENABLED, false)
+            remove(KEY_NOTCH_TAP_ACTION)
+            remove(KEY_NOTCH_DOUBLE_TAP_ACTION)
+            remove(KEY_NOTCH_TRIPLE_TAP_ACTION)
+            remove(KEY_NOTCH_LONG_PRESS_ACTION)
             putInt(KEY_SIDEBAR_SCROLL, 0)
             putInt(KEY_PICKER_SCROLL, 0)
         }
@@ -507,6 +621,14 @@ class PanelPreferences(context: Context) {
     var showBrightnessKeys: Boolean
         get() = prefs.getBoolean(KEY_SHOW_BRIGHTNESS_KEYS, false)
         set(value) = prefs.edit { putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, value) }
+
+    var showBlackScreenTool: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, true)
+        set(value) = prefs.edit { putBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, value) }
+
+    var showLockScreenTool: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_LOCK_SCREEN_TOOL, true)
+        set(value) = prefs.edit { putBoolean(KEY_SHOW_LOCK_SCREEN_TOOL, value) }
 
     var homeButtonStyle: String
         get() = prefs.getString(KEY_HOME_BUTTON_STYLE, DEFAULT_HOME_BUTTON_STYLE) ?: DEFAULT_HOME_BUTTON_STYLE
@@ -706,7 +828,12 @@ class PanelPreferences(context: Context) {
 
     var serviceEnabled: Boolean
         get() = prefs.getBoolean("service_enabled", true)
-        set(value) = setServiceEnabled(value, false)
+        // Audit M3: original setter used commit=false (async apply) while the
+        // Quick-Settings Tile path uses commit=true. Asymmetric persist means a
+        // process-kill between the write and the next read could leave the tile
+        // and the actual service state out of sync. Use commit=true everywhere
+        // — the write rate is tiny and the cost is negligible.
+        set(value) = setServiceEnabled(value, true)
 
     fun setServiceEnabled(enabled: Boolean, commit: Boolean = false) {
         prefs.edit(commit = commit) {
@@ -746,34 +873,258 @@ class PanelPreferences(context: Context) {
     val appearanceKey: String
         get() = "shape:$iconShape|pack:$selectedIconPack|theme:$uiTheme"
 
+    // Audit D1 — DELIMITER = "," collision defense for the panel/games/whitelist lists.
+    // Package names never contain commas, but intent-URI tokens emitted by
+    // Intent.toUri(URI_INTENT_SCHEME) can carry raw unescaped commas inside array
+    // extras (e.g. `i.tags=a,b,c;`). A bare `String.split(",")` would splice those
+    // tokens in two on read and silently corrupt the sidebar. We escape the two
+    // bytes that the format reserves ('\' and ',') on write, and reverse on read.
+    private fun encodeDelim(s: String) = s.replace("\\", "\\\\").replace(",", "\\,")
+    private fun decodeDelim(s: String) = s.replace("\\,", ",").replace("\\\\", "\\")
+
+    // Audit R5-fix — state-machine tokenizer. The previous `raw.split(",")`
+    // blindly severed the blob at every comma *including* commas inside the
+    // escape sequence we just produced via encodeDelim — so `\,` got
+    // destroyed before decodeDelim could ever see it. This walker honors the
+    // backslash so only UN-escaped commas split, leaving `\,` and `\\`
+    // intact inside each emitted token for decodeDelim to clean up.
+    private fun splitDelim(raw: String): List<String> {
+        val tokens = mutableListOf<String>()
+        val sb = StringBuilder()
+        var esc = false
+        for (c in raw) {
+            if (esc) { sb.append(c); esc = false }
+            else when (c) {
+                '\\' -> { sb.append(c); esc = true }
+                ','  -> { tokens += sb.toString(); sb.clear() }
+                else -> sb.append(c)
+            }
+        }
+        tokens += sb.toString()
+        return tokens
+    }
+
     fun getPanelApps(): List<String> {
         val raw = prefs.getString(KEY_PANEL_APPS, "") ?: ""
         return if (raw.isBlank()) emptyList()
-        else raw.split(DELIMITER)
+        else splitDelim(raw)
             .filter { it.isNotBlank() }
+            .map { decodeDelim(it) }
             .distinct()
     }
 
     fun setPanelApps(identifiers: List<String>) {
-        val unique = identifiers.filter { it.isNotBlank() }.distinct()
-        prefs.edit { putString(KEY_PANEL_APPS, unique.joinToString(DELIMITER)) }
+        val unique = identifiers.filter { it.isNotBlank() }.distinct().take(MAX_PANEL_APPS)
+        prefs.edit { putString(KEY_PANEL_APPS, unique.joinToString(DELIMITER) { encodeDelim(it) }) }
+        // Drop display labels for identifiers no longer pinned (reorder / bulk replace / uninstall).
+        val rawLabels = prefs.getString(KEY_PANEL_LABELS, null)
+        if (!rawLabels.isNullOrBlank()) {
+            try {
+                val obj = org.json.JSONObject(rawLabels)
+                val pinned = unique.toSet()
+                var changed = false
+                for (k in obj.keys().asSequence().toList()) {
+                    if (k !in pinned) {
+                        obj.remove(k)
+                        changed = true
+                    }
+                }
+                if (changed) {
+                    prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
-    fun addApp(identifier: String) {
+    fun addApp(identifier: String): Boolean {
+        if (identifier.isBlank()) return false
         val current = getPanelApps().toMutableList()
-        if (!current.contains(identifier)) {
-            current.add(identifier)
-            setPanelApps(current)
-        }
+        if (current.contains(identifier)) return true
+        if (current.size >= MAX_PANEL_APPS) return false
+        current.add(identifier)
+        setPanelApps(current)
+        return true
     }
 
     fun removeApp(identifier: String) {
         val current = getPanelApps().toMutableList()
         current.remove(identifier)
         setPanelApps(current)
+        removePanelItemLabel(identifier)
     }
 
     fun isInPanel(identifier: String): Boolean = getPanelApps().contains(identifier)
+
+    /**
+     * Display labels for pinned intent:/activity/shortcut identifiers.
+     * Re-resolving an intent URI via PackageManager often returns the *app*
+     * label instead of the shortcut shortLabel the user selected in the picker.
+     */
+    fun getPanelItemLabel(identifier: String): String? {
+        if (identifier.isBlank()) return null
+        val raw = prefs.getString(KEY_PANEL_LABELS, null) ?: return null
+        return try {
+            val obj = org.json.JSONObject(raw)
+            obj.optString(identifier, "").takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun setPanelItemLabel(identifier: String, label: String) {
+        if (identifier.isBlank() || label.isBlank()) return
+        val raw = prefs.getString(KEY_PANEL_LABELS, null)
+        val obj = try {
+            if (raw.isNullOrBlank()) org.json.JSONObject() else org.json.JSONObject(raw)
+        } catch (_: Exception) {
+            org.json.JSONObject()
+        }
+        obj.put(identifier, label)
+        // Drop labels for identifiers no longer pinned.
+        val pinned = getPanelApps().toSet()
+        val keys = obj.keys().asSequence().toList()
+        for (k in keys) {
+            if (k !in pinned && k != identifier) obj.remove(k)
+        }
+        prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
+    }
+
+    fun removePanelItemLabel(identifier: String) {
+        if (identifier.isBlank()) return
+        val raw = prefs.getString(KEY_PANEL_LABELS, null) ?: return
+        try {
+            val obj = org.json.JSONObject(raw)
+            if (!obj.has(identifier)) return
+            obj.remove(identifier)
+            prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
+        } catch (_: Exception) {}
+    }
+
+
+
+    // =====================================================================================
+    //                                Custom Intents/URLs storage
+    // =====================================================================================
+    // Stored as a JSON array under KEY_CUSTOM_ITEMS. Each element is {id, isUrl, title, content}.
+    // The corresponding sidebar identifier is "smartedge.custom.<id>" — added to `panelApps`
+    // on creation and removed on delete. The sidebar resolves these via
+    // AppRepository.getAppsForIdentifiers().
+
+    /**
+     * Read the persisted list of [CustomItem]s in insertion order.
+     * Returns an empty list if the pref is missing, blank, or malformed.
+     */
+    fun getCustomItems(): List<CustomItem> {
+        val raw = prefs.getString(KEY_CUSTOM_ITEMS, null) ?: return emptyList()
+        if (raw.isBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(raw)
+            // Audit L1 — symmetric trim on the read path. saveEditingItem trims on
+            // write, but legacy rows pre-dating this fix may still carry leading /
+            // trailing whitespace which would defeat `app.intentUri.startsWith("intent:")`
+            // downstream. Trim here too so all consumers see canonical content.
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val id = o.optString("id").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                CustomItem(
+                    id = id,
+                    isUrl = o.optBoolean("isUrl", false),
+                    title = o.optString("title", "").trim(),
+                    content = o.optString("content", "").trim()
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Atomically overwrite the custom items list.
+     * The list order is preserved as the user-specified display order.
+     */
+    fun setCustomItems(items: List<CustomItem>) {
+        val arr = org.json.JSONArray()
+        items.forEach { item ->
+            val o = org.json.JSONObject()
+            o.put("id", item.id)
+            o.put("isUrl", item.isUrl)
+            o.put("title", item.title)
+            o.put("content", item.content)
+            arr.put(o)
+        }
+        prefs.edit { putString(KEY_CUSTOM_ITEMS, arr.toString()) }
+    }
+
+    /** Add a new custom item. Caller is responsible for also adding the corresponding
+     *  `smartedge.custom.<id>` identifier to the panel via [addApp].
+     *
+     *  Audit U3: validate that [item] id looks like an asset-safe identifier before
+     *  persisting it. Picker-generated ids are [java.util.UUID.randomUUID] (36 chars
+     *  with hyphens); reject anything else so a corrupt SharedPreferences blob or a
+     *  future caller bug can't smuggle arbitrary bytes into the sidebar identifiers
+     *  that show up in AppInfo lookups. */
+    fun addCustomItem(item: CustomItem) {
+        if (!UUID_PATTERN.matches(item.id)) return
+        val current = getCustomItems().toMutableList()
+        // Defensive: de-duplicate by id, then append.
+        current.removeAll { it.id == item.id }
+        current.add(item)
+        setCustomItems(current)
+    }
+
+    /** Replace an existing custom item in-place (matched by id). */
+    fun updateCustomItem(item: CustomItem) {
+        val current = getCustomItems().toMutableList()
+        val idx = current.indexOfFirst { it.id == item.id }
+        if (idx >= 0) {
+            current[idx] = item
+            setCustomItems(current)
+        } else {
+            addCustomItem(item)
+        }
+    }
+
+    /** Remove a custom item by id. Returns the removed item, or null if not found. */
+    fun removeCustomItem(id: String): CustomItem? {
+        val current = getCustomItems().toMutableList()
+        val idx = current.indexOfFirst { it.id == id }
+        if (idx < 0) return null
+        val removed = current.removeAt(idx)
+        setCustomItems(current)
+        return removed
+    }
+
+    /** Reorder the list of custom items (must contain the same ids). */
+    fun reorderCustomItems(items: List<CustomItem>) {
+        setCustomItems(items)
+    }
+
+    /**
+     * Audit L3 — after a custom-item reorder via the picker's drag handle,
+     * `KEY_CUSTOM_ITEMS` is updated, but the sidebar order is governed by
+     * `KEY_PANEL_APPS` and was completely unaware of the new positions.
+     * The user reorders in the URLS tab, taps the sidebar, and sees the
+     * pre-drag order — a silent UX bug.
+     *
+     * Strategy: rebuild `KEY_PANEL_APPS` keeping every non-custom entry in
+     * its existing relative position, then append the custom entries in
+     * the new drag order. Newly added items not yet pinned to the sidebar
+     * are intentionally skipped — they aren't in the sidebar yet, so
+     * they have nothing to reorder. Items removed from the custom list
+     * also fall out cleanly because their `smartedge.custom.<id>` ids
+     * are no longer in `customItems`.
+     */
+    fun resyncPanelAppsOrderFromCustomItems(customItems: List<CustomItem>) {
+        val current = getPanelApps().toMutableList()
+        val customIdsInSidebar = current.filter { it.startsWith(CUSTOM_ID_PREFIX) }.toSet()
+        val nonCustom = current.filterNot { it.startsWith(CUSTOM_ID_PREFIX) }
+        val orderedCustom = customItems.mapNotNull { item ->
+            val id = CUSTOM_ID_PREFIX + item.id
+            if (id in customIdsInSidebar) id else null
+        }
+        // setPanelApps takes List<String> and handles dedup + delimiter join internally.
+        setPanelApps(nonCustom + orderedCustom)
+    }
 
     var panelSide: String
         get() = prefs.getString(KEY_PANEL_SIDE, DEFAULT_SIDE) ?: DEFAULT_SIDE
@@ -783,21 +1134,23 @@ class PanelPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_START, DEFAULT_AUTO_START)
         set(value) = prefs.edit { putBoolean(KEY_AUTO_START, value) }
 
-    var currentForegroundPackage: String
-        get() = prefs.getString("current_foreground", "") ?: ""
-        set(value) = prefs.edit { putString("current_foreground", value) }
+    // Runtime-only foreground package (not a user preference). Do not persist to
+    // SharedPreferences — a11y fires this on every window change.
+    @Volatile
+    var currentForegroundPackage: String = ""
 
     fun getGameApps(): List<String> {
         val raw = prefs.getString(KEY_GAME_APPS, "") ?: ""
         return if (raw.isBlank()) emptyList()
-        else raw.split(DELIMITER)
+        else splitDelim(raw)
             .filter { it.isNotBlank() }
+            .map { decodeDelim(it) }
             .distinct()
     }
 
     fun setGameApps(packages: List<String>) {
         val uniquePackages = packages.filter { it.isNotBlank() }.distinct()
-        prefs.edit { putString(KEY_GAME_APPS, uniquePackages.joinToString(DELIMITER)) }
+        prefs.edit { putString(KEY_GAME_APPS, uniquePackages.joinToString(DELIMITER) { encodeDelim(it) }) }
     }
 
     var autoHideInFullscreen: Boolean
@@ -811,15 +1164,31 @@ class PanelPreferences(context: Context) {
     fun getFullscreenWhitelist(): List<String> {
         val raw = prefs.getString(KEY_FULLSCREEN_WHITELIST, "") ?: ""
         return if (raw.isBlank()) emptyList()
-        else raw.split(DELIMITER).filter { it.isNotBlank() }.distinct()
+        else splitDelim(raw)
+            .filter { it.isNotBlank() }
+            .map { decodeDelim(it) }
+            .distinct()
     }
 
     fun setFullscreenWhitelist(packages: List<String>) {
         val unique = packages.filter { it.isNotBlank() }.distinct()
-        prefs.edit { putString(KEY_FULLSCREEN_WHITELIST, unique.joinToString(DELIMITER)) }
+        prefs.edit { putString(KEY_FULLSCREEN_WHITELIST, unique.joinToString(DELIMITER) { encodeDelim(it) }) }
     }
 
+    /**
+     * True when [packageName] is in the user-selected "hide handle" list used by
+     * Fullscreen Protection. Despite the historical name "whitelist", membership
+     * means the handle SHOULD be hidden for this package when auto-hide is on.
+     */
     fun isWhitelistedFromAutoHide(packageName: String): Boolean {
+        return shouldHideHandleInPackage(packageName)
+    }
+
+    fun shouldHideHandleInPackage(packageName: String): Boolean {
         return getFullscreenWhitelist().contains(packageName)
     }
+
+    fun getFullscreenHideList(): List<String> = getFullscreenWhitelist()
+
+    fun setFullscreenHideList(packages: List<String>) = setFullscreenWhitelist(packages)
 }

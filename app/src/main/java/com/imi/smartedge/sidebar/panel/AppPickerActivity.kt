@@ -48,8 +48,18 @@ class AppPickerActivity : AppCompatActivity() {
         }
 
         pickerAdapter = AppPickerAdapter { app, isChecked ->
-            if (isChecked) panelPrefs.addApp(app.identifier)
-            else panelPrefs.removeApp(app.identifier)
+            if (isChecked) {
+                if (!panelPrefs.addApp(app.identifier)) {
+                    android.widget.Toast.makeText(
+                        this,
+                        getString(R.string.panel_apps_limit_reached, PanelPreferences.MAX_PANEL_APPS),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    filterApps(binding.searchView.query?.toString().orEmpty())
+                }
+            } else {
+                panelPrefs.removeApp(app.identifier)
+            }
         }
 
         binding.rvAllApps.apply {

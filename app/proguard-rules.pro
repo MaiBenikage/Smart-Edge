@@ -16,3 +16,15 @@
     **[] $VALUES;
     public *;
 }
+
+# Audit M7: strip android.util.Log calls in release builds to prevent
+# fingerprint / interaction leakage via connected debug tools. Errors that
+# must reach Crashlytics/Play Console get filtered upstream; in-app logging
+# is purely diagnostic.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+    public static int e(...);
+}

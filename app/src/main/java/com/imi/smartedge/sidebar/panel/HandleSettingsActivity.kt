@@ -36,17 +36,17 @@ class HandleSettingsActivity : AppCompatActivity() {
         updatePillColorUI()
         
         binding.sbPillThickness.value = panelPrefs.pillWidth.toFloat()
-        binding.tvThicknessValue.text = "${panelPrefs.pillWidth}dp"
+        binding.tvThicknessValue.text = getString(R.string.fmt_dp, panelPrefs.pillWidth)
         
         binding.sbTriggerWidth.value = panelPrefs.handleWidth.toFloat()
-        binding.tvWidthValue.text = "${panelPrefs.handleWidth}dp"
+        binding.tvWidthValue.text = getString(R.string.fmt_dp, panelPrefs.handleWidth)
         
         binding.sbHandleHeight.value = panelPrefs.handleHeight.toFloat()
-        binding.tvHeightValue.text = "${panelPrefs.handleHeight}dp"
+        binding.tvHeightValue.text = getString(R.string.fmt_dp, panelPrefs.handleHeight)
         
         val offset = panelPrefs.handleVerticalOffset.toFloat().coerceIn(-500f, 500f)
         binding.sbHandlePos.value = offset
-        binding.tvPosValue.text = "${offset.toInt()}dp"
+        binding.tvPosValue.text = getString(R.string.fmt_dp, offset.toInt())
     }
 
     private fun updatePillColorUI() {
@@ -91,7 +91,7 @@ class HandleSettingsActivity : AppCompatActivity() {
         binding.sbPillThickness.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 panelPrefs.pillWidth = value.toInt()
-                binding.tvThicknessValue.text = "${value.toInt()}dp"
+                binding.tvThicknessValue.text = getString(R.string.fmt_dp, value.toInt())
             }
         }
         binding.sbPillThickness.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
@@ -103,14 +103,14 @@ class HandleSettingsActivity : AppCompatActivity() {
             val default = PanelPreferences.DEFAULT_PILL_WIDTH
             panelPrefs.pillWidth = default
             binding.sbPillThickness.value = default.toFloat()
-            binding.tvThicknessValue.text = "${default}dp"
+            binding.tvThicknessValue.text = getString(R.string.fmt_dp, default)
             applyOnly()
         }
 
         binding.sbTriggerWidth.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 panelPrefs.handleWidth = value.toInt()
-                binding.tvWidthValue.text = "${value.toInt()}dp"
+                binding.tvWidthValue.text = getString(R.string.fmt_dp, value.toInt())
             }
         }
         binding.sbTriggerWidth.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
@@ -122,14 +122,14 @@ class HandleSettingsActivity : AppCompatActivity() {
             val default = PanelPreferences.DEFAULT_HANDLE_WIDTH
             panelPrefs.handleWidth = default
             binding.sbTriggerWidth.value = default.toFloat()
-            binding.tvWidthValue.text = "${default}dp"
+            binding.tvWidthValue.text = getString(R.string.fmt_dp, default)
             applyOnly()
         }
 
         binding.sbHandleHeight.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 panelPrefs.handleHeight = value.toInt()
-                binding.tvHeightValue.text = "${value.toInt()}dp"
+                binding.tvHeightValue.text = getString(R.string.fmt_dp, value.toInt())
             }
         }
         binding.sbHandleHeight.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
@@ -141,14 +141,14 @@ class HandleSettingsActivity : AppCompatActivity() {
             val default = PanelPreferences.DEFAULT_HANDLE_HEIGHT
             panelPrefs.handleHeight = default
             binding.sbHandleHeight.value = default.toFloat()
-            binding.tvHeightValue.text = "${default}dp"
+            binding.tvHeightValue.text = getString(R.string.fmt_dp, default)
             applyOnly()
         }
 
         binding.sbHandlePos.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 panelPrefs.handleVerticalOffset = value.toInt()
-                binding.tvPosValue.text = "${value.toInt()}dp"
+                binding.tvPosValue.text = getString(R.string.fmt_dp, value.toInt())
             }
         }
         binding.sbHandlePos.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
@@ -160,7 +160,7 @@ class HandleSettingsActivity : AppCompatActivity() {
             val default = 0
             panelPrefs.handleVerticalOffset = default
             binding.sbHandlePos.value = default.toFloat()
-            binding.tvPosValue.text = "${default}dp"
+            binding.tvPosValue.text = getString(R.string.fmt_dp, default)
             applyOnly()
         }
     }

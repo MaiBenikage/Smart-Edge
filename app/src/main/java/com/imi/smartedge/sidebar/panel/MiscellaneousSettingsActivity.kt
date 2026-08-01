@@ -34,12 +34,12 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
             val success = panelPrefs.importFromJson(json)
             if (success) {
                 applyGlobalRefresh()
-                binding.root.showModernToast("Settings imported successfully!")
+                binding.root.showModernToast(getString(R.string.toast_import_success))
             } else {
-                binding.root.showModernToast("Invalid backup file – import failed")
+                binding.root.showModernToast(getString(R.string.toast_import_failed))
             }
         } catch (e: Exception) {
-            binding.root.showModernToast("Could not read file: ${e.message}")
+            binding.root.showModernToast(getString(R.string.toast_import_read_error, e.message ?: ""))
         }
     }
 
@@ -77,7 +77,7 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
         val currentIndex = codes.indexOf(panelPrefs.appLanguage).let { if (it == -1) 0 else it }
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("Choose App Language")
+            .setTitle(R.string.dialog_choose_language)
             .setSingleChoiceItems(languages, currentIndex) { dialog, which ->
                 val selected = codes[which]
                 if (selected != panelPrefs.appLanguage) {
@@ -91,7 +91,7 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
                 }
                 dialog.dismiss()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.dialog_cancel, null)
             .show()
     }
 
@@ -112,9 +112,9 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
                 val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 if (uri != null) {
                     contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-                    binding.root.showModernToast("Saved to Downloads/$folderName/$fileName")
+                    binding.root.showModernToast(getString(R.string.toast_export_saved, folderName, fileName))
                 } else {
-                    binding.root.showModernToast("Export failed – could not create file")
+                    binding.root.showModernToast(getString(R.string.toast_export_failed))
                 }
             } else {
                 // Legacy — write directly to Downloads/SidePanel/
@@ -124,10 +124,10 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
                 )
                 dir.mkdirs()
                 java.io.File(dir, fileName).writeText(json)
-                binding.root.showModernToast("Saved to Downloads/$folderName/$fileName")
+                binding.root.showModernToast(getString(R.string.toast_export_saved, folderName, fileName))
             }
         } catch (e: Exception) {
-            binding.root.showModernToast("Export failed: ${e.message}")
+            binding.root.showModernToast(getString(R.string.toast_export_error, e.message ?: ""))
         }
     }
 

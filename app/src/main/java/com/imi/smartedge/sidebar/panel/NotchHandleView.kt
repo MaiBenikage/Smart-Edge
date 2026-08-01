@@ -2,7 +2,6 @@ package com.imi.smartedge.sidebar.panel
 
 import android.content.Context
 import android.graphics.Color
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
@@ -24,7 +23,7 @@ class NotchHandleView @JvmOverloads constructor(
 
     private val panelPrefs = PanelPreferences(context)
     private val handler = Handler(Looper.getMainLooper())
-    private var tapCount = 0
+    @Volatile private var tapCount = 0
     private val tapTimeoutMs = ViewConfiguration.getDoubleTapTimeout().toLong()
 
     private val tapRunnable = Runnable {
@@ -80,13 +79,13 @@ class NotchHandleView @JvmOverloads constructor(
 
     private fun vibrateHaptic(durationMs: Long = 25) {
         if (!panelPrefs.hapticEnabled) return
-        val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            v.vibrate(durationMs)
-        }
+        // Strongly-typed getSystemService(Class) avoids the deprecated
+        // Context.VIBRATOR_SERVICE String key. minSdk = 26 covers the API surface.
+        val v = context.getSystemService(Vibrator::class.java) ?: return
+        // minSdk = 26, so VibrationEffect.createOneShot(...) is always available —
+        // the pre-O Vibrator.vibrate(long) overload (deprecated in API 26) is
+        // unreachable under our minSdk.
+        v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     private var downTime = 0L

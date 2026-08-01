@@ -19,22 +19,34 @@ class ToggleActivity : AppCompatActivity() {
         const val ACTION_TOGGLE = "com.imi.smartedge.sidebar.panel.TOGGLE"
     }
 
+    // Intent.EXTRA_SHORTCUT_INTENT/NAME/ICON_RESOURCE were deprecated in API 26 but
+    // remain the ONLY public surface for the legacy Intent.ACTION_CREATE_SHORTCUT
+    // flow that lets a 3rd-party app publish a home-screen launcher shortcut.
+    // ShortcutManager.requestPinShortcut is gated on default-launcher / system-app
+    // status and can't be used from a regular Android service/app. Suppress at the
+    // function level — there are no other deprecated APIs touched here.
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // 1. Handle Shortcut Creation request from Launcher
+        // SECURITY: Embed smartedge.from_shortcut=true into the shortcutIntent so on
+        // subsequent launches we can detect that ToggleActivity was triggered by
+        // tapping our own home-screen shortcut (vs. being invoked by a 3rd-party
+        // app via plain MAIN). This gates the silent service re-enable below.
         if (intent.action == Intent.ACTION_CREATE_SHORTCUT) {
             val shortcutIntent = Intent(this, ToggleActivity::class.java).apply {
                 action = ACTION_TOGGLE
+                putExtra("smartedge.from_shortcut", true)
             }
-            
+
             val resultIntent = Intent().apply {
                 putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent)
                 putExtra(Intent.EXTRA_SHORTCUT_NAME, "Toggle Sidebar")
                 val iconResource = Intent.ShortcutIconResource.fromContext(this@ToggleActivity, R.mipmap.ic_launcher)
                 putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, iconResource)
             }
-            
+
             setResult(RESULT_OK, resultIntent)
             finish()
             return
@@ -42,7 +54,7 @@ class ToggleActivity : AppCompatActivity() {
 
         // 2. Check basic permissions
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Overlay permission required", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_overlay_required), Toast.LENGTH_SHORT).show()
             val pIntent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             startActivity(pIntent)
             finish()
@@ -50,13 +62,21 @@ class ToggleActivity : AppCompatActivity() {
         }
 
         if (!PanelAccessibilityService.isRunning) {
-            Toast.makeText(this, "Accessibility service required", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_accessibility_required), Toast.LENGTH_SHORT).show()
             finish()
             return
         }
 
-        // Ensure service is enabled in preferences if toggled manually
-        PanelPreferences(this).serviceEnabled = true
+        // Ensure service is enabled in preferences ONLY when ToggleActivity was
+        // launched from our own home-screen shortcut (the CREATE_SHORTCUT branch
+        // above stamps smartedge.from_shortcut=true into the shortcut intent).
+        // Without this gate, any 3rd-party app could fire `Intent(MAIN).setClassName(
+        // this, ToggleActivity)` and silently flip the service back on after the
+        // user had disabled it for battery / privacy reasons.
+        if (intent.getBooleanExtra("smartedge.from_shortcut", false)
+            && intent.action == ACTION_TOGGLE) {
+            PanelPreferences(this).serviceEnabled = true
+        }
 
         // 3. Trigger the Panel
         val intent = Intent(this, FloatingPanelService::class.java).apply {

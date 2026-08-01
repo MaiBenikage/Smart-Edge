@@ -1,3 +1,10 @@
+// Shizuku 11/12's `newProcess(Array<String>, Array<String>?, String?)` overload
+// is marked deprecated in Shizuku 13 in favor of a signature that refines the
+// Kotlin nullability annotations on the platform types. The migration is gated
+// on a major Shizuku version bump; for now suppress the file-wide DEPRECATION
+// warnings at the three call sites (shizukuListener, onGrant, onRevoke).
+@file:Suppress("DEPRECATION")
+
 package com.imi.smartedge.sidebar.panel
 
 import android.Manifest
@@ -133,7 +140,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val tvTitle = TextView(ctx).apply {
-            text = "Native Gesture Engine"
+            text = getString(R.string.dialog_native_gesture_engine)
             textSize = 20f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -141,7 +148,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         
         val isGranted = ctx.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
         tvStatus = TextView(ctx).apply {
-            text = if (isGranted) "Permission: Granted" else "Permission: Missing"
+            text = if (isGranted) getString(R.string.permission_granted_status) else getString(R.string.permission_missing_status)
             textSize = 12f
             setTextColor(if (isGranted) Color.parseColor("#00FF00") else Color.parseColor("#99FFFFFF"))
             if (isGranted) typeface = Typeface.DEFAULT_BOLD
@@ -168,7 +175,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         root.addView(headerRow)
 
         val tvDesc = TextView(ctx).apply {
-            text = "Enable high-performance gestures without traditional Accessibility Services."
+            text = getString(R.string.dialog_native_gesture_engine_desc)
             textSize = 14f
             setTextColor(Color.parseColor("#B3FFFFFF"))
             layoutParams = LinearLayout.LayoutParams(
@@ -185,6 +192,23 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             }
             setBackgroundColor(Color.parseColor("#1AFFFFFF"))
         })
+
+        // Audit S2: explanatory banner for WRITE_SECURE_SETTINGS. ADB-routed,
+        // not app-level. Most users don't realise what this permission can touch.
+        // Smart Edge uses it for rotation + system flags only — not user data.
+        val tvExplainer = TextView(ctx).apply {
+            text = getString(R.string.write_secure_settings_explainer)
+            textSize = 11f
+            setTextColor(Color.parseColor("#B3FFFFFF"))
+            setLineSpacing(0f, 1.15f)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = (16 * density).toInt()
+            }
+        }
+        root.addView(tvExplainer)
 
         // Shizuku Row
         root.addView(createAutomationRow(ctx, density, "Shizuku", "Wireless ADB automation",
@@ -249,7 +273,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         }
 
         val adbTitle = TextView(ctx).apply {
-            text = "MANUAL SETUP (ADB)"
+            text = getString(R.string.dialog_manual_setup_adb_upper)
             textSize = 11f
             setTextColor(Color.parseColor("#66FFFFFF"))
             typeface = Typeface.DEFAULT_BOLD
@@ -259,7 +283,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         adbHeaderRow.addView(adbTitle)
 
         val btnCopy = TextView(ctx).apply {
-            text = "Copy"
+            text = getString(R.string.xml_copy)
             setTextColor(Color.parseColor("#4A9EFF"))
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
@@ -272,7 +296,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             setOnClickListener {
                 val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCommand))
-                root.showModernToast("Command copied to clipboard")
+                root.showModernToast(getString(R.string.toast_command_copied))
             }
         }
         adbHeaderRow.addView(btnCopy)
@@ -296,14 +320,14 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             setOnClickListener {
                 val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("ADB Command", adbCommand))
-                root.showModernToast("Command copied to clipboard")
+                root.showModernToast(getString(R.string.toast_command_copied))
             }
         }
         root.addView(adbBox)
 
         // Close Button
         val btnClose = Button(ctx).apply {
-            text = "Done"
+            text = ctx.getString(android.R.string.ok)
             setTextColor(Color.WHITE)
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
@@ -358,7 +382,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         row.addView(textCol)
 
         val btnRevoke = Button(ctx).apply {
-            text = "Revoke"
+            text = getString(R.string.xml_revoke)
             setTextColor(Color.parseColor("#FF5252"))
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
@@ -376,7 +400,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         row.addView(btnRevoke)
 
         val btnGrant = Button(ctx).apply {
-            text = "Grant"
+            text = getString(R.string.xml_grant)
             setTextColor(Color.parseColor("#4A9EFF"))
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
@@ -398,7 +422,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         
         val ctx = requireContext()
         val isGranted = ctx.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
-        tvStatus.text = if (isGranted) "Permission: Granted" else "Permission: Missing"
+        tvStatus.text = if (isGranted) getString(R.string.permission_granted_status) else getString(R.string.permission_missing_status)
         tvStatus.setTextColor(if (isGranted) Color.parseColor("#00FF00") else Color.parseColor("#99FFFFFF"))
         tvStatus.typeface = if (isGranted) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         

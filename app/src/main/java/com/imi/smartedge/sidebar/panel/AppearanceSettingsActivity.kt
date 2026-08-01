@@ -41,48 +41,48 @@ class AppearanceSettingsActivity : AppCompatActivity() {
 
     private fun loadCurrentSettings() {
         binding.sbOpacity.value = panelPrefs.panelOpacity.toFloat()
-        binding.tvOpacityValue.text = "${panelPrefs.panelOpacity}%"
+        binding.tvOpacityValue.text = getString(R.string.fmt_percent, panelPrefs.panelOpacity)
 
         binding.sbPanelRadius.value = panelPrefs.panelCornerRadius.toFloat()
-        binding.tvRadiusValue.text = "${panelPrefs.panelCornerRadius}dp"
+        binding.tvRadiusValue.text = getString(R.string.fmt_dp, panelPrefs.panelCornerRadius)
 
         binding.sbIconScale.value = panelPrefs.scaleFactor
         binding.tvIconScaleValue.text = String.format("%.1fx", panelPrefs.scaleFactor)
 
         binding.sbMaxHeight.value = panelPrefs.panelMaxHeight.toFloat()
-        binding.tvMaxHeightValue.text = "${panelPrefs.panelMaxHeight}dp"
+        binding.tvMaxHeightValue.text = getString(R.string.fmt_dp, panelPrefs.panelMaxHeight)
 
         binding.sbPickerMaxHeight.value = panelPrefs.pickerMaxHeight.toFloat()
-        binding.tvPickerMaxHeightValue.text = "${panelPrefs.pickerMaxHeight}dp"
+        binding.tvPickerMaxHeightValue.text = getString(R.string.fmt_dp, panelPrefs.pickerMaxHeight)
 
         binding.tvThemeModeValue.text = when (panelPrefs.themeMode) {
-            PanelPreferences.MODE_LIGHT -> "Light"
-            PanelPreferences.MODE_DARK -> "Dark"
-            else -> "Follow System"
+            PanelPreferences.MODE_LIGHT -> getString(R.string.theme_light)
+            PanelPreferences.MODE_DARK -> getString(R.string.theme_dark)
+            else -> getString(R.string.theme_follow_system)
         }
 
         binding.tvUIStyleValue.text = when (panelPrefs.uiTheme) {
-            PanelPreferences.THEME_HYPEROS -> "HyperOS (Glass)"
-            PanelPreferences.THEME_REALME -> "Realme UI"
-            PanelPreferences.THEME_RICH -> "Rich UI (Glow)"
-            else -> "OriginOS (Rounded)"
+            PanelPreferences.THEME_HYPEROS -> getString(R.string.theme_hyperos)
+            PanelPreferences.THEME_REALME -> getString(R.string.theme_realme)
+            PanelPreferences.THEME_RICH -> getString(R.string.theme_rich)
+            else -> getString(R.string.theme_origin)
         }
 
         binding.tvIconShapeValue.text = when (panelPrefs.iconShape) {
-            PanelPreferences.SHAPE_CIRCLE -> "Circle"
-            PanelPreferences.SHAPE_SQUARE -> "Square"
-            PanelPreferences.SHAPE_ROUNDED -> "Rounded"
-            PanelPreferences.SHAPE_SQUIRCLE -> "Squircle"
-            else -> "System Default"
+            PanelPreferences.SHAPE_CIRCLE -> getString(R.string.xml_shape_circle)
+            PanelPreferences.SHAPE_SQUARE -> getString(R.string.xml_shape_square)
+            PanelPreferences.SHAPE_ROUNDED -> getString(R.string.xml_shape_rounded)
+            PanelPreferences.SHAPE_SQUIRCLE -> getString(R.string.xml_shape_squircle)
+            else -> getString(R.string.icon_pack_default)
         }
 
         binding.featureBlur.isChecked = panelPrefs.blurEnabled
         binding.sbBlurAmount.value = panelPrefs.blurAmount.toFloat()
-        binding.tvBlurAmountValue.text = "${panelPrefs.blurAmount}"
+        binding.tvBlurAmountValue.text = getString(R.string.fmt_number, panelPrefs.blurAmount)
         
         binding.featureHideBg.isChecked = panelPrefs.hideBackground
         
-        binding.tvColumnsValue.text = "${panelPrefs.panelColumns} Column${if (panelPrefs.panelColumns > 1) "s" else ""}"
+        binding.tvColumnsValue.text = if (panelPrefs.panelColumns > 1) getString(R.string.fmt_columns_plural, panelPrefs.panelColumns) else getString(R.string.fmt_columns, panelPrefs.panelColumns)
         
         binding.featureCustomAccent.isChecked = panelPrefs.useCustomAccent
         
@@ -92,21 +92,21 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         binding.btnPickBg.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor(panelPrefs.panelBackgroundColor))
 
         binding.tvHomeButtonStyleValue.text = when (panelPrefs.homeButtonStyle) {
-            PanelPreferences.STYLE_POWER -> "Modern Power Icon"
-            else -> "Classic Logo"
+            PanelPreferences.STYLE_POWER -> getString(R.string.button_style_power)
+            else -> getString(R.string.button_style_logo)
         }
     }
 
     private fun setupListeners() {
         binding.sbOpacity.addOnChangeListener { _, value, _ ->
             panelPrefs.panelOpacity = value.toInt()
-            binding.tvOpacityValue.text = "${value.toInt()}%"
+            binding.tvOpacityValue.text = getString(R.string.fmt_percent, value.toInt())
             applyOnly()
         }
 
         binding.sbPanelRadius.addOnChangeListener { _, value, _ ->
             panelPrefs.panelCornerRadius = value.toInt()
-            binding.tvRadiusValue.text = "${value.toInt()}dp"
+            binding.tvRadiusValue.text = getString(R.string.fmt_dp, value.toInt())
             applyOnly()
         }
 
@@ -118,20 +118,20 @@ class AppearanceSettingsActivity : AppCompatActivity() {
 
         binding.sbMaxHeight.addOnChangeListener { _, value, _ ->
             panelPrefs.panelMaxHeight = value.toInt()
-            binding.tvMaxHeightValue.text = "${value.toInt()}dp"
+            binding.tvMaxHeightValue.text = getString(R.string.fmt_dp, value.toInt())
             applyOnly()
         }
 
         binding.sbPickerMaxHeight.addOnChangeListener { _, value, _ ->
             panelPrefs.pickerMaxHeight = value.toInt()
-            binding.tvPickerMaxHeightValue.text = "${value.toInt()}dp"
+            binding.tvPickerMaxHeightValue.text = getString(R.string.fmt_dp, value.toInt())
             applyOnly()
         }
 
         binding.btnResetIconScale.setOnClickListener {
             panelPrefs.scaleFactor = 1.0f
             binding.sbIconScale.value = 1.0f
-            binding.tvIconScaleValue.text = "1.0x"
+            binding.tvIconScaleValue.text = getString(R.string.fmt_scale_x, 1.0)
             applyOnly()
         }
 
@@ -139,7 +139,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             val default = 350
             panelPrefs.panelMaxHeight = default
             binding.sbMaxHeight.value = default.toFloat()
-            binding.tvMaxHeightValue.text = "${default}dp"
+            binding.tvMaxHeightValue.text = getString(R.string.fmt_dp, default)
             applyOnly()
         }
 
@@ -147,7 +147,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             val default = 450
             panelPrefs.pickerMaxHeight = default
             binding.sbPickerMaxHeight.value = default.toFloat()
-            binding.tvPickerMaxHeightValue.text = "${default}dp"
+            binding.tvPickerMaxHeightValue.text = getString(R.string.fmt_dp, default)
             applyOnly()
         }
 
@@ -155,7 +155,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             val default = 100
             panelPrefs.panelOpacity = default
             binding.sbOpacity.value = default.toFloat()
-            binding.tvOpacityValue.text = "${default}%"
+            binding.tvOpacityValue.text = getString(R.string.fmt_percent, default)
             applyOnly()
         }
 
@@ -163,12 +163,12 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             val default = 20
             panelPrefs.panelCornerRadius = default
             binding.sbPanelRadius.value = default.toFloat()
-            binding.tvRadiusValue.text = "${default}dp"
+            binding.tvRadiusValue.text = getString(R.string.fmt_dp, default)
             applyOnly()
         }
 
         binding.featureThemeMode.setOnClickListener {
-            val options = arrayOf("Follow System", "Light", "Dark")
+            val options = arrayOf(getString(R.string.theme_follow_system), getString(R.string.theme_light), getString(R.string.theme_dark))
             val values = arrayOf(
                 PanelPreferences.MODE_SYSTEM,
                 PanelPreferences.MODE_LIGHT,
@@ -178,19 +178,19 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             val selectedIndex = values.indexOf(panelPrefs.themeMode).let { if (it == -1) 0 else it }
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("App Theme")
+                .setTitle(R.string.dialog_app_theme)
                 .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
                     panelPrefs.themeMode = values[which]
                     binding.tvThemeModeValue.text = options[which]
                     applyAppTheme(this)
                     dialog.dismiss()
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.dialog_cancel, null)
                 .show()
         }
 
         binding.layoutUIStyle.setOnClickListener {
-            val options = arrayOf("OriginOS (Rounded)", "HyperOS (Glass)", "Realme UI", "Rich UI (Glow)")
+            val options = arrayOf(getString(R.string.theme_origin), getString(R.string.theme_hyperos), getString(R.string.theme_realme), getString(R.string.theme_rich))
             val values = arrayOf(
                 PanelPreferences.THEME_ORIGIN,
                 PanelPreferences.THEME_HYPEROS,
@@ -201,19 +201,19 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             val selectedIndex = values.indexOf(panelPrefs.uiTheme).let { if (it == -1) 0 else it }
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Panel UI Style")
+                .setTitle(R.string.dialog_panel_ui_style)
                 .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
                     panelPrefs.uiTheme = values[which]
                     binding.tvUIStyleValue.text = options[which]
                     applyOnly()
                     dialog.dismiss()
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.dialog_cancel, null)
                 .show()
         }
 
         binding.featureIconShape.setOnClickListener {
-            val options = arrayOf("System Default", "Circle", "Square", "Rounded", "Squircle")
+            val options = arrayOf(getString(R.string.icon_pack_default), getString(R.string.xml_shape_circle), getString(R.string.xml_shape_square), getString(R.string.xml_shape_rounded), getString(R.string.xml_shape_squircle))
             val values = arrayOf(
                 PanelPreferences.SHAPE_SYSTEM,
                 PanelPreferences.SHAPE_CIRCLE,
@@ -225,14 +225,14 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             val selectedIndex = values.indexOf(panelPrefs.iconShape).let { if (it == -1) 0 else it }
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Icon Shape")
+                .setTitle(R.string.dialog_icon_shape)
                 .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
                     panelPrefs.iconShape = values[which]
                     binding.tvIconShapeValue.text = options[which]
                     applyOnly()
                     dialog.dismiss()
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.dialog_cancel, null)
                 .show()
         }
 
@@ -243,7 +243,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
 
         binding.sbBlurAmount.addOnChangeListener { _, value, _ ->
             panelPrefs.blurAmount = value.toInt()
-            binding.tvBlurAmountValue.text = "${value.toInt()}"
+            binding.tvBlurAmountValue.text = getString(R.string.fmt_number, value.toInt())
             applyOnly()
         }
 
@@ -253,22 +253,22 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         }
 
         binding.featureColumns.setOnClickListener {
-            val options = arrayOf("1 Column", "2 Columns")
+            val options = arrayOf(getString(R.string.fmt_columns, 1), getString(R.string.fmt_columns_plural, 2))
             val currentSelectedIndex = (panelPrefs.panelColumns - 1).coerceIn(0, 1)
             var newlySelectedIndex = currentSelectedIndex
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Panel Columns")
+                .setTitle(R.string.dialog_panel_columns)
                 .setSingleChoiceItems(options, currentSelectedIndex) { _, which ->
                     newlySelectedIndex = which
                 }
-                .setPositiveButton("Apply") { _, _ ->
+                .setPositiveButton(R.string.dialog_apply) { _, _ ->
                     val columns = newlySelectedIndex + 1
                     panelPrefs.panelColumns = columns
                     binding.tvColumnsValue.text = options[newlySelectedIndex]
                     applyOnly()
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.dialog_cancel, null)
                 .show()
         }
 
@@ -287,12 +287,12 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             panelPrefs.resetUIColors()
             loadCurrentSettings()
             applyOnly()
-            binding.root.showModernToast("UI Colors Restored to Default")
+            binding.root.showModernToast(getString(R.string.toast_ui_colors_restored))
         }
 
         binding.btnPickAccent.setOnClickListener {
             if (panelPrefs.uiTheme == PanelPreferences.THEME_ORIGIN) {
-                binding.root.showModernToast("Accent color is locked for OriginOS theme")
+                binding.root.showModernToast(getString(R.string.toast_accent_locked_origin))
                 return@setOnClickListener
             }
             openColorPicker(Color.parseColor(panelPrefs.accentColor)) { newColor ->
@@ -305,7 +305,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
 
         binding.btnPickBg.setOnClickListener {
             if (panelPrefs.uiTheme == PanelPreferences.THEME_ORIGIN) {
-                binding.root.showModernToast("Background color is locked for OriginOS theme")
+                binding.root.showModernToast(getString(R.string.toast_bg_locked_origin))
                 return@setOnClickListener
             }
             openColorPicker(Color.parseColor(panelPrefs.panelBackgroundColor)) { newColor ->
@@ -317,19 +317,19 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         }
 
         binding.featureHomeButton.setOnClickListener {
-            val options = arrayOf("Modern Power Icon", "Classic Logo")
+            val options = arrayOf(getString(R.string.button_style_power), getString(R.string.button_style_logo))
             val values = arrayOf(PanelPreferences.STYLE_POWER, PanelPreferences.STYLE_CLASSIC)
             val selectedIndex = values.indexOf(panelPrefs.homeButtonStyle).let { if (it == -1) 0 else it }
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Service Button Style")
+                .setTitle(R.string.dialog_service_button_style)
                 .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
                     panelPrefs.homeButtonStyle = values[which]
                     binding.tvHomeButtonStyleValue.text = options[which]
                     applyOnly()
                     dialog.dismiss()
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.dialog_cancel, null)
                 .show()
         }
     }

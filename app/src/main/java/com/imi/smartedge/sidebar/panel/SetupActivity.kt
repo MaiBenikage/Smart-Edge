@@ -50,6 +50,22 @@ class SetupActivity : AppCompatActivity() {
                         SecureSettingsDialog.show(this) {
                             updateUI()
                         }
+                        // Audit U3: without this follow-up the user dismisses the
+                        // ADB-grant dialog and gets no signal about what to do
+                        // next. After a 1.5s grace period (dialog open time), if
+                        // automation still hasn't come up, surface an actionable
+                        // Snackbar that re-opens the dialog if the user taps.
+                        binding.root.postDelayed({
+                            if (!AutomationManager.isAutomationPossible() && !panelPrefs.useAutomationForGestures) {
+                                com.google.android.material.snackbar.Snackbar.make(
+                                    binding.root,
+                                    R.string.automation_unavailable_tip,
+                                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                                ).setAction(R.string.btn_setup) {
+                                    SecureSettingsDialog.show(this) { updateUI() }
+                                }.show()
+                            }
+                        }, 1500)
                     }
                 }
             }
@@ -79,6 +95,9 @@ class SetupActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Audit L5/U11: re-probe Shizuku/Root engine state when SetupActivity is foregrounded
+        // so cardAutomation reflects the current engine instead of a stale cached value.
+        AutomationManager.refresh()
         updateUI()
     }
 
@@ -101,7 +120,7 @@ class SetupActivity : AppCompatActivity() {
             AutomationManager.isShizukuAvailable() -> " (Shizuku)"
             else -> ""
         }
-        binding.titleAutomation.text = "Native Gesture$status"
+        binding.titleAutomation.text = getString(R.string.setup_native_gesture_status, status)
         updateCardState(binding.cardAutomation, binding.actionAutomation, hasAutomation)
         
         // Auto-start is hard to detect on most OEMs, but we can detect on MIUI
@@ -126,10 +145,10 @@ class SetupActivity : AppCompatActivity() {
         binding.btnGrantAll.isEnabled = !allGranted
         
         if (allGranted) {
-            binding.btnGrantAll.text = "All granted"
+            binding.btnGrantAll.text = getString(R.string.setup_all_granted)
             binding.btnGrantAll.alpha = 0.5f
         } else {
-            binding.btnGrantAll.text = "Grant all"
+            binding.btnGrantAll.text = getString(R.string.xml_grant_all)
             binding.btnGrantAll.alpha = 1.0f
         }
     }

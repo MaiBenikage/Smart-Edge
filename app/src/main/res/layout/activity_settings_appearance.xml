@@ -102,7 +102,7 @@
                         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
                             <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/blur_intensity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                             <ImageView android:id="@+id/btnResetBlur" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                            <TextView android:id="@+id/tvBlurAmountValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="15" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                            <TextView android:id="@+id/tvBlurAmountValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/value_placeholder_15" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                         </LinearLayout>
                         <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
                             android:id="@+id/sbBlurAmount" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="5.0" android:valueTo="50.0" android:value="15.0" app:tickVisible="false" />
@@ -133,7 +133,7 @@
                             android:id="@+id/tvColumnsValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="1 Column"
+                            android:text="@string/xml_one_column"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="14sp" />
                     </LinearLayout>
@@ -176,7 +176,7 @@
                             android:id="@+id/tvIconShapeValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Squircle"
+                            android:text="@string/xml_shape_squircle"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="14sp" />
                     </LinearLayout>
@@ -202,7 +202,7 @@
                         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
                             <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/icon_scale" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
                             <ImageView android:id="@+id/btnResetIconScale" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                            <TextView android:id="@+id/tvIconScaleValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1.0x" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                            <TextView android:id="@+id/tvIconScaleValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/value_placeholder_scale_1" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                         </LinearLayout>
                         <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
                             android:id="@+id/sbIconScale" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="0.8" android:valueTo="2.0" android:stepSize="0.1" android:value="1.0" app:tickVisible="false" />
@@ -313,7 +313,7 @@
                     <LinearLayout android:id="@+id/feature_opacity" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginBottom="4dp">
                         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/panel_opacity" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetOpacity" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                        <TextView android:id="@+id/tvOpacityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="100%" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                        <TextView android:id="@+id/tvOpacityValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/value_placeholder_percent_100" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>
                     <com.google.android.material.slider.Slider style="@style/Widget.App.Slider"
                         android:id="@+id/sbOpacity" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="10.0" android:valueTo="100.0" android:value="100.0" app:tickVisible="false" android:layout_marginBottom="12dp" />
@@ -321,7 +321,7 @@
                     <LinearLayout android:id="@+id/feature_radius" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="4dp">
                         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/corner_radius" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetRadius" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                        <TextView android:id="@+id/tvRadiusValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="28dp" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                        <TextView android:id="@+id/tvRadiusValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/value_placeholder_dp_28" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>
                     <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
                         android:id="@+id/sbPanelRadius" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="0.0" android:valueTo="60.0" android:value="20.0" app:tickVisible="false" android:layout_marginBottom="12dp" />
@@ -329,7 +329,7 @@
                     <LinearLayout android:id="@+id/feature_max_height" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="4dp">
                         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/sidebar_max_height" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetMaxHeight" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                        <TextView android:id="@+id/tvMaxHeightValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="350dp" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                        <TextView android:id="@+id/tvMaxHeightValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/value_placeholder_dp_350" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>
                     <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
                         android:id="@+id/sbMaxHeight" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="200.0" android:valueTo="800.0" android:value="350.0" app:tickVisible="false" android:layout_marginBottom="16dp" />
@@ -337,7 +337,7 @@
                     <LinearLayout android:id="@+id/feature_picker_max_height" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="8dp" android:layout_marginBottom="4dp">
                         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/picker_max_height" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
                         <ImageView android:id="@+id/btnResetPickerMaxHeight" android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/ic_restore" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackground" android:padding="2dp" app:tint="?attr/colorPrimary" />
-                        <TextView android:id="@+id/tvPickerMaxHeightValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="450dp" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
+                        <TextView android:id="@+id/tvPickerMaxHeightValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/value_placeholder_dp_450" android:textColor="?attr/colorPrimary" android:textSize="12sp" android:textStyle="bold" />
                     </LinearLayout>
                     <com.imi.smartedge.sidebar.panel.DefaultMarkerSlider style="@style/Widget.App.Slider"
                         android:id="@+id/sbPickerMaxHeight" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="300.0" android:valueTo="800.0" android:value="450.0" app:tickVisible="false" />

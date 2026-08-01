@@ -266,10 +266,12 @@ object MIUIUtils {
     fun isMIUI(): Boolean {
         return try {
             val manufacturer = android.os.Build.MANUFACTURER.lowercase()
-            val property = Class.forName("android.os.SystemProperties")
+            // `Method.invoke(...)` returns Any? on the JVM. Cast to String? and
+            // fall back to empty — without this the Kotlin compiler flags the
+            // raw `.toString()` call as an "unsafe use of a nullable receiver".
+            val property = (Class.forName("android.os.SystemProperties")
                 .getMethod("get", String::class.java)
-                .invoke(null, "ro.miui.ui.version.name")
-                .toString()
+                .invoke(null, "ro.miui.ui.version.name") as? String).orEmpty()
             manufacturer.contains("xiaomi") || property.isNotEmpty()
         } catch (e: Exception) {
             false
@@ -318,69 +320,85 @@ fun Context.isFreeformEnabled(): Boolean {
     // Relaxed check: if any of the core freeform toggles are enabled.
     return freeformPref || freeformSupport || forceResizable
 }
-/**
- * Attempts to open Developer Options and highlight the Freeform windows toggle.
- */
-fun Context.openFreeformDeveloperSettings() {
-    val highlightKey = "freeform_window_management"
-    val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        // Modern Android highlight keys
-        putExtra(":settings:fragment_args_key", highlightKey)
-        putExtra(":settings:show_fragment_args", Bundle().apply {
-            putString(":settings:fragment_args_key", highlightKey)
-        })
-        putExtra("highlight_key", highlightKey)
-        putExtra("EXTRA_FRAGMENT_ARG_KEY", highlightKey)
-        putExtra("EXTRA_SHOW_FRAGMENT_ARGUMENTS", Bundle().apply {
-            putString(":settings:fragment_args_key", highlightKey)
-        })
-    }
-    
-    try {
-        startActivity(intent)
-    } catch (e: Exception) {
-        // Fallback to general developer settings if deep-link fails
-        try {
-            startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e2: Exception) {
-            android.widget.Toast.makeText(this, "Developer Options not found", android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-}
 
-/**
- * Attempts to write a Global system setting. Requires WRITE_SECURE_SETTINGS.
- */
-fun Context.putGlobalSetting(setting: String, value: Int): Boolean {
-    return try {
-        android.provider.Settings.Global.putInt(contentResolver, setting, value)
-        true
-    } catch (e: SecurityException) {
-        false
-    }
-}
-
-/**
- * Calculates an automatic scaling factor based on screen size and orientation.
- * Returns 1.0f for all devices to keep original sizes as requested.
- */
 fun Context.getAutoScalingFactor(): Float {
     return 1.0f
 }
 
+private val KNOWN_VIDEO_PLAYER_PACKAGES = setOf(
+    "com.google.android.youtube",
+    "com.google.android.apps.youtube.music",
+    "com.netflix.mediaclient",
+    "org.videolan.vlc",
+    "com.mxtech.videoplayer.ad",
+    "com.mxtech.videoplayer.pro",
+    "com.ss.android.ugc.trill",        // TikTok
+    "com.zhiliaoapp.musically",        // TikTok (alt)
+    "com.twitch.android.app",
+    "com.amazon.avod",
+    "com.disney.disneyplus",
+    "com.hbo.hbonow",
+    "com.peacocktv.peacockandroid",
+    "com.hulu.plus",
+    "com.crunchyroll.crunchyroid",
+    "com.spotify.music",
+    "com.apple.android.music",
+    "com.youku.phone",
+    "com.iqiyi.i18n",
+    "com.tencent.qqlive",
+    "com.ss.android.article.video"      // Toutiao video
+)
+
 /**
- * Detects if an app's primary activity prefers landscape orientation.
+ * Returns true if the given package is a known video player / streaming app.
  */
-fun Context.isLandscapeApp(packageName: String): Boolean {
+fun Context.isVideoPlayerPackage(packageName: String): Boolean {
+    if (packageName.isBlank()) return false
+    if (KNOWN_VIDEO_PLAYER_PACKAGES.contains(packageName)) return true
+    val lower = packageName.lowercase()
+    return lower.contains(".video") || lower.contains(".player") ||
+            lower.contains("youtube") || lower.contains("netflix") ||
+            lower.contains("vlc") || lower.contains("mxplayer")
+}
+
+/**
+ * Audit S2 \u2014 shared safety gate for `intent:#Intent;\u2026` URIs persisted to
+ * SharedPreferences and round-tripped through the picker / sidebar.
+ *
+ * Walks the entire selector chain (top-level intent + every linked SEL=\u2026
+ * selector) and refuses any URI whose explicit component chain targets a
+ * package other than `packageName`. This is the same gate that
+ * `AppPickerPanelView` uses on its launch path, promoted to a top-level
+ * extension so the sidebar adapter `PanelAppsAdapter` honors it too \u2014
+ * otherwise a user-supplied `intent:` row could reach an unexported
+ * activity of another app straight from the sidebar, bypassing the picker
+ * surface that the picker gate nominally protects.
+ *
+ * Pure `http(s)://` / `file://` URIs are out of scope here \u2014 OS Intent
+ * resolution already confines them to the registered browser / viewer.
+ */
+internal fun Context.isSafeIntentUri(uri: String?): Boolean {
+    if (uri.isNullOrBlank()) return true
+    if (!uri.startsWith("intent:")) return true
     return try {
-        val intent = packageManager.getLaunchIntentForPackage(packageName) ?: return false
-        val componentName = intent.component ?: return false
-        val activityInfo = packageManager.getActivityInfo(componentName, 0)
-        activityInfo.screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ||
-                activityInfo.screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE ||
-                activityInfo.screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        val parsed = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME)
+        // Walk BOTH the top-level intent and any SEL=\u2026 selector chain.
+        // Android resolves `SEL` intents to deliver a different target; if
+        // the embedded selector carries a component pointing at another
+        // package, the system would happily start an unexported activity
+        // there. Refuse any non-self package along the whole chain.
+        var curr: Intent? = parsed
+        while (curr != null) {
+            val compPkg = curr.component?.packageName
+            if (compPkg != null && compPkg != packageName) return false
+            curr = curr.selector
+        }
+        // Top-level had no explicit component AND no selector chain carried
+        // a foreign component \u2192 either way, the chain is bound by action /
+        // category / package set, not by a privileged component override.
+        true
     } catch (e: Exception) {
+        // Unparseable `intent:` URI \u2014 refuse to launch as a paranoia step.
         false
     }
 }
@@ -433,7 +451,6 @@ fun Context.isAccessibilityServiceEnabled(): Boolean {
  * Integrated into a seamless Material 3 Dialog using skydoves ColorPickerView.
  */
 fun Context.openColorPicker(initialColor: Int, onPick: (Int) -> Unit) {
-    val inflater = android.view.LayoutInflater.from(this)
     val rootLayout = android.widget.LinearLayout(this).apply {
         orientation = android.widget.LinearLayout.VERTICAL
         layoutParams = ViewGroup.LayoutParams(
@@ -444,7 +461,7 @@ fun Context.openColorPicker(initialColor: Int, onPick: (Int) -> Unit) {
 
     // 1. Hex Input and Preview
     val hexInputLayout = com.google.android.material.textfield.TextInputLayout(this, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
-        hint = "Hex Color (#AARRGGBB)"
+        hint = getString(R.string.dialog_hex_color_hint)
         endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CLEAR_TEXT
         setBoxCornerRadii(dpToPx(12).toFloat(), dpToPx(12).toFloat(), dpToPx(12).toFloat(), dpToPx(12).toFloat())
         layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -563,11 +580,11 @@ fun Context.openColorPicker(initialColor: Int, onPick: (Int) -> Unit) {
     })
 
     com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-        .setTitle("Choose Color")
+        .setTitle(R.string.dialog_choose_color)
         .setView(rootLayout)
-        .setPositiveButton("Select") { _, _ ->
+        .setPositiveButton(R.string.dialog_select) { _, _ ->
             onPick(currentColor)
         }
-        .setNegativeButton("Cancel", null)
+        .setNegativeButton(R.string.dialog_cancel, null)
         .show()
 }

@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Custom Intents/URLs row used by the URLs tab in AppPickerPanelView.
+    Layout (left to right):
+      [drag handle] | [title / content] | [edit btn] [delete btn]
+    Badge (top-right corner of row) shows sidebar presence in global edit mode.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/customRowRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="6dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_close_btn"
+        android:backgroundTint="#0DFFFFFF"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="12dp"
+        android:minHeight="64dp">
+
+        <!-- Drag handle (left) -->
+        <ImageView
+            android:id="@+id/ivCustomDragHandle"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:contentDescription="@string/xml_cd_drag_reorder"
+            android:padding="2dp"
+            android:src="@drawable/ic_drag_handle"
+            android:tint="#80FFFFFF" />
+
+        <!-- Middle column: title + content -->
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp">
+
+            <!-- Read mode -->
+            <LinearLayout
+                android:id="@+id/customReadMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvCustomTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="start"
+                    android:maxLines="1"
+                    android:paddingBottom="6dp"
+                    android:scrollHorizontally="true"
+                    android:scrollbars="horizontal"
+                    android:text="@string/xml_hint_title"
+                    android:textColor="#FFFFFF"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvCustomContent"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif"
+                    android:gravity="start"
+                    android:maxLines="1"
+                    android:scrollHorizontally="true"
+                    android:scrollbars="horizontal"
+                    android:text="@string/xml_content"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="normal" />
+            </LinearLayout>
+
+            <!-- Edit mode -->
+            <LinearLayout
+                android:id="@+id/customEditMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/etCustomTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@android:color/transparent"
+                    android:fontFamily="sans-serif-medium"
+                    android:hint="@string/xml_hint_title"
+                    android:imeOptions="actionNext"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:scrollHorizontally="true"
+                    android:scrollbars="horizontal"
+                    android:singleLine="true"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#66FFFFFF"
+                    android:textSize="17sp" />
+
+                <EditText
+                    android:id="@+id/etCustomContent"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@android:color/transparent"
+                    android:fontFamily="sans-serif"
+                    android:hint="@string/custom_uri_hint"
+                    android:imeOptions="actionDone"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:scrollHorizontally="true"
+                    android:scrollbars="horizontal"
+                    android:singleLine="true"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#66FFFFFF"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Right column: edit + delete buttons stacked vertically, compact, right-aligned -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <!-- Edit / Confirm button -->
+            <ImageButton
+                android:id="@+id/btnCustomEdit"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/bg_close_btn"
+                android:backgroundTint="#1AFFFFFF"
+                android:contentDescription="@string/cd_edit"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_edit"
+                android:tint="#FFFFFF" />
+
+            <!-- Delete / Cancel button -->
+            <ImageButton
+                android:id="@+id/btnCustomDelete"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="@drawable/bg_close_btn"
+                android:backgroundTint="#1AFFFFFF"
+                android:contentDescription="@string/cd_cancel"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_close"
+                android:tint="#FF6B6B" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Badge: plus/check icon in top-right corner (shown in global edit mode) -->
+    <ImageView
+        android:id="@+id/customBadge"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="0dp"
+        android:layout_marginEnd="4dp"
+        android:padding="4dp"
+        android:src="@drawable/ic_plus_custom"
+        android:tint="#FFFFFF"
+        android:visibility="gone" />
+
+</FrameLayout>
