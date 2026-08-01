@@ -265,9 +265,9 @@
     <string name="xml_battery_optimization">Optimización de batería</string>
 
     <string name="xml_black_screen">Pantalla negra</string>
-    <string name="xml_black_screen_desc">Minimizar brillo y mostrar overlay negro — toca para restaurar</string>
-    <string name="xml_brightness_controls">Controles de brillo</string>
-    <string name="xml_brightness_controls_desc">Añadir teclas de brillo al panel</string>
+    <string name="xml_black_screen_desc">Muestra un overlay negro con brillo minimizado, retrocede para restaurar</string>
+    <string name="xml_brightness_controls">Control de brillo</string>
+    <string name="xml_brightness_controls_desc">Añade el botón de control deslizante de brillo al panel</string>
     <string name="xml_cd_app_icon">Icono de app</string>
     <string name="xml_cd_brightness_drag">Arrastra para ajustar brillo (arriba sube, abajo baja)</string>
     <string name="xml_cd_drag_reorder">Arrastrar para reordenar</string>
@@ -293,7 +293,7 @@
     <string name="xml_hint_title">Título</string>
     <string name="xml_lang_english">English</string>
     <string name="xml_link_shizuku">Vincular Shizuku</string>
-    <string name="xml_lock_screen_desc">Bloquear el dispositivo desde el panel</string>
+    <string name="xml_lock_screen_desc">Añade el botón de bloqueo de pantalla al panel</string>
     <string name="xml_main_trigger_gestures">Activador principal y gestos</string>
     <string name="xml_multitasking_windowing">Multitarea y ventanas</string>
     <string name="xml_native_gesture_desc">Root/Shizuku: alto rendimiento</string>
@@ -304,12 +304,12 @@
     <string name="xml_one_column">1 columna</string>
     <string name="xml_overlay_permission">Permiso de superposición</string>
     <string name="xml_overlay_permission_desc">Mostrar sobre otras aplicaciones</string>
-    <string name="xml_power_menu_desc">Añadir herramientas de apagado/reinicio</string>
+    <string name="xml_power_menu_desc">Añade el botón de menú de apagado al panel</string>
     <string name="xml_required">Requerido</string>
     <string name="xml_revoke">Revocar</string>
     <string name="xml_screen_edge_side">Lado del borde</string>
-    <string name="xml_screenshot_button">Botón de captura</string>
-    <string name="xml_screenshot_button_desc">Mostrar botón de captura en el panel</string>
+    <string name="xml_screenshot_button">Captura</string>
+    <string name="xml_screenshot_button_desc">Añade el botón de captura al panel</string>
     <string name="xml_search_smart_edge">Buscar Smart Edge…</string>
     <string name="xml_service_integration">Integración de servicios</string>
     <string name="xml_shape_circle">Círculo</string>
@@ -328,8 +328,8 @@
     <string name="xml_tab_custom">CUSTOM</string>
 
     <string name="xml_vertical_position">Posición vertical</string>
-    <string name="xml_volume_controls">Controles de volumen</string>
-    <string name="xml_volume_controls_desc">Añadir teclas de volumen al panel</string>
+    <string name="xml_volume_controls">Control de volumen</string>
+    <string name="xml_volume_controls_desc">Añade el botón de control deslizante de volumen al panel</string>
     <string name="xml_welcome">Bienvenido a Smart Edge</string>
     <string name="xml_welcome_subtitle">Centro de control fluido y de código abierto</string>
     <string name="xml_ram_placeholder">RAM: --</string>

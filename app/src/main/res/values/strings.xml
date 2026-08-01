@@ -302,9 +302,9 @@
     <string name="xml_battery_optimization">Battery optimization</string>
 
     <string name="xml_black_screen">Black Screen</string>
-    <string name="xml_black_screen_desc">Minimize brightness and show a black overlay — tap to restore</string>
-    <string name="xml_brightness_controls">Brightness Controls</string>
-    <string name="xml_brightness_controls_desc">Add Brightness Up/Down keys to the dashboard</string>
+    <string name="xml_black_screen_desc">Shows a black overlay with minimize brightness, back to restore</string>
+    <string name="xml_brightness_controls">Brightness Control</string>
+    <string name="xml_brightness_controls_desc">Adds Brightness slider button to the dashboard</string>
     <string name="xml_cd_app_icon">App icon</string>
     <string name="xml_cd_brightness_drag">Drag to adjust brightness (up increases, down decreases)</string>
     <string name="xml_cd_drag_reorder">Drag to reorder</string>
@@ -330,7 +330,7 @@
     <string name="xml_hint_title">Title</string>
     <string name="xml_lang_english">English</string>
     <string name="xml_link_shizuku">Link Shizuku</string>
-    <string name="xml_lock_screen_desc">Lock the device immediately from the sidebar</string>
+    <string name="xml_lock_screen_desc">Adds Lock Screen button to the dashboard</string>
     <string name="xml_main_trigger_gestures">Main Trigger &amp; Gestures</string>
     <string name="xml_multitasking_windowing">Multitasking &amp; Windowing</string>
     <string name="xml_native_gesture_desc">Root/Shizuku: High performance</string>
@@ -341,12 +341,12 @@
     <string name="xml_one_column">1 Column</string>
     <string name="xml_overlay_permission">Overlay permission</string>
     <string name="xml_overlay_permission_desc">Draw over other applications</string>
-    <string name="xml_power_menu_desc">Add Power/Reboot tools to the dashboard</string>
+    <string name="xml_power_menu_desc">Adds Power Menu button to the dashboard</string>
     <string name="xml_required">Required</string>
     <string name="xml_revoke">Revoke</string>
     <string name="xml_screen_edge_side">Screen Edge Side</string>
-    <string name="xml_screenshot_button">Screenshot Button</string>
-    <string name="xml_screenshot_button_desc">Show a screenshot button at the bottom of the sidebar</string>
+    <string name="xml_screenshot_button">Screenshot</string>
+    <string name="xml_screenshot_button_desc">Adds Screenshot button to the dashboard</string>
     <string name="xml_search_smart_edge">Search Smart Edge…</string>
     <string name="xml_service_integration">Service Integration</string>
     <string name="xml_shape_circle">Circle</string>
@@ -365,8 +365,8 @@
     <string name="xml_tab_custom">CUSTOM</string>
 
     <string name="xml_vertical_position">Vertical Position</string>
-    <string name="xml_volume_controls">Volume Controls</string>
-    <string name="xml_volume_controls_desc">Add Volume Up/Down keys to the dashboard</string>
+    <string name="xml_volume_controls">Volume Control</string>
+    <string name="xml_volume_controls_desc">Adds Volume slider button to the dashboard</string>
     <string name="xml_welcome">Welcome to Smart Edge</string>
     <string name="xml_welcome_subtitle">Fluid and open-source control center</string>
     <string name="xml_ram_placeholder">RAM: --</string>

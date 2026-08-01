@@ -1038,7 +1038,11 @@ class SidePanelView @JvmOverloads constructor(
                 context.getString(R.string.indicator_auto_brightness_on)
             else
                 context.getString(R.string.indicator_auto_brightness_off)
-            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            // Show the auto-brightness state INSIDE the overlay (same mechanism as
+            // the dashboard brightness tool). A system Toast is a separate window
+            // that renders BELOW the overlay, so it was effectively invisible to
+            // the user when tapped from the sidebar button.
+            showToolIndicator(msg)
         } catch (_: Exception) {}
     }
 
