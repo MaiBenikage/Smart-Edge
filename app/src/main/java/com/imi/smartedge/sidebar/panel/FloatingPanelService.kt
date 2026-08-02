@@ -608,26 +608,27 @@ class FloatingPanelService : Service() {
         // a worker thread, touching the overlay View off the main thread would
         // crash. The guard keeps the contract safe without changing behavior.
         PanelAccessibilityService.contentPickerCallback = { controls ->
-            if (!contentPickerActive) return@contentPickerCallback
-            handler.post {
-                if (!contentPickerActive) return@post
-                if (controls.isEmpty()) {
-                    // No accessible controls (a11y service just restarted, or the
-                    // foreground window exposes nothing). Count consecutive empty
-                    // snapshots and give up after a short grace period so the user
-                    // is not stuck with a full-screen overlay that does nothing.
-                    contentPickerEmptySnapshots++
-                    if (contentPickerEmptySnapshots >= 3) {
+            if (contentPickerActive) {
+                handler.post {
+                    if (!contentPickerActive) return@post
+                    if (controls.isEmpty()) {
+                        // No accessible controls (a11y service just restarted, or the
+                        // foreground window exposes nothing). Count consecutive empty
+                        // snapshots and give up after a short grace period so the user
+                        // is not stuck with a full-screen overlay that does nothing.
+                        contentPickerEmptySnapshots++
+                        if (contentPickerEmptySnapshots >= 3) {
+                            contentPickerEmptySnapshots = 0
+                            showIndicator(getString(R.string.content_picker_no_controls))
+                            stopContentPicker()
+                            return@post
+                        }
+                    } else {
                         contentPickerEmptySnapshots = 0
-                        showIndicator(getString(R.string.content_picker_no_controls))
-                        stopContentPicker()
-                        return@post
                     }
-                } else {
-                    contentPickerEmptySnapshots = 0
+                    contentPickerControls = controls
+                    drawControlPickerBorders()
                 }
-                contentPickerControls = controls
-                drawControlPickerBorders()
             }
         }
 
