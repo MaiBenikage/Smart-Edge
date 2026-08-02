@@ -68,6 +68,7 @@ class ToolsSettingsActivity : AppCompatActivity() {
         binding.featureScreenshot.isChecked = panelPrefs.showScreenshotTool
         binding.featureBlackScreen.isChecked = panelPrefs.showBlackScreenTool
         binding.featureLockScreen.isChecked = panelPrefs.showLockScreenTool
+        binding.featureContentPicker.isChecked = panelPrefs.showContentPickerTool
         binding.featureToolsPanel.isChecked = panelPrefs.showToolsPanelButton
         // Device admin: reflect the REAL admin-active state (not just the pref),
         // so the switch truthfully shows whether Screen-Off-without-Lock works.
@@ -140,6 +141,11 @@ class ToolsSettingsActivity : AppCompatActivity() {
 
         binding.featureLockScreen.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.showLockScreenTool = isChecked
+            applyOnly()
+        }
+
+        binding.featureContentPicker.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.showContentPickerTool = isChecked
             applyOnly()
         }
 

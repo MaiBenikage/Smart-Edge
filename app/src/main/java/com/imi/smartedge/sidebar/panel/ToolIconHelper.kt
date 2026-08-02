@@ -30,7 +30,8 @@ object ToolIconHelper {
         "lock_screen" to R.drawable.ic_tool_lock_screen,
         "volume" to R.drawable.ic_tool_volume,
         "brightness" to R.drawable.ic_tool_brightness,
-        "power" to R.drawable.ic_tool_power_menu
+        "power" to R.drawable.ic_tool_power_menu,
+        "content_picker" to R.drawable.ic_tool_content_picker
     )
 
     fun forToolId(context: Context, toolId: String, sizeDp: Int = 24): Drawable? {

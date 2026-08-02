@@ -61,6 +61,7 @@ class PanelPreferences(context: Context) {
         private const val KEY_SHOW_BRIGHTNESS_KEYS = "show_brightness_keys"
         private const val KEY_SHOW_BLACK_SCREEN_TOOL = "show_black_screen_tool"
         private const val KEY_SHOW_LOCK_SCREEN_TOOL = "show_lock_screen_tool"
+        private const val KEY_SHOW_CONTENT_PICKER_TOOL = "show_content_picker_tool"
         private const val KEY_ENABLE_DEVICE_ADMIN = "enable_device_admin_for_black_screen"
         private const val KEY_HOME_BUTTON_STYLE = "home_button_style"
         private const val KEY_SCALE_FACTOR = "scale_factor"
@@ -185,6 +186,7 @@ class PanelPreferences(context: Context) {
         const val DEFAULT_THEME_MODE = MODE_SYSTEM
         const val DEFAULT_SHOW_TOOLS = true
         const val DEFAULT_SHOW_TOOLS_PANEL = true
+        const val DEFAULT_SHOW_CONTENT_PICKER_TOOL = false
         const val DEFAULT_SLIDE_BRIGHTNESS = true
         const val DEFAULT_SLIDE_VOLUME = true
         const val DEFAULT_SLIDE_SENSITIVITY = 100
@@ -289,6 +291,7 @@ class PanelPreferences(context: Context) {
             KEY_SHOW_BRIGHTNESS_KEYS to showBrightnessKeys,
             KEY_SHOW_BLACK_SCREEN_TOOL to showBlackScreenTool,
             KEY_SHOW_LOCK_SCREEN_TOOL to showLockScreenTool,
+            KEY_SHOW_CONTENT_PICKER_TOOL to showContentPickerTool,
             KEY_ENABLE_DEVICE_ADMIN to enableDeviceAdmin,
             KEY_SLIDE_BRIGHTNESS_ENABLED to slideBrightnessEnabled,
             KEY_SLIDE_VOLUME_ENABLED to slideVolumeEnabled,
@@ -410,6 +413,7 @@ class PanelPreferences(context: Context) {
                 putBoolIfPresent(KEY_SHOW_BRIGHTNESS_KEYS, showBrightnessKeys)
                 putBoolIfPresent(KEY_SHOW_BLACK_SCREEN_TOOL, showBlackScreenTool)
             putBoolIfPresent(KEY_SHOW_LOCK_SCREEN_TOOL, showLockScreenTool)
+                putBoolIfPresent(KEY_SHOW_CONTENT_PICKER_TOOL, showContentPickerTool)
                 putBoolIfPresent(KEY_ENABLE_DEVICE_ADMIN, enableDeviceAdmin)
                 putBoolIfPresent(KEY_SLIDE_BRIGHTNESS_ENABLED, slideBrightnessEnabled)
                 putBoolIfPresent(KEY_SLIDE_VOLUME_ENABLED, slideVolumeEnabled)
@@ -483,6 +487,8 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_SHOW_VOLUME_KEYS, false)
             putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, false)
             putBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, true)
+            putBoolean(KEY_SHOW_LOCK_SCREEN_TOOL, true)
+            putBoolean(KEY_SHOW_CONTENT_PICKER_TOOL, DEFAULT_SHOW_CONTENT_PICKER_TOOL)
             putBoolean(KEY_ENABLE_DEVICE_ADMIN, false)
             putBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, DEFAULT_SLIDE_BRIGHTNESS)
             putBoolean(KEY_SLIDE_VOLUME_ENABLED, DEFAULT_SLIDE_VOLUME)
@@ -587,6 +593,10 @@ class PanelPreferences(context: Context) {
     var showLockScreenTool: Boolean
         get() = prefs.getBoolean(KEY_SHOW_LOCK_SCREEN_TOOL, true)
         set(value) = prefs.edit { putBoolean(KEY_SHOW_LOCK_SCREEN_TOOL, value) }
+
+    var showContentPickerTool: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_CONTENT_PICKER_TOOL, DEFAULT_SHOW_CONTENT_PICKER_TOOL)
+        set(value) = prefs.edit { putBoolean(KEY_SHOW_CONTENT_PICKER_TOOL, value) }
 
     /** Enable Device Admin so Black Screen can truly turn the screen off
      *  without showing the lock screen (setKeyguardDisabled). */

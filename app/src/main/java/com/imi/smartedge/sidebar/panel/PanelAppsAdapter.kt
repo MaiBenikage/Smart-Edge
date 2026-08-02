@@ -144,6 +144,14 @@ class PanelAppsAdapter(
         val isRich = panelPrefs.uiTheme == PanelPreferences.THEME_RICH
         
         if (holder is AppViewHolder) {
+            // RecyclerView reuses itemView instances. A cell previously bound to a
+            // drag-enabled tool (volume/brightness) carries its OnTouchListener into
+            // the next bind. Without clearing it here, a recycled non-drag item
+            // (screenshot, content_picker, an app, a folder) would keep the stale
+            // touch listener: it swallows ACTION_DOWN (first tap does nothing) and
+            // its captured `app` fires the WRONG tool on the next tap. Clear first,
+            // then DRAG_TOOLS rebinding below re-installs the drag listener.
+            holder.itemView.setOnTouchListener(null)
             // Restore original sizes + scaling
             var baseIconSize = if (isRich) 44 else 40
             if (currentColumns == 2) baseIconSize = (baseIconSize * 1.1).toInt() // 10% larger in 2-col

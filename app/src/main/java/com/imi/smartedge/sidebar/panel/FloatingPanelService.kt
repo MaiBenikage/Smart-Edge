@@ -69,9 +69,10 @@ class FloatingPanelService : Service() {
     private var contentPickerOverlayParams: WindowManager.LayoutParams? = null
     private var contentPickerControls: List<ContentInfo> = emptyList()
     private var contentPickerActive = false
-    private val contentPickerRefreshMs = 600L // reuses the screenshot-restore interval
     private val contentPickerRefreshRunnable = Runnable { refreshControlPickerBorders() }
     private val contentPickerBorderColor = android.graphics.Color.YELLOW
+    /** Consecutive empty snapshots (no accessible controls) seen so far. */
+    private var contentPickerEmptySnapshots = 0
 
     private var isPanelOpen = false
     private var isPickerOpen = false
@@ -178,6 +179,7 @@ class FloatingPanelService : Service() {
         // Timing (ms)
         const val SCREENSHOT_TRIGGER_DELAY_MS = 200L
         const val SCREENSHOT_RESTORE_DELAY_MS = 600L
+        const val CONTENT_PICKER_REFRESH_MS = 1200L
         const val BLACK_SCREEN_OVERLAY_DELAY_MS = 150L
         const val PICKER_CLOSE_COLUMNS_DELAY_MS = 250L
         const val SCREEN_OFF_TIMEOUT_MIN_MS = 1000
@@ -601,14 +603,37 @@ class FloatingPanelService : Service() {
 
         // Register the snapshot callback on the accessibility service BEFORE
         // requesting the first refresh so no race drops the initial frame.
+        // The accessibility service runs on the main looper, but we guard with
+        // postToMain anyway: if a future refactor ever calls the callback from
+        // a worker thread, touching the overlay View off the main thread would
+        // crash. The guard keeps the contract safe without changing behavior.
         PanelAccessibilityService.contentPickerCallback = { controls ->
-            if (contentPickerActive) {
+            if (!contentPickerActive) return@contentPickerCallback
+            handler.post {
+                if (!contentPickerActive) return@post
+                if (controls.isEmpty()) {
+                    // No accessible controls (a11y service just restarted, or the
+                    // foreground window exposes nothing). Count consecutive empty
+                    // snapshots and give up after a short grace period so the user
+                    // is not stuck with a full-screen overlay that does nothing.
+                    contentPickerEmptySnapshots++
+                    if (contentPickerEmptySnapshots >= 3) {
+                        contentPickerEmptySnapshots = 0
+                        showIndicator(getString(R.string.content_picker_no_controls))
+                        stopContentPicker()
+                        return@post
+                    }
+                } else {
+                    contentPickerEmptySnapshots = 0
+                }
                 contentPickerControls = controls
                 drawControlPickerBorders()
             }
         }
 
-        // Full-screen transparent overlay that draws yellow borders and receives taps.
+        // Full-screen dim overlay that draws yellow borders and receives taps.
+        // Background #14141414 is a subtle dim so the user can tell the picker is
+        // active and knows the tap target area, without fully hiding the page.
         val overlay = object : android.widget.FrameLayout(this) {
             private val borderPaint = android.graphics.Paint().apply {
                 color = contentPickerBorderColor
@@ -629,8 +654,20 @@ class FloatingPanelService : Service() {
                 }
                 return true
             }
+            // Pressing Back anywhere dismisses the picker (same as tapping an
+            // empty area). Without this the full-screen overlay would keep
+            // consuming input and the system Back would be unreachable.
+            override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+                if (event.action == android.view.KeyEvent.ACTION_DOWN &&
+                    event.keyCode == android.view.KeyEvent.KEYCODE_BACK
+                ) {
+                    stopContentPicker()
+                    return true
+                }
+                return super.dispatchKeyEvent(event)
+            }
         }.apply {
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            setBackgroundColor(android.graphics.Color.parseColor("#14141414"))
             isClickable = true
             isFocusable = true
             isFocusableInTouchMode = true
@@ -656,14 +693,16 @@ class FloatingPanelService : Service() {
         } catch (e: Exception) {
             contentPickerActive = false
             PanelAccessibilityService.contentPickerCallback = null
+            contentPickerEmptySnapshots = 0
             Log.e(TAG, "Failed to add control picker overlay", e)
             return
         }
 
         // Request the first snapshot, then keep refreshing on the shared interval
-        // (same 600ms used by the screenshot restore fallback).
+        // (1200ms — frequent enough to track scrolling pages without hammering
+        // the accessibility tree traversal on the main thread).
         requestControlPickerRefresh()
-        handler.postDelayed(contentPickerRefreshRunnable, contentPickerRefreshMs)
+        handler.postDelayed(contentPickerRefreshRunnable, CONTENT_PICKER_REFRESH_MS)
         showIndicator(getString(R.string.content_picker_hint))
     }
 
@@ -681,7 +720,7 @@ class FloatingPanelService : Service() {
     private fun refreshControlPickerBorders() {
         if (!contentPickerActive) return
         requestControlPickerRefresh()
-        handler.postDelayed(contentPickerRefreshRunnable, contentPickerRefreshMs)
+        handler.postDelayed(contentPickerRefreshRunnable, CONTENT_PICKER_REFRESH_MS)
     }
 
     private fun drawControlPickerBorders() {
@@ -730,6 +769,7 @@ class FloatingPanelService : Service() {
         if (!contentPickerActive) return
         contentPickerActive = false
         handler.removeCallbacks(contentPickerRefreshRunnable)
+        contentPickerEmptySnapshots = 0
         PanelAccessibilityService.contentPickerCallback = null
         contentPickerControls = emptyList()
         contentPickerOverlay?.let { ov ->

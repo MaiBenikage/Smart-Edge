@@ -320,6 +320,8 @@
     <string name="xml_lang_english">English</string>
     <string name="xml_link_shizuku">Link Shizuku</string>
     <string name="xml_lock_screen_desc">Adds Lock Screen button to the dashboard</string>
+    <string name="xml_content_picker_item">Content Picker</string>
+    <string name="xml_content_picker_item_desc">Adds Content Picker button to the dashboard</string>
     <string name="xml_main_trigger_gestures">Main Trigger &amp; Gestures</string>
     <string name="xml_native_gesture_desc">Root/Shizuku: High performance</string>
     <string name="xml_no_items">No items</string>
@@ -484,5 +486,6 @@
     <string name="tool_name_content_picker">Content Picker</string>
     <string name="content_picker_hint">Tap a control to copy it</string>
     <string name="content_picker_copied">Copied to clipboard</string>
+    <string name="content_picker_no_controls">No controls detected — picker closed</string>
     <string name="tool_name_tools">Tools</string>
 </resources>

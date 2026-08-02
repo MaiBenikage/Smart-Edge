@@ -278,6 +278,14 @@ class SidePanelView @JvmOverloads constructor(
             onLockScreen?.invoke()
         }
 
+        binding.btnContentPicker.setOnClickListener {
+            if (panelPrefs.hapticEnabled) {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+            }
+            SpringAnimator.scalePulse(it)
+            onToolClick?.invoke("smartedge.tool.content_picker")
+        }
+
         // ── Drag-to-adjust buttons (Volume + Brightness) ──
         // Replaces the 4 old ±buttons. Each drag button:
         //   • tap (no drag)          → single forward bump
@@ -389,7 +397,8 @@ class SidePanelView @JvmOverloads constructor(
                 panelPrefs.showBrightnessKeys,
                 panelPrefs.showScreenshotTool,
                 panelPrefs.showBlackScreenTool,
-                panelPrefs.showLockScreenTool
+                panelPrefs.showLockScreenTool,
+                panelPrefs.showContentPickerTool
             )
             val enabledCount = enabledTools.count { it }
             val hasStandardTools = enabledCount > 0
@@ -614,7 +623,8 @@ class SidePanelView @JvmOverloads constructor(
             binding.btnBrightnessDrag to "brightness",
             binding.btnReboot to "power",
             binding.btnBlackScreen to "black_screen",
-            binding.btnLockScreen to "lock_screen"
+            binding.btnLockScreen to "lock_screen",
+            binding.btnContentPicker to "content_picker"
         )
         for ((btn, key) in pairs) {
             val icon = ToolIconHelper.forDashboard(context, key, 22)
@@ -651,9 +661,12 @@ class SidePanelView @JvmOverloads constructor(
         val showLockScreen = panelPrefs.showLockScreenTool
         binding.layoutLockScreenTools.visibility = if (showLockScreen) View.VISIBLE else View.GONE
 
+        val showContentPicker = panelPrefs.showContentPickerTool
+        binding.layoutContentPickerTools.visibility = if (showContentPicker) View.VISIBLE else View.GONE
+
         // Hide divider when no standard interactive tools are visible
         // (only SysInfo enabled = no divider needed)
-        val hasStandardTools = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen || showLockScreen
+        val hasStandardTools = showPower || showVolume || showBrightness || showScreenshot || showBlackScreen || showLockScreen || showContentPicker
         binding.toolsDivider.visibility = if (hasStandardTools) View.VISIBLE else View.GONE
 
         if (panelPrefs.hideBackground) {
@@ -1072,7 +1085,8 @@ class SidePanelView @JvmOverloads constructor(
         binding.layoutBrightnessTools,
         binding.layoutScreenshotTools,
         binding.layoutBlackScreenTools,
-        binding.layoutLockScreenTools
+        binding.layoutLockScreenTools,
+        binding.layoutContentPickerTools
     )
 
     /**

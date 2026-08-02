@@ -210,6 +210,28 @@
                 android:tint="#D9FFFFFF" />
         </LinearLayout>
 
+        <!-- Content Picker -->
+        <LinearLayout
+            android:id="@+id/layoutContentPickerTools"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:visibility="gone">
+            <ImageButton
+                android:id="@+id/btnContentPicker"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_close_btn"
+                android:backgroundTint="#1AFFFFFF"
+                android:padding="8dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_tool_content_picker"
+                android:contentDescription="@string/tool_name_content_picker"
+                android:tint="#D9FFFFFF" />
+        </LinearLayout>
+
     </android.widget.GridLayout>
 
         <!-- System Info: standalone section below tools grid, always centered. -->
