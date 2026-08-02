@@ -19,6 +19,15 @@ import android.provider.Settings
 import java.lang.reflect.Method
 
 /**
+ * Shared UI timing constants (ms). Used across multiple views so that
+ * identical animations stay in sync (indicator show/fade, scale-reset).
+ */
+const val INDICATOR_SHOW_DURATION_MS = 1500L
+const val INDICATOR_FADE_DURATION_MS = 300L
+const val SCALE_RESET_DURATION_MS = 150L
+const val LONG_PRESS_DRAG_MS = 600L
+
+/**
  * Extension to show a modern, very compact "Toast" using Snackbar.
  * Uses Material You dynamic colors and a sleeker mini-pill shape.
  */
@@ -94,18 +103,20 @@ fun View.highlightView() {
     // Use colorPrimary for maximum contrast and brand consistency
     context.theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, typedValue, true)
     val highlightColor = typedValue.data
+    val bounceDurationMs = 200L
+    val settleDurationMs = 300L
     
     // 1. Attention-grabbing Bounce
     this.animate()
         .scaleX(1.05f)
         .scaleY(1.05f)
-        .setDuration(200)
+        .setDuration(bounceDurationMs)
         .setInterpolator(android.view.animation.OvershootInterpolator())
         .withEndAction {
             this.animate()
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(300)
+                .setDuration(settleDurationMs)
                 .setInterpolator(android.view.animation.DecelerateInterpolator())
                 .start()
         }
@@ -307,18 +318,6 @@ object VivoUtils {
         val manufacturer = android.os.Build.MANUFACTURER.lowercase()
         return manufacturer.contains("vivo") || manufacturer.contains("iqoo")
     }
-}
-
-/**
- * Checks if 'Enable freeform windows' is turned on in Developer Options.
- */
-fun Context.isFreeformEnabled(): Boolean {
-    val freeformPref = android.provider.Settings.Global.getInt(contentResolver, "freeform_window_management", 0) != 0
-    val freeformSupport = android.provider.Settings.Global.getInt(contentResolver, "enable_freeform_support", 0) != 0
-    val forceResizable = android.provider.Settings.Global.getInt(contentResolver, "force_resizable_activities", 0) != 0
-
-    // Relaxed check: if any of the core freeform toggles are enabled.
-    return freeformPref || freeformSupport || forceResizable
 }
 
 fun Context.getAutoScalingFactor(): Float {

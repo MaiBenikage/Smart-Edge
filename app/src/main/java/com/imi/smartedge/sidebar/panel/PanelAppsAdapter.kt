@@ -29,7 +29,6 @@ class PanelAppsAdapter(
     private var showAddButton: Boolean = false
     var isEditMode: Boolean = false // Expose to SidePanelView for ItemTouchHelper
     private var currentColumns: Int = 1
-    private var forceFreeform: Boolean = false
     
     private var mutableApps = mutableListOf<AppInfo>()
     val currentList: List<AppInfo> get() = mutableApps
@@ -60,10 +59,6 @@ class PanelAppsAdapter(
             isEditMode = show
             notifyDataSetChanged()
         }
-    }
-
-    fun setForceFreeform(force: Boolean) {
-        forceFreeform = force
     }
 
     fun setColumns(cols: Int) {
@@ -291,24 +286,16 @@ class PanelAppsAdapter(
                         android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
                         android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
                     )
-                    
-                    val shouldFreeform = forceFreeform || (panelPrefs.freeformEnabled && context.isFreeformEnabled())
-                    val isAccessibilityShortcut = app.type == AppInfo.Type.SHORTCUT && 
-                                               (app.packageName == "smartedge.shortcut.one_hand" || 
-                                                app.packageName == "smartedge.shortcut.reboot")
-                    
-                    if (shouldFreeform && context.isFreeformEnabled() && app.type != AppInfo.Type.SHORTCUT) {
-                        launchFreeform(launchIntent)
-                    } else {
-                        try {
-                            if (isAccessibilityShortcut) {
-                                context.startService(launchIntent)
-                            } else {
-                                context.startActivity(launchIntent)
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+                    try {
+                        if (app.type == AppInfo.Type.SHORTCUT &&
+                            (app.packageName == "smartedge.shortcut.one_hand" ||
+                             app.packageName == "smartedge.shortcut.reboot")) {
+                            context.startService(launchIntent)
+                        } else {
+                            context.startActivity(launchIntent)
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                     // Close panel AFTER initiating launch
                     onAppLaunched()
@@ -323,7 +310,7 @@ class PanelAppsAdapter(
                 val density = context.resources.displayMetrics.density
                 val tickPx = 14f * density
                 val tapSlopPx = 8f * density
-                val longPressMs = 1000L
+                val longPressMs = LONG_PRESS_DRAG_MS
                 val armTag = 0x20F15EED
                 holder.itemView.setOnTouchListener { v, event ->
                     when (event.actionMasked) {
@@ -369,7 +356,7 @@ class PanelAppsAdapter(
                             true
                         }
                         android.view.MotionEvent.ACTION_UP -> {
-                            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                             (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
                             val armed = v.getTag(armTag) as? Boolean ?: false
                             val totalTravel = Math.abs(event.rawY - dragState[2])
@@ -380,7 +367,7 @@ class PanelAppsAdapter(
                             true
                         }
                         android.view.MotionEvent.ACTION_CANCEL -> {
-                            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                             (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
                             v.setTag(armTag, false)
                             true
@@ -391,29 +378,9 @@ class PanelAppsAdapter(
             }
 
             holder.itemView.setOnLongClickListener {
-                if (isEditMode) {
-                    return@setOnLongClickListener false // Let ItemTouchHelper handle it
-                }
-
-                if (!panelPrefs.dragToSplit) {
-                    // Do nothing if drag-to-split is disabled and we're not in edit mode
-                    return@setOnLongClickListener true
-                }
-
-                // Drag to Split Logic
-                if (panelPrefs.hapticEnabled) {
-                    holder.itemView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                }
-                
-                val clipData = android.content.ClipData.newPlainText("pkg", app.packageName)
-                val shadow = View.DragShadowBuilder(holder.ivIcon)
-                
-                // minSdk = 26, so the SDK_INT >= N (API 24) fork is always true.
-                // View.startDrag is deprecated in API 24; the modern startDragAndDrop
-                // (API 24+) is the only reachable path.
-                holder.itemView.startDragAndDrop(clipData, shadow, app.packageName, 0)
-                
-                true
+                // Edit-mode long-press is handled by ItemTouchHelper (drag to reorder).
+                // Drag-to-split was removed (unreliable on Android 14+).
+                return@setOnLongClickListener isEditMode
             }
         } else if (holder is AddViewHolder) {
             val baseIconSize = 40
@@ -448,94 +415,6 @@ class PanelAppsAdapter(
                 SpringAnimator.scalePulse(holder.itemView)
                 onAddClick(true)
             }
-        }
-    }
-
-    @android.annotation.SuppressLint("BlockedPrivateApi")
-    private fun launchFreeform(intent: Intent) {
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-        // Add intent extras that some OEMs/ROMs respect for freeform launching
-        intent.putExtra("android.intent.extra.WINDOWING_MODE", 5)
-        intent.putExtra("android.intent.extra.LAUNCH_WINDOWING_MODE", 5)
-        
-        try {
-            val options = android.app.ActivityOptions.makeBasic()
-            val displayMetrics = context.resources.displayMetrics
-            val w = displayMetrics.widthPixels
-            val h = displayMetrics.heightPixels
-            val prefersLandscape = detectLandscapeOrientation(intent.`package`, intent)
-
-            val bounds: Rect = when (panelPrefs.freeformWindowMode) {
-                PanelPreferences.FREEFORM_MODE_PORTRAIT -> {
-                    val left = w / 3
-                    val top = h / 15
-                    Rect(left, top, w - left, h - top)
-                }
-                PanelPreferences.FREEFORM_MODE_MAXIMIZED -> Rect(0, 0, w, h)
-                PanelPreferences.FREEFORM_MODE_CUSTOM -> {
-                    val winW = (w * panelPrefs.freeformCustomWidth / 100.0).toInt()
-                    val winH = (h * panelPrefs.freeformCustomHeight / 100.0).toInt()
-                    val left = (w - winW) / 2
-                    val top = (h - winH) / 2
-                    Rect(left, top, left + winW, top + winH)
-                }
-                else -> {
-                    if (prefersLandscape) {
-                        // 16:9 wide aspect for games/landscape apps
-                        val targetW = if (w > h) (w * 0.80).toInt() else (w * 0.90).toInt()
-                        val targetH = (targetW / 1.77).toInt().coerceAtMost((h * 0.85).toInt())
-                        val left = (w - targetW) / 2
-                        val top = (h - targetH) / 2
-                        Rect(left, top, left + targetW, top + targetH)
-                    } else {
-                        // 9:16 portrait aspect for normal apps (fixed for landscape host)
-                        val targetH = (h * 0.85).toInt()
-                        val targetW = (targetH * 9 / 16).toInt().coerceAtMost((w * 0.85).toInt())
-                        val left = (w - targetW) / 2
-                        val top = (h - targetH) / 2
-                        Rect(left, top, left + targetW, top + targetH)
-                    }
-                }
-            }
-            options.launchBounds = bounds
-            Log.d("PanelAppsAdapter", "Launching Freeform: pkg=${intent.`package`}, bounds=$bounds")
-
-            // Use HiddenApiBypass instead of direct reflection to avoid F-Droid lint errors
-            try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    org.lsposed.hiddenapibypass.HiddenApiBypass.invoke(
-                        android.app.ActivityOptions::class.java,
-                        options,
-                        "setLaunchWindowingMode",
-                        5
-                    )
-                    Log.d("PanelAppsAdapter", "HiddenApiBypass: setLaunchWindowingMode(5) success")
-                }
-            } catch (e: Exception) {
-                Log.e("PanelAppsAdapter", "HiddenApiBypass fail: ${e.message}")
-            }
-            context.startActivity(intent, options.toBundle())
-            Log.d("PanelAppsAdapter", "startActivity called with options")
-        } catch (e: Exception) {
-            context.startActivity(intent)
-        }
-    }
-
-    private fun detectLandscapeOrientation(packageName: String?, intent: Intent? = null): Boolean {
-        val pkg = packageName ?: intent?.`package` ?: intent?.component?.packageName ?: return false
-        return try {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)
-            val component = launchIntent?.component ?: return false
-            val activityInfo = context.packageManager.getActivityInfo(component, android.content.pm.PackageManager.GET_META_DATA)
-            when (activityInfo.screenOrientation) {
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE -> true
-                else -> false
-            }
-        } catch (e: Exception) {
-            false
         }
     }
 }

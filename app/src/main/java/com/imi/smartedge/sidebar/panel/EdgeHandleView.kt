@@ -68,7 +68,6 @@ class EdgeHandleView @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
     private val triggerThreshold = 16 * density
-    private val holdDurationMs = 250L
 
     // ── Drag-to-reposition state ──────────────────────────────────────────────
     private var isDragMode = false
@@ -86,7 +85,7 @@ class EdgeHandleView @JvmOverloads constructor(
             // If we didn't enter drag mode, vibrate and reset scale
             if (!isDragMode) {
                 vibrateHaptic(40)
-                animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
             }
         }
     }
@@ -97,7 +96,7 @@ class EdgeHandleView @JvmOverloads constructor(
         vibrateHaptic()
         onTrigger?.invoke()
         if (showPill) {
-            animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+            animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
         }
     }
 
@@ -123,7 +122,7 @@ class EdgeHandleView @JvmOverloads constructor(
         isTempHighAlpha = true
         alpha = 1.0f
         handler.removeCallbacks(resetAlphaRunnable)
-        handler.postDelayed(resetAlphaRunnable, 3000)
+        handler.postDelayed(resetAlphaRunnable, TEMP_ALPHA_RESET_DELAY_MS)
     }
 
     private fun performAction(actionId: Int) {
@@ -148,7 +147,7 @@ class EdgeHandleView @JvmOverloads constructor(
         }
 
         // Grow the pill slightly to signal drag mode
-        animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).start()
+        animate().scaleX(1.2f).scaleY(1.2f).setDuration(SCALE_RESET_DURATION_MS).start()
     }
 
     private fun triggerPanel() {
@@ -337,7 +336,7 @@ class EdgeHandleView @JvmOverloads constructor(
                 handler.postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
 
                 if (showPill && panelPrefs.gesturesEnabled) {
-                    animate().scaleX(0.85f).scaleY(0.95f).setDuration(100).start()
+                    animate().scaleX(0.85f).scaleY(0.95f).setDuration(SCALE_PRESS_SMALL_DURATION_MS).start()
                 }
 
                 // Record current window Y for drag baseline (fallback)
@@ -471,9 +470,9 @@ class EdgeHandleView @JvmOverloads constructor(
                     handler.removeCallbacks(longPressRunnable)
                     
                     val effectiveHoldTime = if (isGameActive && panelPrefs.deliberateGestureInGames) {
-                        holdDurationMs * 2 
+                        HOLD_DURATION_MS * 2 
                     } else {
-                        holdDurationMs
+                        HOLD_DURATION_MS
                     }
                     
                     handler.postDelayed(holdRunnable, effectiveHoldTime)
@@ -499,12 +498,12 @@ class EdgeHandleView @JvmOverloads constructor(
                 if (isDragMode) {
                     saveFinalPosition()
                     isDragMode = false
-                    animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                    animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                     return true
                 }
 
                 if (showPill && !isTriggered && panelPrefs.gesturesEnabled) {
-                    animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                    animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 }
 
                 if (hasPassedThreshold && !isTriggered) {
@@ -624,5 +623,11 @@ class EdgeHandleView @JvmOverloads constructor(
             updateLayoutSafely(params)
         }
         updatePill()
+    }
+
+    private companion object {
+        const val HOLD_DURATION_MS = 250L
+        const val TEMP_ALPHA_RESET_DELAY_MS = 3000L
+        const val SCALE_PRESS_SMALL_DURATION_MS = 100L
     }
 }

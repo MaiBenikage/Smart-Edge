@@ -233,62 +233,6 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 4. MULTITASKING & WINDOWING -->
-            <TextView
-                style="@style/App_SectionTitle"
-                android:text="@string/xml_multitasking_windowing" />
-
-            <com.google.android.material.card.MaterialCardView
-                style="@style/App_Card_Section"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <LinearLayout
-                    style="@style/App_CardContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_drag_split" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/xml_drag_to_split" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/xml_drag_to_split_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-
-                    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_freeform" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/xml_freeform_mode" android:textColor="?attr/colorOnSurface" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/xml_freeform_mode_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
-
-                    <!-- Window size mode picker — only visible when freeform is ON -->
-                    <LinearLayout
-                        android:id="@+id/layout_freeform_size"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:orientation="vertical"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackground"
-                        android:paddingVertical="8dp"
-                        android:visibility="gone">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/dialog_window_size"
-                            android:textColor="?attr/colorOnSurface"
-                            android:textSize="16sp" />
-
-                        <TextView
-                            android:id="@+id/tvFreeformSizeValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="@string/freeform_mode_standard"
-                            android:textColor="?attr/colorPrimary"
-                            android:textSize="13sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
             <!-- 5. SHORTCUTS & AUTOMATION -->
             <TextView
                 style="@style/App_SectionTitle"

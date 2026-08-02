@@ -47,6 +47,9 @@
                     <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_tools_panel" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="@string/xml_dedicated_tools_folder" android:textColor="?attr/colorOnSurface" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/xml_dedicated_tools_folder_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
 
+                    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/feature_device_admin" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="@string/xml_enable_device_admin" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/xml_enable_device_admin_desc" android:textColor="?attr/colorOnSurfaceVariant" android:textSize="11sp" />
+
                     <View android:id="@+id/divTools" android:layout_width="match_parent" android:layout_height="1dp" android:background="?attr/colorOutlineVariant" android:layout_marginVertical="16dp" />
 
                     <LinearLayout

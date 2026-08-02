@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <!-- setKeyguardDisabled(): allow the Black Screen tool to turn the
+             screen off without showing the lock screen on wake. -->
+    </uses-policies>
+</device-admin>

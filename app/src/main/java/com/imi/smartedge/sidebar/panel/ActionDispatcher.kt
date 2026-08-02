@@ -67,7 +67,6 @@ object ActionDispatcher {
                     PanelAccessibilityService.ACTION_RECENTS -> AutomationManager.performRecents()
                     PanelAccessibilityService.ACTION_NOTIFICATIONS -> AutomationManager.performNotifications()
                     PanelAccessibilityService.ACTION_QUICK_SETTINGS -> AutomationManager.performQuickSettings()
-                    PanelAccessibilityService.ACTION_SPLIT_SCREEN -> AutomationManager.performSplitScreen()
                     PanelAccessibilityService.ACTION_LOCK_SCREEN -> AutomationManager.performLockScreen()
                     PanelAccessibilityService.ACTION_SHOW_POWER_MENU -> AutomationManager.performPowerMenu()
                     PanelAccessibilityService.ACTION_TAKE_SCREENSHOT -> AutomationManager.takeScreenshot()

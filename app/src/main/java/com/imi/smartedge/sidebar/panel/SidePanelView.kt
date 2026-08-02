@@ -903,7 +903,6 @@ class SidePanelView @JvmOverloads constructor(
     //   [1] = last rawY that produced a step tick
     //   [2] = down rawY
     //   We also stash long-press armed state on the view tag to avoid expanding arrays.
-    private val longPressDragMs = 1000L
 
     private fun handleDragTouch(
         view: View,
@@ -935,7 +934,7 @@ class SidePanelView @JvmOverloads constructor(
                     }
                 }
                 view.setTag(tagKey + 1, arm)
-                view.postDelayed(arm, longPressDragMs)
+                view.postDelayed(arm, LONG_PRESS_DRAG_MS)
                 if (panelPrefs.hapticEnabled) {
                     view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
                 }
@@ -971,7 +970,7 @@ class SidePanelView @JvmOverloads constructor(
                 true
             }
             android.view.MotionEvent.ACTION_UP -> {
-                view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                view.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
                 val armed = view.getTag(tagKey) as? Boolean ?: false
                 val totalTravel = Math.abs(event.rawY - dragState[2])
@@ -982,7 +981,7 @@ class SidePanelView @JvmOverloads constructor(
                 true
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
-                view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                view.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
                 view.setTag(tagKey, false)
                 true
@@ -1038,7 +1037,11 @@ class SidePanelView @JvmOverloads constructor(
                 context.getString(R.string.indicator_auto_brightness_on)
             else
                 context.getString(R.string.indicator_auto_brightness_off)
-            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            // Show the auto-brightness state INSIDE the overlay (same mechanism as
+            // the dashboard brightness tool). A system Toast is a separate window
+            // that renders BELOW the overlay, so it was effectively invisible to
+            // the user when tapped from the sidebar button.
+            showToolIndicator(msg)
         } catch (_: Exception) {}
     }
 
@@ -1190,10 +1193,6 @@ class SidePanelView @JvmOverloads constructor(
         const val INDICATOR_BOTTOM_MARGIN_DP = 90
         const val INDICATOR_CORNER_RADIUS_DP = 24
         const val INDICATOR_ELEVATION_DP = 8
-
-        // Indicator timing (ms)
-        const val INDICATOR_FADE_DURATION_MS = 300L
-        const val INDICATOR_SHOW_DURATION_MS = 1500L
 
         // Brightness
         const val MAX_BRIGHTNESS = 255

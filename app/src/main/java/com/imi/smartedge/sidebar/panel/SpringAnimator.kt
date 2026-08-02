@@ -176,7 +176,7 @@ object SpringAnimator {
                 view.animate()
                     .scaleX(1f)
                     .scaleY(1f)
-                    .setDuration(150)
+                    .setDuration(SCALE_RESET_DURATION_MS)
                     .setInterpolator(fadeInterpolator)
                     .start()
             }

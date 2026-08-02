@@ -20,6 +20,7 @@ object ToolIconHelper {
         "smartedge.tool.lockscreen" to R.drawable.ic_tool_lock_screen,
         "smartedge.tool.volume_up" to R.drawable.ic_tool_volume,
         "smartedge.tool.brightness_up" to R.drawable.ic_tool_brightness,
+        "smartedge.tool.content_picker" to R.drawable.ic_tool_content_picker,
         "smartedge.shortcut.reboot" to R.drawable.ic_tool_power_menu
     )
 

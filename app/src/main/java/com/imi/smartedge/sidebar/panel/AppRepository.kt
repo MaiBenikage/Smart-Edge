@@ -31,7 +31,7 @@ class AppRepository(context: Context) {
 
     @Volatile private var activitiesCache: List<Pair<String, List<AppInfo>>>? = null
     @Volatile private var activitiesCacheAtMs: Long = 0L
-    private val activitiesCacheTtlMs = 60_000L
+    
     @Volatile private var labelsBackfillAttempted = false
 
     // Audit L3: cancel any in-flight icon preload jobs. Called from FloatingPanelService.onDestroy
@@ -56,6 +56,8 @@ class AppRepository(context: Context) {
         // entry count. 24 MiB covers ~96 fully-resolved 256×256 icons — more
         // than the working set for any realistic sidebar.
         private const val ICON_CACHE_BYTES = 24 * 1024 * 1024
+        /** Cache TTL for activities/shortcuts discovery (ms). */
+        private const val ACTIVITIES_CACHE_TTL_MS = 60_000L
         val iconCache = object : android.util.LruCache<String, android.graphics.drawable.Drawable>(ICON_CACHE_BYTES) {
             override fun sizeOf(key: String, value: android.graphics.drawable.Drawable): Int {
                 if (value is android.graphics.drawable.BitmapDrawable) {
@@ -362,7 +364,7 @@ class AppRepository(context: Context) {
     suspend fun getActivitiesByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         activitiesCache?.let { cached ->
-            if (now - activitiesCacheAtMs < activitiesCacheTtlMs) {
+            if (now - activitiesCacheAtMs < ACTIVITIES_CACHE_TTL_MS) {
                 val panelIdsCached = panelPrefs.getPanelApps().toSet()
                 return@withContext cached.map { (pkg, list) ->
                     pkg to list.map { it.copy(isInPanel = panelIdsCached.contains(it.identifier)) }

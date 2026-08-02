@@ -94,19 +94,6 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.featureRememberScroll.isChecked = panelPrefs.rememberScroll
         binding.featureAutoShowKeyboard.isChecked = panelPrefs.autoShowKeyboard
 
-        // 4. MULTITASKING & WINDOWING
-        binding.featureDragSplit.isChecked = panelPrefs.dragToSplit
-        binding.featureFreeform.isChecked = panelPrefs.freeformEnabled
-        binding.layoutFreeformSize.visibility = if (panelPrefs.freeformEnabled) View.VISIBLE else View.GONE
-        val sizeModeStr = when(panelPrefs.freeformWindowMode) {
-            PanelPreferences.FREEFORM_MODE_STANDARD -> "Standard (80%)"
-            PanelPreferences.FREEFORM_MODE_PORTRAIT -> "Portrait (Narrow)"
-            PanelPreferences.FREEFORM_MODE_MAXIMIZED -> "Maximized"
-            PanelPreferences.FREEFORM_MODE_CUSTOM -> "Custom (${panelPrefs.freeformCustomWidth}x${panelPrefs.freeformCustomHeight})"
-            else -> "Standard (80%)"
-        }
-        binding.tvFreeformSizeValue.text = sizeModeStr
-
         // 5. SHORTCUTS & AUTOMATION
         binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
 
@@ -343,38 +330,6 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.featureGameMode.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.deliberateGestureInGames = isChecked
             applyOnly()
-        }
-
-        val dragSplitSwitch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.feature_drag_split)
-        dragSplitSwitch?.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.dragToSplit = isChecked
-            applyOnly()
-        }
-
-        val freeformSwitch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.feature_freeform)
-        val freeformSizeLayout = findViewById<android.view.View>(R.id.layout_freeform_size)
-        val tvFreeformSizeValue = findViewById<android.widget.TextView>(R.id.tvFreeformSizeValue)
-        
-        freeformSwitch?.setOnCheckedChangeListener { _, isChecked ->
-            panelPrefs.freeformEnabled = isChecked
-            freeformSizeLayout?.visibility = if (isChecked) View.VISIBLE else View.GONE
-            applyOnly()
-        }
-
-        freeformSizeLayout?.setOnClickListener {
-            val options = arrayOf("Standard (80%)", "Portrait (Narrow)", "Maximized")
-            val values = arrayOf(PanelPreferences.FREEFORM_MODE_STANDARD, PanelPreferences.FREEFORM_MODE_PORTRAIT, PanelPreferences.FREEFORM_MODE_MAXIMIZED)
-            val currentIdx = values.indexOf(panelPrefs.freeformWindowMode).coerceAtLeast(0)
-
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dialog_freeform_window_size)
-                .setSingleChoiceItems(options, currentIdx) { dialog, which ->
-                    panelPrefs.freeformWindowMode = values[which]
-                    tvFreeformSizeValue?.text = options[which]
-                    dialog.dismiss()
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
         }
 
         binding.layoutFullscreenWhitelist.setOnClickListener {

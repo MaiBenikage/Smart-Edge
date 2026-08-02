@@ -82,12 +82,6 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private fun setupListeners() {
         binding.btnGrantPermission.setOnClickListener { requestOverlayPermission() }
         binding.btnIgnoreBattery.setOnClickListener { requestIgnoreBatteryOptimization() }
-        binding.btnFixFreeform.setOnClickListener {
-            val intent = Intent(this, InteractionSettingsActivity::class.java).apply {
-                putExtra(SettingsMainActivity.EXTRA_SCROLL_TO, "feature_freeform")
-            }
-            startActivity(intent)
-        }
         
         val toggleListener = View.OnClickListener { togglePanel() }
         binding.btnStartStop.setOnClickListener(toggleListener)
@@ -328,9 +322,6 @@ private fun requestOverlayPermission() {
 
         binding.cardPermission.visibility = if (granted) View.GONE else View.VISIBLE
         binding.cardBatteryOptimization.visibility = if (batteryCardVisible) View.VISIBLE else View.GONE
-
-        val freeformMismatch = panelPrefs.freeformEnabled && !isFreeformEnabled()
-        binding.cardFreeformOptimization.visibility = if (freeformMismatch) View.VISIBLE else View.GONE
         
         binding.btnStartStop.isEnabled = granted
         binding.btnStartStopClassic.isEnabled = granted

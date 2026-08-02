@@ -91,10 +91,6 @@
     <string name="alert_battery_desc">Exclude SidePanel from battery optimization to prevent the system from killing it in the background.</string>
     <string name="alert_battery_btn">Allow Background Use</string>
     
-    <string name="alert_freeform_title">Multitasking Mode</string>
-    <string name="alert_freeform_desc">Freeform Window Mode is enabled in settings but disabled in your system Developer Options.</string>
-    <string name="alert_freeform_btn">Fix in Settings</string>
-    
     <string name="alert_permission_title">Permission Required</string>
     <string name="alert_permission_desc">Please allow \'Display over other apps\' to use the sidebar.</string>
     <string name="alert_permission_btn">Grant Now</string>
@@ -160,8 +156,6 @@
     <string name="tap_gestures_summary">Tap: %1$s, 2x: %2$s, 3x: %3$s, Hold: %4$s</string>
     <string name="apps_selected_none">0 apps selected</string>
     
-    <string name="freeform_mode_standard">Standard (80%)</string>
-    
     <string name="anim_feel_calm">Calm (Slow)</string>
     <string name="anim_feel_balanced">Balanced (Default)</string>
     <string name="anim_feel_snappy">Snappy</string>
@@ -175,7 +169,6 @@
     <string name="please_wait_apps">Please wait while apps are being loaded.</string>
     <string name="hint_search_apps">Search apps…</string>
     <string name="btn_save">Save</string>
-    <string name="dialog_window_size">Window Size</string>
     
     <string name="picker_title_hide">Select Apps to Hide Sidebar</string>
     <string name="picker_title_game">Select Game Mode Apps</string>
@@ -233,9 +226,6 @@
 
     <!-- Audit PR-2: localized copy for engine loss + automation tips + drag overlays -->
     <string name="engine_lost_msg">Engine lost — gestures may fall back to Accessibility</string>
-    <string name="split_top">TOP SPLIT</string>
-    <string name="split_bottom">BOTTOM SPLIT</string>
-    <string name="split_freeform">FREEFORM WINDOW</string>
     <string name="automation_unavailable_tip">Native gesture requires Root or Shizuku. Tap to open Setup.</string>
     <string name="accessibility_or_native_gesture_tip">Enable SidePanel in Accessibility, OR turn on Native Gesture (Root/Shizuku) in Settings</string>
     <string name="write_secure_settings_explainer">WHO can change what: this permission lets Smart Edge write to Android\'s secure settings store (rotation, accessibility-related flags). It does not expose your apps or personal data to Smart Edge.</string>
@@ -302,9 +292,9 @@
     <string name="xml_battery_optimization">Battery optimization</string>
 
     <string name="xml_black_screen">Black Screen</string>
-    <string name="xml_black_screen_desc">Minimize brightness and show a black overlay — tap to restore</string>
-    <string name="xml_brightness_controls">Brightness Controls</string>
-    <string name="xml_brightness_controls_desc">Add Brightness Up/Down keys to the dashboard</string>
+    <string name="xml_black_screen_desc">Shows a black overlay with minimize brightness, back to restore</string>
+    <string name="xml_brightness_controls">Brightness Control</string>
+    <string name="xml_brightness_controls_desc">Adds Brightness slider button to the dashboard</string>
     <string name="xml_cd_app_icon">App icon</string>
     <string name="xml_cd_brightness_drag">Drag to adjust brightness (up increases, down decreases)</string>
     <string name="xml_cd_drag_reorder">Drag to reorder</string>
@@ -317,22 +307,20 @@
     <string name="xml_dashboard_items">Dashboard Items</string>
     <string name="xml_dedicated_tools_folder">Dedicated Tools Folder</string>
     <string name="xml_dedicated_tools_folder_desc">Add a folder button to the app list that opens a separate tools menu</string>
+    <string name="xml_enable_device_admin">Enable Device Admin</string>
+    <string name="xml_enable_device_admin_desc">Screen Off w/o Lock Screen for Black Screen</string>
+    <string name="xml_device_admin_desc">Allows Black Screen to turn the screen off without showing the lock screen</string>
 
-    <string name="xml_drag_to_split">Drag to Split-Screen</string>
-    <string name="xml_drag_to_split_desc">Drag icons to top/bottom edge to launch in split mode</string>
     <string name="xml_edit_upper">EDIT</string>
     <string name="xml_enable_dashboard_tools">Enable Dashboard Tools</string>
     <string name="xml_enable_dashboard_tools_desc">Master switch for the sidebar dashboard section (bottom area)</string>
-    <string name="xml_freeform_mode">Freeform Window Mode</string>
-    <string name="xml_freeform_mode_desc">Launch apps in floating windows (Requires system support)</string>
     <string name="xml_grant">Grant</string>
     <string name="xml_grant_all">Grant all</string>
     <string name="xml_hint_title">Title</string>
     <string name="xml_lang_english">English</string>
     <string name="xml_link_shizuku">Link Shizuku</string>
-    <string name="xml_lock_screen_desc">Lock the device immediately from the sidebar</string>
+    <string name="xml_lock_screen_desc">Adds Lock Screen button to the dashboard</string>
     <string name="xml_main_trigger_gestures">Main Trigger &amp; Gestures</string>
-    <string name="xml_multitasking_windowing">Multitasking &amp; Windowing</string>
     <string name="xml_native_gesture_desc">Root/Shizuku: High performance</string>
     <string name="xml_no_items">No items</string>
     <string name="xml_not_connected">Not Connected</string>
@@ -341,12 +329,12 @@
     <string name="xml_one_column">1 Column</string>
     <string name="xml_overlay_permission">Overlay permission</string>
     <string name="xml_overlay_permission_desc">Draw over other applications</string>
-    <string name="xml_power_menu_desc">Add Power/Reboot tools to the dashboard</string>
+    <string name="xml_power_menu_desc">Adds Power Menu button to the dashboard</string>
     <string name="xml_required">Required</string>
     <string name="xml_revoke">Revoke</string>
     <string name="xml_screen_edge_side">Screen Edge Side</string>
-    <string name="xml_screenshot_button">Screenshot Button</string>
-    <string name="xml_screenshot_button_desc">Show a screenshot button at the bottom of the sidebar</string>
+    <string name="xml_screenshot_button">Screenshot</string>
+    <string name="xml_screenshot_button_desc">Adds Screenshot button to the dashboard</string>
     <string name="xml_search_smart_edge">Search Smart Edge…</string>
     <string name="xml_service_integration">Service Integration</string>
     <string name="xml_shape_circle">Circle</string>
@@ -365,8 +353,8 @@
     <string name="xml_tab_custom">CUSTOM</string>
 
     <string name="xml_vertical_position">Vertical Position</string>
-    <string name="xml_volume_controls">Volume Controls</string>
-    <string name="xml_volume_controls_desc">Add Volume Up/Down keys to the dashboard</string>
+    <string name="xml_volume_controls">Volume Control</string>
+    <string name="xml_volume_controls_desc">Adds Volume slider button to the dashboard</string>
     <string name="xml_welcome">Welcome to Smart Edge</string>
     <string name="xml_welcome_subtitle">Fluid and open-source control center</string>
     <string name="xml_ram_placeholder">RAM: --</string>
@@ -404,7 +392,6 @@
     <string name="dialog_shizuku_detected_msg">Smart Edge detected Shizuku. Grant Smart Edge permission in the Shizuku app to use Shizuku for gestures (recommended over Root).</string>
     <string name="dialog_choose_color">Choose Color</string>
     <string name="dialog_hex_color_hint">Hex Color (#AARRGGBB)</string>
-    <string name="dialog_freeform_window_size">Freeform Window Size</string>
     <string name="dialog_system_activity_logs">System Activity Logs</string>
     <string name="dialog_tap_to_open">Tap to Open</string>
     <string name="fmt_percent">%1$d%%</string>
@@ -494,5 +481,8 @@
     <string name="tool_name_volume">Volume</string>
     <string name="tool_name_brightness">Brightness</string>
     <string name="tool_name_lock">Lock Screen</string>
+    <string name="tool_name_content_picker">Content Picker</string>
+    <string name="content_picker_hint">Tap a control to copy it</string>
+    <string name="content_picker_copied">Copied to clipboard</string>
     <string name="tool_name_tools">Tools</string>
 </resources>

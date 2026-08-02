@@ -61,16 +61,12 @@ class PanelPreferences(context: Context) {
         private const val KEY_SHOW_BRIGHTNESS_KEYS = "show_brightness_keys"
         private const val KEY_SHOW_BLACK_SCREEN_TOOL = "show_black_screen_tool"
         private const val KEY_SHOW_LOCK_SCREEN_TOOL = "show_lock_screen_tool"
+        private const val KEY_ENABLE_DEVICE_ADMIN = "enable_device_admin_for_black_screen"
         private const val KEY_HOME_BUTTON_STYLE = "home_button_style"
-        private const val KEY_FREEFORM_ENABLED = "freeform_enabled"
-        private const val KEY_FREEFORM_WINDOW_MODE = "freeform_window_mode"
-        private const val KEY_FREEFORM_CUSTOM_W = "freeform_custom_width"
-        private const val KEY_FREEFORM_CUSTOM_H = "freeform_custom_height"
         private const val KEY_SCALE_FACTOR = "scale_factor"
         private const val KEY_PANEL_MAX_HEIGHT = "panel_max_height"
         private const val KEY_PICKER_MAX_HEIGHT = "picker_max_height"
         private const val KEY_SHOW_NOTIFICATION_APPS = "show_notification_apps"
-        private const val KEY_DRAG_TO_SPLIT = "drag_to_split"
         private const val KEY_REMEMBER_SCROLL = "remember_scroll"
         private const val KEY_AUTO_SHOW_KEYBOARD = "auto_show_keyboard"
         private const val KEY_SIDEBAR_SCROLL = "last_sidebar_scroll"
@@ -155,12 +151,6 @@ class PanelPreferences(context: Context) {
         const val MODE_LIGHT = 1
         const val MODE_DARK = 2
 
-        // Freeform window size modes
-        const val FREEFORM_MODE_STANDARD  = "standard"  // 80% screen, centered
-        const val FREEFORM_MODE_PORTRAIT  = "portrait"  // Narrow tall window
-        const val FREEFORM_MODE_MAXIMIZED = "maximized" // Full screen freeform
-        const val FREEFORM_MODE_CUSTOM    = "custom"    // User-defined width & height %
-
         // Defaults
         val DEFAULT_SIDE = SIDE_RIGHT
         const val DEFAULT_AUTO_START = true
@@ -240,7 +230,6 @@ class PanelPreferences(context: Context) {
             KEY_ICON_PACK to selectedIconPack,
             KEY_ICON_PACK_LABEL to iconPackLabel,
             KEY_HOME_BUTTON_STYLE to homeButtonStyle,
-            KEY_FREEFORM_WINDOW_MODE to freeformWindowMode,
             KEY_FULLSCREEN_WHITELIST to (prefs.getString(KEY_FULLSCREEN_WHITELIST, null) ?: ""),
             KEY_FAVORITE_APP to favoriteAppPackage
         )
@@ -262,8 +251,6 @@ class PanelPreferences(context: Context) {
             KEY_PICKER_MAX_HEIGHT to pickerMaxHeight,
             KEY_SLIDE_SENSITIVITY to slideSensitivity,
             KEY_SWIPE_SENSITIVITY to swipeSensitivity,
-            KEY_FREEFORM_CUSTOM_W to freeformCustomWidth,
-            KEY_FREEFORM_CUSTOM_H to freeformCustomHeight,
             KEY_THEME_MODE to themeMode,
             KEY_TAP_ACTION to tapAction,
             KEY_DOUBLE_TAP_ACTION to doubleTapAction,
@@ -302,11 +289,10 @@ class PanelPreferences(context: Context) {
             KEY_SHOW_BRIGHTNESS_KEYS to showBrightnessKeys,
             KEY_SHOW_BLACK_SCREEN_TOOL to showBlackScreenTool,
             KEY_SHOW_LOCK_SCREEN_TOOL to showLockScreenTool,
+            KEY_ENABLE_DEVICE_ADMIN to enableDeviceAdmin,
             KEY_SLIDE_BRIGHTNESS_ENABLED to slideBrightnessEnabled,
             KEY_SLIDE_VOLUME_ENABLED to slideVolumeEnabled,
-            KEY_FREEFORM_ENABLED to freeformEnabled,
             KEY_SHOW_NOTIFICATION_APPS to showNotificationApps,
-            KEY_DRAG_TO_SPLIT to dragToSplit,
             KEY_REMEMBER_SCROLL to rememberScroll,
             KEY_AUTO_SHOW_KEYBOARD to autoShowKeyboard,
             KEY_SHOW_SCREENSHOT_TOOL to showScreenshotTool,
@@ -363,7 +349,6 @@ class PanelPreferences(context: Context) {
                 readString(KEY_ICON_PACK)?.let { putString(KEY_ICON_PACK, it) }
                 readString(KEY_ICON_PACK_LABEL)?.let { putString(KEY_ICON_PACK_LABEL, it) }
                 readString(KEY_HOME_BUTTON_STYLE)?.let { putString(KEY_HOME_BUTTON_STYLE, it) }
-                readString(KEY_FREEFORM_WINDOW_MODE)?.let { putString(KEY_FREEFORM_WINDOW_MODE, it) }
                 readString(KEY_PICKER_ANIM_TYPE)?.let { putString(KEY_PICKER_ANIM_TYPE, it) }
                 readString(KEY_FULLSCREEN_WHITELIST)?.let { putString(KEY_FULLSCREEN_WHITELIST, it) }
                 readString(KEY_FAVORITE_APP)?.let { putString(KEY_FAVORITE_APP, it) }
@@ -383,8 +368,6 @@ class PanelPreferences(context: Context) {
                 if (obj.has(KEY_PICKER_MAX_HEIGHT) && !obj.isNull(KEY_PICKER_MAX_HEIGHT)) putInt(KEY_PICKER_MAX_HEIGHT, obj.optInt(KEY_PICKER_MAX_HEIGHT, pickerMaxHeight))
                 if (obj.has(KEY_SLIDE_SENSITIVITY) && !obj.isNull(KEY_SLIDE_SENSITIVITY)) putInt(KEY_SLIDE_SENSITIVITY, obj.optInt(KEY_SLIDE_SENSITIVITY, slideSensitivity))
                 if (obj.has(KEY_SWIPE_SENSITIVITY) && !obj.isNull(KEY_SWIPE_SENSITIVITY)) putInt(KEY_SWIPE_SENSITIVITY, obj.optInt(KEY_SWIPE_SENSITIVITY, swipeSensitivity))
-                if (obj.has(KEY_FREEFORM_CUSTOM_W) && !obj.isNull(KEY_FREEFORM_CUSTOM_W)) putInt(KEY_FREEFORM_CUSTOM_W, obj.optInt(KEY_FREEFORM_CUSTOM_W, freeformCustomWidth))
-                if (obj.has(KEY_FREEFORM_CUSTOM_H) && !obj.isNull(KEY_FREEFORM_CUSTOM_H)) putInt(KEY_FREEFORM_CUSTOM_H, obj.optInt(KEY_FREEFORM_CUSTOM_H, freeformCustomHeight))
                 if (obj.has(KEY_THEME_MODE) && !obj.isNull(KEY_THEME_MODE)) putInt(KEY_THEME_MODE, obj.optInt(KEY_THEME_MODE, themeMode))
                 if (obj.has(KEY_TAP_ACTION) && !obj.isNull(KEY_TAP_ACTION)) putInt(KEY_TAP_ACTION, obj.optInt(KEY_TAP_ACTION, tapAction))
                 if (obj.has(KEY_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_DOUBLE_TAP_ACTION)) putInt(KEY_DOUBLE_TAP_ACTION, obj.optInt(KEY_DOUBLE_TAP_ACTION, doubleTapAction))
@@ -427,11 +410,10 @@ class PanelPreferences(context: Context) {
                 putBoolIfPresent(KEY_SHOW_BRIGHTNESS_KEYS, showBrightnessKeys)
                 putBoolIfPresent(KEY_SHOW_BLACK_SCREEN_TOOL, showBlackScreenTool)
             putBoolIfPresent(KEY_SHOW_LOCK_SCREEN_TOOL, showLockScreenTool)
+                putBoolIfPresent(KEY_ENABLE_DEVICE_ADMIN, enableDeviceAdmin)
                 putBoolIfPresent(KEY_SLIDE_BRIGHTNESS_ENABLED, slideBrightnessEnabled)
                 putBoolIfPresent(KEY_SLIDE_VOLUME_ENABLED, slideVolumeEnabled)
-                putBoolIfPresent(KEY_FREEFORM_ENABLED, freeformEnabled)
                 putBoolIfPresent(KEY_SHOW_NOTIFICATION_APPS, showNotificationApps)
-                putBoolIfPresent(KEY_DRAG_TO_SPLIT, dragToSplit)
                 putBoolIfPresent(KEY_REMEMBER_SCROLL, rememberScroll)
                 putBoolIfPresent(KEY_AUTO_SHOW_KEYBOARD, autoShowKeyboard)
                 putBoolIfPresent(KEY_SHOW_SCREENSHOT_TOOL, showScreenshotTool)
@@ -501,6 +483,7 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_SHOW_VOLUME_KEYS, false)
             putBoolean(KEY_SHOW_BRIGHTNESS_KEYS, false)
             putBoolean(KEY_SHOW_BLACK_SCREEN_TOOL, true)
+            putBoolean(KEY_ENABLE_DEVICE_ADMIN, false)
             putBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, DEFAULT_SLIDE_BRIGHTNESS)
             putBoolean(KEY_SLIDE_VOLUME_ENABLED, DEFAULT_SLIDE_VOLUME)
             putInt(KEY_SLIDE_SENSITIVITY, DEFAULT_SLIDE_SENSITIVITY)
@@ -508,15 +491,10 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_USE_AUTOMATION_FOR_GESTURES, false)
             putString(KEY_HOME_BUTTON_STYLE, DEFAULT_HOME_BUTTON_STYLE)
             putInt(KEY_THEME_MODE, DEFAULT_THEME_MODE)
-            putBoolean(KEY_FREEFORM_ENABLED, false)
-            putString(KEY_FREEFORM_WINDOW_MODE, FREEFORM_MODE_STANDARD)
-            putInt(KEY_FREEFORM_CUSTOM_W, 80)
-            putInt(KEY_FREEFORM_CUSTOM_H, 80)
             putFloat(KEY_SCALE_FACTOR, 1.0f)
             putInt(KEY_PANEL_MAX_HEIGHT, 350)
             putInt(KEY_PICKER_MAX_HEIGHT, 450)
             putBoolean(KEY_SHOW_NOTIFICATION_APPS, false)
-            putBoolean(KEY_DRAG_TO_SPLIT, true)
             putBoolean(KEY_REMEMBER_SCROLL, false)
             putBoolean(KEY_AUTO_SHOW_KEYBOARD, false)
             putString(KEY_PANEL_APPS, "")
@@ -558,10 +536,6 @@ class PanelPreferences(context: Context) {
         get() = prefs.getInt(KEY_PICKER_SCROLL, 0)
         set(value) = prefs.edit { putInt(KEY_PICKER_SCROLL, value) }
 
-    var dragToSplit: Boolean
-        get() = prefs.getBoolean(KEY_DRAG_TO_SPLIT, true)
-        set(value) = prefs.edit { putBoolean(KEY_DRAG_TO_SPLIT, value) }
-
     var showNotificationApps: Boolean
         get() = prefs.getBoolean(KEY_SHOW_NOTIFICATION_APPS, false)
         set(value) = prefs.edit { putBoolean(KEY_SHOW_NOTIFICATION_APPS, value) }
@@ -577,22 +551,6 @@ class PanelPreferences(context: Context) {
     var pillColor: String
         get() = prefs.getString(KEY_PILL_COLOR, DEFAULT_PILL_COLOR) ?: DEFAULT_PILL_COLOR
         set(value) = prefs.edit { putString(KEY_PILL_COLOR, value) }
-
-    var freeformEnabled: Boolean
-        get() = prefs.getBoolean(KEY_FREEFORM_ENABLED, false)
-        set(value) = prefs.edit { putBoolean(KEY_FREEFORM_ENABLED, value) }
-
-    var freeformWindowMode: String
-        get() = prefs.getString(KEY_FREEFORM_WINDOW_MODE, FREEFORM_MODE_STANDARD) ?: FREEFORM_MODE_STANDARD
-        set(value) = prefs.edit { putString(KEY_FREEFORM_WINDOW_MODE, value) }
-
-    var freeformCustomWidth: Int
-        get() = prefs.getInt(KEY_FREEFORM_CUSTOM_W, 80)
-        set(value) = prefs.edit { putInt(KEY_FREEFORM_CUSTOM_W, value) }
-
-    var freeformCustomHeight: Int
-        get() = prefs.getInt(KEY_FREEFORM_CUSTOM_H, 80)
-        set(value) = prefs.edit { putInt(KEY_FREEFORM_CUSTOM_H, value) }
 
     var scaleFactor: Float
         get() = prefs.getFloat(KEY_SCALE_FACTOR, 1.0f)
@@ -629,6 +587,12 @@ class PanelPreferences(context: Context) {
     var showLockScreenTool: Boolean
         get() = prefs.getBoolean(KEY_SHOW_LOCK_SCREEN_TOOL, true)
         set(value) = prefs.edit { putBoolean(KEY_SHOW_LOCK_SCREEN_TOOL, value) }
+
+    /** Enable Device Admin so Black Screen can truly turn the screen off
+     *  without showing the lock screen (setKeyguardDisabled). */
+    var enableDeviceAdmin: Boolean
+        get() = prefs.getBoolean(KEY_ENABLE_DEVICE_ADMIN, false)
+        set(value) = prefs.edit { putBoolean(KEY_ENABLE_DEVICE_ADMIN, value) }
 
     var homeButtonStyle: String
         get() = prefs.getString(KEY_HOME_BUTTON_STYLE, DEFAULT_HOME_BUTTON_STYLE) ?: DEFAULT_HOME_BUTTON_STYLE

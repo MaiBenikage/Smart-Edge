@@ -3,7 +3,17 @@ package com.imi.smartedge.sidebar.panel
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.util.Log
+
+/** Snapshot of one visible control for Content Picker. */
+data class ContentInfo(
+    val bounds: android.graphics.Rect,
+    val text: String?,
+    val contentDescription: String?,
+    val viewIdResourceName: String?,
+    val className: String?
+)
 
 class PanelAccessibilityService : AccessibilityService() {
 
@@ -58,7 +68,6 @@ class PanelAccessibilityService : AccessibilityService() {
         private const val TAG = "PanelAccessibility"
         const val ACTION_TAKE_SCREENSHOT = "com.imi.smartedge.sidebar.panel.ACTION_TAKE_SCREENSHOT"
         const val ACTION_SHOW_POWER_MENU = "com.imi.smartedge.sidebar.panel.ACTION_SHOW_POWER_MENU"
-        const val ACTION_SPLIT_SCREEN = "com.imi.smartedge.sidebar.panel.ACTION_SPLIT_SCREEN"
         const val ACTION_TRIGGER_SHORTCUT = "com.imi.smartedge.sidebar.panel.ACTION_TRIGGER_SHORTCUT"
         const val ACTION_ONE_HANDED = "com.imi.smartedge.sidebar.panel.ACTION_ONE_HANDED"
         const val ACTION_PREVIOUS_APP = "com.imi.smartedge.sidebar.panel.ACTION_PREVIOUS_APP"
@@ -68,9 +77,19 @@ class PanelAccessibilityService : AccessibilityService() {
         const val ACTION_NOTIFICATIONS = "com.imi.smartedge.sidebar.panel.ACTION_NOTIFICATIONS"
         const val ACTION_QUICK_SETTINGS = "com.imi.smartedge.sidebar.panel.ACTION_QUICK_SETTINGS"
         const val ACTION_LOCK_SCREEN = "com.imi.smartedge.sidebar.panel.ACTION_LOCK_SCREEN"
-        
-        const val EXTRA_PKG = "pkg"
-        const val EXTRA_MODE = "mode"
+        const val ACTION_CONTENT_PICK_REFRESH = "com.imi.smartedge.sidebar.panel.ACTION_CONTENT_PICK_REFRESH"
+
+        // Timing (ms)
+        const val SCREENSHOT_RESTORE_NOTIFY_DELAY_MS = 300L
+        const val PREV_APP_INTERVAL_OFF_MS = 150L
+        const val PREV_APP_INTERVAL_REDUCED_MS = 200L
+        const val PREV_APP_INTERVAL_DEFAULT_MS = 350L
+        const val PREV_APP_INTERVAL_SLOW_MS = 500L
+
+        /** Set by FloatingPanelService while Content Picker is active; invoked on the
+         *  main thread each time the service collects a fresh control snapshot. */
+        @Volatile
+        var contentPickerCallback: ((List<ContentInfo>) -> Unit)? = null
         
         @Volatile
         var isRunning = false
@@ -97,22 +116,10 @@ class PanelAccessibilityService : AccessibilityService() {
                         }
                         startService(restore)
                     } catch (_: Exception) {}
-                }, 350L)
+                }, SCREENSHOT_RESTORE_NOTIFY_DELAY_MS)
             }
             ACTION_SHOW_POWER_MENU -> {
                 performGlobalAction(GLOBAL_ACTION_POWER_DIALOG)
-            }
-            ACTION_SPLIT_SCREEN -> {
-                val pkg = intent.getStringExtra(EXTRA_PKG)
-                val mode = intent.getIntExtra(EXTRA_MODE, 1)
-                if (pkg != null) {
-                    if (mode == SplitScreenHelper.MODE_TOP || mode == SplitScreenHelper.MODE_BOTTOM) {
-                        triggerSplitScreen(pkg, mode)
-                    } else {
-                        // Freeform launch doesn't need the toggle action
-                        SplitScreenHelper.launchApp(this, pkg, mode)
-                    }
-                }
             }
             ACTION_ONE_HANDED -> {
                 // Round-12 audit L-Low: Toast.makeText is already main-thread
@@ -139,10 +146,10 @@ class PanelAccessibilityService : AccessibilityService() {
                     )
                 } catch (_: Exception) { 1f }
                 val intervalMs = when {
-                    animScale <= 0f  -> 150L
-                    animScale < 0.8f -> 200L
-                    animScale < 1.5f -> 350L
-                    else             -> 500L
+                    animScale <= 0f  -> PREV_APP_INTERVAL_OFF_MS
+                    animScale < 0.8f -> PREV_APP_INTERVAL_REDUCED_MS
+                    animScale < 1.5f -> PREV_APP_INTERVAL_DEFAULT_MS
+                    else             -> PREV_APP_INTERVAL_SLOW_MS
                 }
                 performGlobalAction(GLOBAL_ACTION_RECENTS)
                 accessibilityHandler.postDelayed({
@@ -174,35 +181,57 @@ class PanelAccessibilityService : AccessibilityService() {
                     }
                 }
             }
+            ACTION_CONTENT_PICK_REFRESH -> {
+                collectControlsAndNotify()
+            }
         }
         return START_NOT_STICKY
     }
 
     /**
-     * Triggers split-screen for the given package and mode.
-     *
-     * Strategy 1 (AOSP): Use GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN to pin the foreground app,
-     *   then launch the second app adjacent to it.
-     * Strategy 2 (Origin OS / Vivo / OEMs that block the toggle): Skip the toggle and
-     *   launch the second app directly with split-screen windowing mode flags. The OEM's
-     *   own window manager handles placing it in split.
+     * Recursively walk the active window's node tree and collect visible controls
+     * with their screen bounds plus description/id metadata for Content Picker.
+     * Skips nodes belonging to our own overlay windows so the picker never
+     * highlights its own mask.
      */
-    private fun triggerSplitScreen(pkg: String, mode: Int) {
-        val isVivo = VivoUtils.isVivo()
-
-        if (isVivo) {
-            SplitScreenHelper.launchApp(this, pkg, mode)
-        } else {
-            // Standard AOSP path: toggle split, wait for animation, then launch second app
-            val toggled = performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
-
-            // On many AOSP/Pixel versions, we need a significant delay for the system to dock the first app.
-            // If toggle failed (e.g. only one app open), we still try to launch adjacent.
-            val delay = if (toggled) 1000L else 500L
-            accessibilityHandler.postDelayed({
-                SplitScreenHelper.launchApp(this, pkg, mode)
-            }, delay)
+    private fun collectControlsAndNotify() {
+        val cb = contentPickerCallback ?: return
+        val root = rootInActiveWindow ?: run { cb(emptyList()); return }
+        val out = ArrayList<ContentInfo>(64)
+        fun walk(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            try {
+                val pkg = node.packageName?.toString()
+                if (pkg == packageName) { /* skip our own overlay windows */ }
+                else {
+                    val b = android.graphics.Rect()
+                    node.getBoundsInScreen(b)
+                    // Skip zero-area / offscreen invisible nodes.
+                    if (b.width() > 0 && b.height() > 0 &&
+                        b.right > 0 && b.bottom > 0
+                    ) {
+                        val cd = node.contentDescription?.toString()
+                        val vid = node.viewIdResourceName
+                        val cls = node.className?.toString()
+                        val txt = node.text?.toString()
+                        // Keep nodes that are interactive OR have copyable metadata
+                        // (contentDescription / viewIdResourceName). Text-only nodes
+                        // without id are still useful for contentDescription-less
+                        // icons, so include them too but prefer metadata-bearing ones.
+                        if (node.isClickable || !cd.isNullOrBlank() || !vid.isNullOrBlank() || !txt.isNullOrBlank()) {
+                            out.add(ContentInfo(b, txt, cd, vid, cls))
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+            for (i in 0 until node.childCount) {
+                walk(node.getChild(i))
+            }
         }
+        try {
+            walk(root)
+        } catch (_: Exception) {}
+        cb(out)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

@@ -92,10 +92,6 @@
     <string name="alert_battery_desc">Excluye Smart Edge de la optimización de batería para evitar que el sistema lo cierre en segundo plano.</string>
     <string name="alert_battery_btn">Permitir uso en segundo plano</string>
     
-    <string name="alert_freeform_title">Modo Multitarea</string>
-    <string name="alert_freeform_desc">El modo de ventana flotante está activado en los ajustes pero desactivado en las opciones de desarrollador de tu sistema.</string>
-    <string name="alert_freeform_btn">Corregir en Ajustes</string>
-    
     <string name="alert_permission_title">Permiso Requerido</string>
     <string name="alert_permission_desc">Por favor, permite "Mostrar sobre otras aplicaciones" para usar la barra lateral.</string>
     <string name="alert_permission_btn">Conceder ahora</string>
@@ -159,8 +155,6 @@
     <string name="tap_gestures_summary">Toque: %1$s, 2x: %2$s, 3x: %3$s, Hold: %4$s</string>
     <string name="apps_selected_none">0 aplicaciones seleccionadas</string>
     
-    <string name="freeform_mode_standard">Estándar (80%)</string>
-    
     <string name="anim_feel_calm">Tranquilo (Lento)</string>
     <string name="anim_feel_balanced">Equilibrado (Predet.)</string>
     <string name="anim_feel_snappy">Rápido</string>
@@ -174,7 +168,6 @@
     <string name="please_wait_apps">Por favor espera mientras se cargan las apps.</string>
     <string name="hint_search_apps">Buscar aplicaciones…</string>
     <string name="btn_save">Guardar</string>
-    <string name="dialog_window_size">Tamaño de Ventana</string>
     
     <string name="picker_title_hide">Apps para ocultar barra</string>
     <string name="picker_title_game">Apps de Modo Juego</string>
@@ -265,9 +258,9 @@
     <string name="xml_battery_optimization">Optimización de batería</string>
 
     <string name="xml_black_screen">Pantalla negra</string>
-    <string name="xml_black_screen_desc">Minimizar brillo y mostrar overlay negro — toca para restaurar</string>
-    <string name="xml_brightness_controls">Controles de brillo</string>
-    <string name="xml_brightness_controls_desc">Añadir teclas de brillo al panel</string>
+    <string name="xml_black_screen_desc">Muestra un overlay negro con brillo minimizado, retrocede para restaurar</string>
+    <string name="xml_brightness_controls">Control de brillo</string>
+    <string name="xml_brightness_controls_desc">Añade el botón de control deslizante de brillo al panel</string>
     <string name="xml_cd_app_icon">Icono de app</string>
     <string name="xml_cd_brightness_drag">Arrastra para ajustar brillo (arriba sube, abajo baja)</string>
     <string name="xml_cd_drag_reorder">Arrastrar para reordenar</string>
@@ -280,22 +273,20 @@
     <string name="xml_dashboard_items">Elementos del panel</string>
     <string name="xml_dedicated_tools_folder">Carpeta de herramientas dedicada</string>
     <string name="xml_dedicated_tools_folder_desc">Añade un botón de carpeta a la lista de apps</string>
+    <string name="xml_enable_device_admin">Activar administrador de dispositivo</string>
+    <string name="xml_enable_device_admin_desc">Apagar pantalla sin bloqueo para Pantalla Negra</string>
+    <string name="xml_device_admin_desc">Permite a Pantalla Negra apagar la pantalla sin mostrar el bloqueo</string>
 
-    <string name="xml_drag_to_split">Arrastrar a pantalla dividida</string>
-    <string name="xml_drag_to_split_desc">Arrastra iconos al borde superior/inferior para dividir</string>
     <string name="xml_edit_upper">EDITAR</string>
     <string name="xml_enable_dashboard_tools">Activar herramientas del panel</string>
     <string name="xml_enable_dashboard_tools_desc">Interruptor maestro de la sección inferior del panel</string>
-    <string name="xml_freeform_mode">Modo ventana flotante</string>
-    <string name="xml_freeform_mode_desc">Abrir apps en ventanas flotantes (requiere soporte del sistema)</string>
     <string name="xml_grant">Conceder</string>
     <string name="xml_grant_all">Conceder todo</string>
     <string name="xml_hint_title">Título</string>
     <string name="xml_lang_english">English</string>
     <string name="xml_link_shizuku">Vincular Shizuku</string>
-    <string name="xml_lock_screen_desc">Bloquear el dispositivo desde el panel</string>
+    <string name="xml_lock_screen_desc">Añade el botón de bloqueo de pantalla al panel</string>
     <string name="xml_main_trigger_gestures">Activador principal y gestos</string>
-    <string name="xml_multitasking_windowing">Multitarea y ventanas</string>
     <string name="xml_native_gesture_desc">Root/Shizuku: alto rendimiento</string>
     <string name="xml_no_items">Sin elementos</string>
     <string name="xml_not_connected">No conectado</string>
@@ -304,12 +295,12 @@
     <string name="xml_one_column">1 columna</string>
     <string name="xml_overlay_permission">Permiso de superposición</string>
     <string name="xml_overlay_permission_desc">Mostrar sobre otras aplicaciones</string>
-    <string name="xml_power_menu_desc">Añadir herramientas de apagado/reinicio</string>
+    <string name="xml_power_menu_desc">Añade el botón de menú de apagado al panel</string>
     <string name="xml_required">Requerido</string>
     <string name="xml_revoke">Revocar</string>
     <string name="xml_screen_edge_side">Lado del borde</string>
-    <string name="xml_screenshot_button">Botón de captura</string>
-    <string name="xml_screenshot_button_desc">Mostrar botón de captura en el panel</string>
+    <string name="xml_screenshot_button">Captura</string>
+    <string name="xml_screenshot_button_desc">Añade el botón de captura al panel</string>
     <string name="xml_search_smart_edge">Buscar Smart Edge…</string>
     <string name="xml_service_integration">Integración de servicios</string>
     <string name="xml_shape_circle">Círculo</string>
@@ -328,8 +319,8 @@
     <string name="xml_tab_custom">CUSTOM</string>
 
     <string name="xml_vertical_position">Posición vertical</string>
-    <string name="xml_volume_controls">Controles de volumen</string>
-    <string name="xml_volume_controls_desc">Añadir teclas de volumen al panel</string>
+    <string name="xml_volume_controls">Control de volumen</string>
+    <string name="xml_volume_controls_desc">Añade el botón de control deslizante de volumen al panel</string>
     <string name="xml_welcome">Bienvenido a Smart Edge</string>
     <string name="xml_welcome_subtitle">Centro de control fluido y de código abierto</string>
     <string name="xml_ram_placeholder">RAM: --</string>
@@ -353,7 +344,6 @@
     <string name="dialog_shizuku_detected_msg">Smart Edge detectó Shizuku. Concede permiso a Smart Edge en la app Shizuku para usar gestos con Shizuku (recomendado frente a Root).</string>
     <string name="dialog_choose_color">Elegir color</string>
     <string name="dialog_hex_color_hint">Color hex (#AARRGGBB)</string>
-    <string name="dialog_freeform_window_size">Tamaño de ventana flotante</string>
     <string name="dialog_system_activity_logs">Registros de actividad del sistema</string>
     <string name="dialog_tap_to_open">Tocar para abrir</string>
     <string name="fmt_percent">%1$d%%</string>
@@ -444,5 +434,8 @@
     <string name="tool_name_volume">Volumen</string>
     <string name="tool_name_brightness">Brillo</string>
     <string name="tool_name_lock">Bloquear pantalla</string>
+    <string name="tool_name_content_picker">Selector de contenido</string>
+    <string name="content_picker_hint">Toca un control para copiarlo</string>
+    <string name="content_picker_copied">Copiado al portapapeles</string>
     <string name="tool_name_tools">Herramientas</string>
 </resources>

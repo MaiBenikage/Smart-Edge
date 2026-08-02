@@ -8,6 +8,8 @@ import androidx.appcompat.app.AppCompatActivity
 import com.imi.smartedge.sidebar.panel.databinding.ActivitySettingsToolsBinding
 // import rikka.shizuku.Shizuku
 import android.content.pm.PackageManager
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 
 class ToolsSettingsActivity : AppCompatActivity() {
 
@@ -67,6 +69,34 @@ class ToolsSettingsActivity : AppCompatActivity() {
         binding.featureBlackScreen.isChecked = panelPrefs.showBlackScreenTool
         binding.featureLockScreen.isChecked = panelPrefs.showLockScreenTool
         binding.featureToolsPanel.isChecked = panelPrefs.showToolsPanelButton
+        // Device admin: reflect the REAL admin-active state (not just the pref),
+        // so the switch truthfully shows whether Screen-Off-without-Lock works.
+        binding.featureDeviceAdmin.isChecked = isDeviceAdminActive()
+    }
+
+    private fun isDeviceAdminActive(): Boolean {
+        return try {
+            val dpm = getSystemService(DevicePolicyManager::class.java)
+            val cn = ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+            dpm?.isAdminActive(cn) == true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun requestDeviceAdmin() {
+        try {
+            val dpm = getSystemService(DevicePolicyManager::class.java)
+            val cn = ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+            if (dpm?.isAdminActive(cn) == true) return
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, cn)
+                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, getString(R.string.xml_enable_device_admin_desc))
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, R.string.xml_device_admin_desc, android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun setupListeners() {
@@ -117,6 +147,34 @@ class ToolsSettingsActivity : AppCompatActivity() {
             panelPrefs.showToolsPanelButton = isChecked
             applyOnly()
         }
+
+        binding.featureDeviceAdmin.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                // Enabling requires the user to accept the Device Admin prompt.
+                if (!isDeviceAdminActive()) {
+                    // Revert the switch to actual state; activation happens via the
+                    // system admin screen. onResume re-syncs the checkbox.
+                    binding.featureDeviceAdmin.isChecked = false
+                    requestDeviceAdmin()
+                }
+            } else {
+                // Disabling: deactivate admin so the keyguard policy is removed.
+                try {
+                    val dpm = getSystemService(DevicePolicyManager::class.java)
+                    val cn = ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+                    dpm?.removeActiveAdmin(cn)
+                } catch (e: Exception) {}
+                panelPrefs.enableDeviceAdmin = false
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // After returning from the Device Admin activation screen, sync the switch
+        // with the real admin state.
+        binding.featureDeviceAdmin.isChecked = isDeviceAdminActive()
+        if (isDeviceAdminActive()) panelPrefs.enableDeviceAdmin = true
     }
 
     private fun applyOnly() {

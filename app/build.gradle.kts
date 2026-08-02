@@ -94,7 +94,6 @@ dependencies {
     implementation(libs.androidx.dynamicanimation)
     implementation(libs.glide)
     implementation("com.github.skydoves:colorpickerview:2.3.0")
-    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
     // Shizuku bumped 12.1.0 -> 13.1.0: api gains proper @Nullable annotations
     // on `newProcess(String[], String[], String)`; provider packaging unchanged.
     implementation("dev.rikka.shizuku:api:13.1.0")

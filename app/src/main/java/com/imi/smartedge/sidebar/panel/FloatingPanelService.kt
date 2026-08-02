@@ -50,10 +50,6 @@ class FloatingPanelService : Service() {
             }
         }
     }
-    
-    private var dragOverlay: android.widget.FrameLayout? = null
-    private var dragOverlayParams: WindowManager.LayoutParams? = null
-
     // Black Screen state
     private var blackScreenOverlay: android.widget.FrameLayout? = null
     private var blackScreenOverlayParams: WindowManager.LayoutParams? = null
@@ -63,6 +59,19 @@ class FloatingPanelService : Service() {
     private val screenshotRestoreRunnable = Runnable { restoreScreenshotUi() }
     private var savedBrightness: Int = 0
     private var savedBrightnessMode: Int = android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+    /** Original screen-off timeout (ms) saved before true screen-off, restored on exit. */
+    private var savedScreenOffTimeout: Int = -1
+    /** True when true screen-off (via device admin) is active rather than the dim overlay. */
+    private var trueScreenOffActive: Boolean = false
+
+    // ── Content Picker state ──────────────────────────────────────────────
+    private var contentPickerOverlay: android.widget.FrameLayout? = null
+    private var contentPickerOverlayParams: WindowManager.LayoutParams? = null
+    private var contentPickerControls: List<ContentInfo> = emptyList()
+    private var contentPickerActive = false
+    private val contentPickerRefreshMs = 600L // reuses the screenshot-restore interval
+    private val contentPickerRefreshRunnable = Runnable { refreshControlPickerBorders() }
+    private val contentPickerBorderColor = android.graphics.Color.YELLOW
 
     private var isPanelOpen = false
     private var isPickerOpen = false
@@ -165,6 +174,13 @@ class FloatingPanelService : Service() {
         const val ACTION_LAUNCH_CAMERA = "com.imi.smartedge.sidebar.panel.LAUNCH_CAMERA"
         const val ACTION_TOGGLE_ROTATION = "com.imi.smartedge.sidebar.panel.TOGGLE_ROTATION"
         const val ACTION_OPEN_FAV_APP = "com.imi.smartedge.sidebar.panel.OPEN_FAV_APP"
+
+        // Timing (ms)
+        const val SCREENSHOT_TRIGGER_DELAY_MS = 200L
+        const val SCREENSHOT_RESTORE_DELAY_MS = 600L
+        const val BLACK_SCREEN_OVERLAY_DELAY_MS = 150L
+        const val PICKER_CLOSE_COLUMNS_DELAY_MS = 250L
+        const val SCREEN_OFF_TIMEOUT_MIN_MS = 1000
     }
 
     override fun onCreate() {
@@ -321,7 +337,7 @@ class FloatingPanelService : Service() {
                 togglePicker(false)
             }
             PanelAccessibilityService.ACTION_TAKE_SCREENSHOT -> {
-                handler.postDelayed({ triggerScreenshot() }, 200)
+                handler.postDelayed({ triggerScreenshot() }, SCREENSHOT_TRIGGER_DELAY_MS)
             }
             ACTION_REFRESH -> {
                 serviceScope.launch {
@@ -399,7 +415,7 @@ class FloatingPanelService : Service() {
             }
             ACTION_CLOSE_PANEL -> closePanel(immediate = false)
             ACTION_SCREENSHOT -> {
-                handler.postDelayed({ triggerScreenshot() }, 200)
+                handler.postDelayed({ triggerScreenshot() }, SCREENSHOT_TRIGGER_DELAY_MS)
             }
             ACTION_SCREENSHOT_UI_RESTORE -> {
                 restoreScreenshotUi()
@@ -432,7 +448,6 @@ class FloatingPanelService : Service() {
             pickerPanelView,
             edgeHandleView,
             notchHandleView,
-            dragOverlay,
             indicatorText
         )
         // Cancel any in-flight restore from a previous capture.
@@ -464,7 +479,7 @@ class FloatingPanelService : Service() {
                 Log.e(TAG, "Failed to dispatch screenshot intent", e)
             }
             // Safety net if accessibility never acks restore (OEM quirks).
-            handler.postDelayed(screenshotRestoreRunnable, 1200L)
+            handler.postDelayed(screenshotRestoreRunnable, SCREENSHOT_RESTORE_DELAY_MS)
         }
     }
 
@@ -575,6 +590,157 @@ class FloatingPanelService : Service() {
         }
     }
 
+    // ════════════════════════════════════════════════════════════════════
+    // Content Picker — highlight interactive controls, tap to copy
+    // ════════════════════════════════════════════════════════════════════
+
+    private fun startContentPicker() {
+        if (contentPickerActive) return
+        contentPickerActive = true
+        closePanel(immediate = true)
+
+        // Register the snapshot callback on the accessibility service BEFORE
+        // requesting the first refresh so no race drops the initial frame.
+        PanelAccessibilityService.contentPickerCallback = { controls ->
+            if (contentPickerActive) {
+                contentPickerControls = controls
+                drawControlPickerBorders()
+            }
+        }
+
+        // Full-screen transparent overlay that draws yellow borders and receives taps.
+        val overlay = object : android.widget.FrameLayout(this) {
+            private val borderPaint = android.graphics.Paint().apply {
+                color = contentPickerBorderColor
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 3f * resources.displayMetrics.density
+                isAntiAlias = true
+            }
+            override fun onDraw(canvas: android.graphics.Canvas) {
+                super.onDraw(canvas)
+                for (c in contentPickerControls) {
+                    canvas.drawRect(c.bounds, borderPaint)
+                }
+            }
+            override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+                if (event.actionMasked == android.view.MotionEvent.ACTION_UP) {
+                    handleControlPickerTap(event.x, event.y)
+                    return true
+                }
+                return true
+            }
+        }.apply {
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            isClickable = true
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+
+        contentPickerOverlay = overlay
+        contentPickerOverlayParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        try {
+            windowManager.addView(overlay, contentPickerOverlayParams)
+        } catch (e: Exception) {
+            contentPickerActive = false
+            PanelAccessibilityService.contentPickerCallback = null
+            Log.e(TAG, "Failed to add control picker overlay", e)
+            return
+        }
+
+        // Request the first snapshot, then keep refreshing on the shared interval
+        // (same 600ms used by the screenshot restore fallback).
+        requestControlPickerRefresh()
+        handler.postDelayed(contentPickerRefreshRunnable, contentPickerRefreshMs)
+        showIndicator(getString(R.string.content_picker_hint))
+    }
+
+    private fun requestControlPickerRefresh() {
+        try {
+            val intent = Intent(this, PanelAccessibilityService::class.java).apply {
+                action = PanelAccessibilityService.ACTION_CONTENT_PICK_REFRESH
+            }
+            startService(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request control picker refresh", e)
+        }
+    }
+
+    private fun refreshControlPickerBorders() {
+        if (!contentPickerActive) return
+        requestControlPickerRefresh()
+        handler.postDelayed(contentPickerRefreshRunnable, contentPickerRefreshMs)
+    }
+
+    private fun drawControlPickerBorders() {
+        contentPickerOverlay?.invalidate()
+    }
+
+    private fun handleControlPickerTap(x: Float, y: Float) {
+        val controls = contentPickerControls
+        // Find the smallest control containing the tap point (most specific hit).
+        var best: ContentInfo? = null
+        var bestArea = Long.MAX_VALUE
+        for (c in controls) {
+            if (c.bounds.contains(x.toInt(), y.toInt())) {
+                val area = c.bounds.width().toLong() * c.bounds.height().toLong()
+                if (area < bestArea) {
+                    bestArea = area
+                    best = c
+                }
+            }
+        }
+        if (best != null) {
+            copyContentInfo(best)
+        }
+        stopContentPicker()
+    }
+
+    private fun copyContentInfo(c: ContentInfo) {
+        // Priority: text → contentDescription → viewIdResourceName → (no copy)
+        val text: String? = when {
+            !c.text.isNullOrBlank() -> c.text
+            !c.contentDescription.isNullOrBlank() -> c.contentDescription
+            !c.viewIdResourceName.isNullOrBlank() -> c.viewIdResourceName
+            else -> null
+        }
+        if (text == null) return  // nothing copyable → do not write to clipboard
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Content Picker", text))
+            showIndicator(getString(R.string.content_picker_copied))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy control info", e)
+        }
+    }
+
+    private fun stopContentPicker() {
+        if (!contentPickerActive) return
+        contentPickerActive = false
+        handler.removeCallbacks(contentPickerRefreshRunnable)
+        PanelAccessibilityService.contentPickerCallback = null
+        contentPickerControls = emptyList()
+        contentPickerOverlay?.let { ov ->
+            try {
+                if (ov.isAttachedToWindow) windowManager.removeView(ov)
+            } catch (e: Exception) {}
+        }
+        contentPickerOverlay = null
+        contentPickerOverlayParams = null
+    }
+
     private fun openFavoriteApp() {
         val pkg = panelPrefs.favoriteAppPackage
         if (pkg.isEmpty()) {
@@ -657,18 +823,59 @@ class FloatingPanelService : Service() {
                 android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
             savedBrightness = snapshot.brightness
 
-            // 4. Acquire wake lock to guarantee screen stays on regardless of
-            //    the overlay window's FLAG_KEEP_SCREEN_ON behavior on OEM forks.
-            //    Some manufacturers ignore keepScreenOn on TYPE_APPLICATION_OVERLAY
-            //    windows; the WakeLock provides a hardware-level screen-on guarantee.
+            // 4. Wake lock strategy — two modes:
+            //    - True screen-off (device admin active + pref enabled):
+            //      PARTIAL_WAKE_LOCK keeps the CPU running so the foreground
+            //      app stays alive, while the screen itself is turned off via
+            //      a minimal SCREEN_OFF_TIMEOUT and keyguard is suppressed.
+            //    - Legacy dim overlay: SCREEN_BRIGHT_WAKE_LOCK guarantees the
+            //      overlay window's FLAG_KEEP_SCREEN_ON is honored on OEM forks.
+            val useTrueScreenOff = try {
+                panelPrefs.enableDeviceAdmin &&
+                    (getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager)
+                        .isAdminActive(android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java))
+            } catch (e: Exception) {
+                false
+            }
+            trueScreenOffActive = useTrueScreenOff
             try {
                 val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-                blackScreenWakeLock = powerManager.newWakeLock(
-                    android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
-                    android.os.PowerManager.ON_AFTER_RELEASE,
-                    "SmartEdge:BlackScreen"
-                )
-                blackScreenWakeLock?.acquire(10 * 60 * 1000L) // max 10 min timeout
+                if (useTrueScreenOff) {
+                    // CPU stays awake; screen may be off.
+                    blackScreenWakeLock = powerManager.newWakeLock(
+                        android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                        "SmartEdge:BlackScreen"
+                    )
+                    blackScreenWakeLock?.acquire() // held until Black Screen is dismissed (no fixed timeout so long-running background tasks survive past 10 min)
+                    // Suppress the lock screen so waking returns to the app.
+                    try {
+                        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                        val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+                        if (dpm.isAdminActive(cn)) {
+                            dpm.setKeyguardDisabled(true)
+                        }
+                    } catch (e: Exception) {}
+                    // Drive a real screen-off with the shortest supported timeout.
+                    try {
+                        savedScreenOffTimeout = android.provider.Settings.System.getInt(
+                            contentResolver,
+                            android.provider.Settings.System.SCREEN_OFF_TIMEOUT,
+                            30000
+                        )
+                        android.provider.Settings.System.putInt(
+                            contentResolver,
+                            android.provider.Settings.System.SCREEN_OFF_TIMEOUT,
+                            SCREEN_OFF_TIMEOUT_MIN_MS
+                        )
+                    } catch (e: Exception) {}
+                } else {
+                    blackScreenWakeLock = powerManager.newWakeLock(
+                        android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                        android.os.PowerManager.ON_AFTER_RELEASE,
+                        "SmartEdge:BlackScreen"
+                    )
+                    blackScreenWakeLock?.acquire() // held until Black Screen is dismissed (no fixed timeout so long-running background tasks survive past 10 min)
+                }
             } catch (_: Exception) {}
 
             // 5. Create full-screen black overlay with FLAG_KEEP_SCREEN_ON
@@ -701,7 +908,9 @@ class FloatingPanelService : Service() {
                 isClickable = true
                 isFocusable = true
                 isFocusableInTouchMode = true
-                keepScreenOn = true
+                // In true screen-off mode the screen is physically off, so there is
+                // nothing to keep on; keepScreenOn would fight the screen-off timer.
+                keepScreenOn = !trueScreenOffActive
                 // Hide status & navigation bars (immersive mode).
                 @Suppress("DEPRECATION")
                 systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
@@ -746,7 +955,7 @@ class FloatingPanelService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                (if (trueScreenOffActive) 0 else WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) or
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                 PixelFormat.OPAQUE
             ).apply {
@@ -769,7 +978,7 @@ class FloatingPanelService : Service() {
                         overlay.requestFocus()
                     }
                 }
-            }, 150)
+            }, BLACK_SCREEN_OVERLAY_DELAY_MS)
 
             showIndicator(getString(R.string.indicator_black_screen_on))
         } catch (e: Exception) {
@@ -804,6 +1013,29 @@ class FloatingPanelService : Service() {
                 if (wl.isHeld) wl.release()
             }
             blackScreenWakeLock = null
+
+            // 3b. Restore the screen-off timeout + re-enable keyguard when a true
+            //     screen-off session is being torn down.
+            if (trueScreenOffActive) {
+                trueScreenOffActive = false
+                try {
+                    if (savedScreenOffTimeout > 0) {
+                        android.provider.Settings.System.putInt(
+                            contentResolver,
+                            android.provider.Settings.System.SCREEN_OFF_TIMEOUT,
+                            savedScreenOffTimeout
+                        )
+                        savedScreenOffTimeout = -1
+                    }
+                } catch (e: Exception) {}
+                try {
+                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+                    if (dpm.isAdminActive(cn)) {
+                        dpm.setKeyguardDisabled(false)
+                    }
+                } catch (e: Exception) {}
+            }
 
             // 4. Restore brightness + auto-mode via the pure helper.
             //    The BrightnessSnapshot was constructed by activateBlackScreen
@@ -890,12 +1122,35 @@ class FloatingPanelService : Service() {
         removeView(edgeHandleView)
         removeView(notchHandleView)
         removeView(rootLayout)
-        removeView(dragOverlay)
-        dragOverlay = null
         // Release black screen resources if active
         blackScreenWakeLock?.let { if (it.isHeld) it.release() }
         blackScreenWakeLock = null
         removeView(blackScreenOverlay)
+        // Drop any active control picker overlay + callback.
+        stopContentPicker()
+        // Lifecycle guard: if the service dies while a true screen-off session is
+        // active, restore the timeout and keyguard so the device doesn't stay in
+        // an unlocked, ultra-short-timeout state permanently.
+        if (trueScreenOffActive) {
+            trueScreenOffActive = false
+            try {
+                if (savedScreenOffTimeout > 0) {
+                    android.provider.Settings.System.putInt(
+                        contentResolver,
+                        android.provider.Settings.System.SCREEN_OFF_TIMEOUT,
+                        savedScreenOffTimeout
+                    )
+                }
+                savedScreenOffTimeout = -1
+            } catch (e: Exception) {}
+            try {
+                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+                if (dpm.isAdminActive(cn)) {
+                    dpm.setKeyguardDisabled(false)
+                }
+            } catch (e: Exception) {}
+        }
     }
 
     // Audit U-Med: this service is the live overlay panel; it MUST outlive
@@ -1166,6 +1421,7 @@ class FloatingPanelService : Service() {
                     "smartedge.tool.screenshot" -> triggerScreenshot()
                     "smartedge.tool.blackscreen" -> activateBlackScreen()
                     "smartedge.tool.lockscreen" -> activateLockScreen()
+                    "smartedge.tool.content_picker" -> startContentPicker()
                     // Volume/Brightness taps are handled in SidePanelView / PanelAppsAdapter
                     // with the shared long-press-drag gesture. Keep these as safe fallbacks
                     // that match the dashboard semantics and do NOT close the panel.
@@ -1401,72 +1657,6 @@ class FloatingPanelService : Service() {
                 }
                 // Return false to allow setOnClickListener to handle the tap
                 false
-            }
-
-            setOnDragListener { v, event ->
-                when (event.action) {
-                    android.view.DragEvent.ACTION_DRAG_STARTED -> {
-                        showDragOverlay(true)
-                        true
-                    }
-                    android.view.DragEvent.ACTION_DRAG_LOCATION -> {
-                        updateDragOverlay(event.y, v.height)
-                        true
-                    }
-                    android.view.DragEvent.ACTION_DROP -> {
-                        showDragOverlay(false) // Hide immediately on drop
-                        val packageName = event.localState as? String
-                        if (packageName != null) {
-                            val dropY = event.y
-                            val screenHeight = v.height
-                            
-                            val mode = when {
-                                dropY < screenHeight * 0.30 -> SplitScreenHelper.MODE_TOP
-                                dropY > screenHeight * 0.70 -> SplitScreenHelper.MODE_BOTTOM
-                                else -> SplitScreenHelper.MODE_FREEFORM
-                            }
-                            
-                            // Don't close panel IMMEDIATELY here, wait for DRAG_ENDED
-                            // or it can leave a stuck drag shadow on some Android versions.
-                            
-                            // Delegate to Accessibility Service for higher privilege launch
-                            val splitIntent = Intent(this@FloatingPanelService, PanelAccessibilityService::class.java).apply {
-                                action = PanelAccessibilityService.ACTION_SPLIT_SCREEN
-                                putExtra(PanelAccessibilityService.EXTRA_PKG, packageName)
-                                putExtra(PanelAccessibilityService.EXTRA_MODE, mode)
-                            }
-                            try {
-                                startService(splitIntent)
-                            } catch (e: SecurityException) {
-                                Log.e(TAG, "startService(PanelAccessibilityService) denied for split-screen", e)
-                                try {
-                                    if (mode == SplitScreenHelper.MODE_TOP || mode == SplitScreenHelper.MODE_BOTTOM) {
-                                        AutomationManager.performSplitScreen()
-                                    }
-                                    SplitScreenHelper.launchApp(this@FloatingPanelService, packageName, mode)
-                                } catch (e2: Exception) {
-                                    Log.e(TAG, "Split-screen fallback failed", e2)
-                                    showIndicator(getString(R.string.accessibility_or_native_gesture_tip))
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Failed to dispatch split-screen intent", e)
-                            }
-                        }
-                        true
-                    }
-                    android.view.DragEvent.ACTION_DRAG_ENDED -> {
-                        showDragOverlay(false) // Safety cleanup
-                        // If drop was successful, we close the panel with a small delay
-                        // to ensure the system has finished the drag operation completely.
-                        if (event.result) {
-                            v.postDelayed({
-                                closePanel(immediate = true)
-                            }, 100)
-                        }
-                        true
-                    }
-                    else -> false
-                }
             }
         }
         rootParams = WindowManager.LayoutParams(
@@ -1735,7 +1925,7 @@ class FloatingPanelService : Service() {
                 sidePanelView?.animatePickerToggle(false)
                 sidePanelView?.setColumns(originalCols)
             }
-        }, 250)
+        }, PICKER_CLOSE_COLUMNS_DELAY_MS)
         pickerPanelView?.let { picker ->
             picker.setEditMode(false)
             picker.invalidateAppList()
@@ -1764,6 +1954,7 @@ class FloatingPanelService : Service() {
                         // list in the sidebar panel (applyTheme() in SidePanelView).
                         tools.add(AppInfo("smartedge.tool.screenshot", getString(R.string.tool_name_screenshot), type = AppInfo.Type.TOOL))
                         tools.add(AppInfo("smartedge.tool.blackscreen", getString(R.string.tool_name_blackscreen), type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.tool.content_picker", getString(R.string.tool_name_content_picker), type = AppInfo.Type.TOOL))
                         tools.add(AppInfo("smartedge.shortcut.reboot", getString(R.string.tool_name_power), type = AppInfo.Type.SHORTCUT))
                         tools.add(AppInfo("smartedge.tool.volume_up", getString(R.string.tool_name_volume), type = AppInfo.Type.TOOL))
                         tools.add(AppInfo("smartedge.tool.brightness_up", getString(R.string.tool_name_brightness), type = AppInfo.Type.TOOL))
@@ -1849,113 +2040,6 @@ class FloatingPanelService : Service() {
 
     private var indicatorText: android.widget.TextView? = null
     private var indicatorFadeRunnable: Runnable? = null
-
-    private var tvTopZone: android.widget.TextView? = null
-    private var tvBottomZone: android.widget.TextView? = null
-    private var tvFreeformZone: android.widget.TextView? = null
-
-    private fun initDragOverlay() {
-        if (dragOverlay != null) return
-
-        dragOverlay = android.widget.FrameLayout(this).apply {
-            setBackgroundColor(android.graphics.Color.parseColor("#4D000000")) // 30% Dim
-        }
-
-        val createZone = { text: String, grav: Int ->
-            android.widget.TextView(this).apply {
-                this.text = text
-                setTextColor(android.graphics.Color.WHITE)
-                textSize = 18f
-                gravity = android.view.Gravity.CENTER
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(android.graphics.Color.parseColor("#33FFFFFF"))
-                    setStroke(dpToPx(2), android.graphics.Color.parseColor("#80FFFFFF"))
-                    cornerRadius = dpToPx(16).toFloat()
-                }
-                alpha = 0.5f
-                layoutParams = android.widget.FrameLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    0
-                ).apply {
-                    gravity = grav
-                    val m = dpToPx(20)
-                    setMargins(m, m, m, m)
-                }
-            }
-        }
-
-        tvTopZone = createZone(getString(R.string.split_top), Gravity.TOP).apply {
-            layoutParams.height = (resources.displayMetrics.heightPixels * 0.28).toInt()
-        }
-        tvBottomZone = createZone(getString(R.string.split_bottom), Gravity.BOTTOM).apply {
-            layoutParams.height = (resources.displayMetrics.heightPixels * 0.28).toInt()
-        }
-        tvFreeformZone = createZone(getString(R.string.split_freeform), Gravity.CENTER).apply {
-            layoutParams.height = (resources.displayMetrics.heightPixels * 0.30).toInt()
-        }
-
-        dragOverlay?.addView(tvTopZone)
-        dragOverlay?.addView(tvBottomZone)
-        dragOverlay?.addView(tvFreeformZone)
-
-        dragOverlayParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        )
-    }
-
-    private fun showDragOverlay(show: Boolean) {
-        if (show) {
-            initDragOverlay()
-            val overlay = dragOverlay ?: return
-            if (!overlay.isAttachedToWindow && dragOverlayParams != null) {
-                try {
-                    windowManager.addView(overlay, dragOverlayParams)
-                } catch (e: Exception) { e.printStackTrace() }
-            }
-            overlay.visibility = View.VISIBLE
-            overlay.animate().cancel()
-            overlay.alpha = 0f
-            overlay.animate().alpha(1f).setDuration(200).start()
-        } else {
-            val overlay = dragOverlay ?: return
-            overlay.animate().cancel()
-            overlay.animate().alpha(0f).setDuration(200).withEndAction {
-                overlay.visibility = View.GONE
-                if (overlay.isAttachedToWindow) {
-                    try {
-                        windowManager.removeView(overlay)
-                    } catch (e: Exception) { e.printStackTrace() }
-                }
-            }.start()
-        }
-    }
-
-    private fun updateDragOverlay(y: Float, screenHeight: Int) {
-        val reset = { v: View? -> 
-            v?.alpha = 0.5f
-            (v?.background as? android.graphics.drawable.GradientDrawable)?.setColor(android.graphics.Color.parseColor("#33FFFFFF"))
-        }
-        val highlight = { v: View? -> 
-            v?.alpha = 1.0f
-            (v?.background as? android.graphics.drawable.GradientDrawable)?.setColor(android.graphics.Color.parseColor("#804A9EFF"))
-        }
-
-        reset(tvTopZone)
-        reset(tvBottomZone)
-        reset(tvFreeformZone)
-
-        when {
-            y < screenHeight * 0.30 -> highlight(tvTopZone)
-            y > screenHeight * 0.70 -> highlight(tvBottomZone)
-            else -> highlight(tvFreeformZone)
-        }
-    }
 
     fun adjustVolume(delta: Int) {
         if (delta == 0) return
@@ -2058,11 +2142,11 @@ class FloatingPanelService : Service() {
             indicatorFadeRunnable = Runnable {
                 indicatorText?.animate()
                     ?.alpha(0f)
-                    ?.setDuration(300)
+                    ?.setDuration(INDICATOR_FADE_DURATION_MS)
                     ?.withEndAction { indicatorText?.visibility = View.GONE }
                     ?.start()
             }
-            handler.postDelayed(indicatorFadeRunnable!!, 1500)
+            handler.postDelayed(indicatorFadeRunnable!!, INDICATOR_SHOW_DURATION_MS)
         }
     }
 
