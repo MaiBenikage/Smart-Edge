@@ -852,7 +852,7 @@ class FloatingPanelService : Service() {
                         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
                         val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
                         if (dpm.isAdminActive(cn)) {
-                            dpm.setKeyguardDisabled(true)
+                            dpm.setKeyguardDisabled(cn, true)
                         }
                     } catch (e: Exception) {}
                     // Drive a real screen-off with the shortest supported timeout.
@@ -1032,7 +1032,7 @@ class FloatingPanelService : Service() {
                     val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
                     val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
                     if (dpm.isAdminActive(cn)) {
-                        dpm.setKeyguardDisabled(false)
+                        dpm.setKeyguardDisabled(cn, false)
                     }
                 } catch (e: Exception) {}
             }
@@ -1147,7 +1147,7 @@ class FloatingPanelService : Service() {
                 val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
                 val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
                 if (dpm.isAdminActive(cn)) {
-                    dpm.setKeyguardDisabled(false)
+                    dpm.setKeyguardDisabled(cn, false)
                 }
             } catch (e: Exception) {}
         }
