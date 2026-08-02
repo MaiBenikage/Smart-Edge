@@ -873,7 +873,9 @@ class FloatingPanelService : Service() {
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
-            bottomMargin = (90 * density).toInt()
+            // WindowManager.LayoutParams has no bottomMargin; use y offset
+            // (negative = upward from the BOTTOM gravity anchor).
+            y = -(90 * density).toInt()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
