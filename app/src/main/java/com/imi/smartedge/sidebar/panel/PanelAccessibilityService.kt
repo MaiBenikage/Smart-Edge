@@ -28,6 +28,10 @@ class PanelAccessibilityService : AccessibilityService() {
     // un-binds the service, preventing the Looper from holding a lambda
     // that captures `this` past the service's death.
     private val accessibilityHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    // Single-thread executor for the Content Picker tree walk. Keeps the heavy
+    // AccessibilityNodeInfo traversal off the service's main thread so complex
+    // windows (web pages, long lists) cannot block a11y event dispatch.
+    private val collectExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     override fun onCreate() {
         super.onCreate()
@@ -196,42 +200,55 @@ class PanelAccessibilityService : AccessibilityService() {
      */
     private fun collectControlsAndNotify() {
         val cb = contentPickerCallback ?: return
+        // Run the (potentially large) accessibility tree walk off the main
+        // thread. rootInActiveWindow is safe to touch from a background thread
+        // once obtained; the snapshot + callback are the only parts that must
+        // hop back to the main looper.
         val root = rootInActiveWindow ?: run { cb(emptyList()); return }
         val out = ArrayList<ContentInfo>(64)
-        fun walk(node: AccessibilityNodeInfo?) {
-            if (node == null) return
+        val target = this
+        collectExecutor.execute {
             try {
-                val pkg = node.packageName?.toString()
-                if (pkg == packageName) { /* skip our own overlay windows */ }
-                else {
-                    val b = android.graphics.Rect()
-                    node.getBoundsInScreen(b)
-                    // Skip zero-area / offscreen invisible nodes.
-                    if (b.width() > 0 && b.height() > 0 &&
-                        b.right > 0 && b.bottom > 0
-                    ) {
-                        val cd = node.contentDescription?.toString()
-                        val vid = node.viewIdResourceName
-                        val cls = node.className?.toString()
-                        val txt = node.text?.toString()
-                        // Keep nodes that are interactive OR have copyable metadata
-                        // (contentDescription / viewIdResourceName). Text-only nodes
-                        // without id are still useful for contentDescription-less
-                        // icons, so include them too but prefer metadata-bearing ones.
-                        if (node.isClickable || !cd.isNullOrBlank() || !vid.isNullOrBlank() || !txt.isNullOrBlank()) {
-                            out.add(ContentInfo(b, txt, cd, vid, cls))
+                fun walk(node: AccessibilityNodeInfo?) {
+                    if (node == null) return
+                    try {
+                        val pkg = node.packageName?.toString()
+                        if (pkg == target.packageName) { /* skip our own overlay windows */ }
+                        else {
+                            val b = android.graphics.Rect()
+                            node.getBoundsInScreen(b)
+                            // Skip zero-area / offscreen invisible nodes.
+                            if (b.width() > 0 && b.height() > 0 &&
+                                b.right > 0 && b.bottom > 0
+                            ) {
+                                val cd = node.contentDescription?.toString()
+                                val vid = node.viewIdResourceName
+                                val cls = node.className?.toString()
+                                val txt = node.text?.toString()
+                                // Keep nodes that are interactive OR have copyable metadata
+                                // (contentDescription / viewIdResourceName). Text-only nodes
+                                // without id are still useful for contentDescription-less
+                                // icons, so include them too but prefer metadata-bearing ones.
+                                if (node.isClickable || !cd.isNullOrBlank() || !vid.isNullOrBlank() || !txt.isNullOrBlank()) {
+                                    out.add(ContentInfo(b, txt, cd, vid, cls))
+                                }
+                            }
                         }
+                    } catch (_: Exception) {}
+                    val childCount = node.childCount
+                    for (i in 0 until childCount) {
+                        walk(node.getChild(i))
+                    }
+                    // Explicitly recycle nodes on API < 33; from API 33 the
+                    // platform recycles AccessibilityNodeInfo automatically.
+                    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+                        try { node.recycle() } catch (_: Exception) {}
                     }
                 }
+                walk(root)
             } catch (_: Exception) {}
-            for (i in 0 until node.childCount) {
-                walk(node.getChild(i))
-            }
+            accessibilityHandler.post { cb(out) }
         }
-        try {
-            walk(root)
-        } catch (_: Exception) {}
-        cb(out)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -303,5 +320,6 @@ class PanelAccessibilityService : AccessibilityService() {
         // Without this, the Looper keeps the bound lambda (capturing `this`)
         // alive until it naturally runs, even though the service is gone.
         accessibilityHandler.removeCallbacksAndMessages(null)
+        collectExecutor.shutdown()
     }
 }

@@ -69,10 +69,14 @@ class FloatingPanelService : Service() {
     private var contentPickerOverlayParams: WindowManager.LayoutParams? = null
     private var contentPickerControls: List<ContentInfo> = emptyList()
     private var contentPickerActive = false
-    private val contentPickerRefreshRunnable = Runnable { refreshControlPickerBorders() }
+    private val contentPickerRefreshRunnable = Runnable { refreshContentPickerBorders() }
     private val contentPickerBorderColor = android.graphics.Color.YELLOW
     /** Consecutive empty snapshots (no accessible controls) seen so far. */
     private var contentPickerEmptySnapshots = 0
+    /** Text snippets accumulated from single-tap selections. Written to the
+     *  clipboard (joined with newlines) when the picker is dismissed by the
+     *  two-finger gesture. */
+    private val contentPickerAccumulated = mutableListOf<String>()
 
     private var isPanelOpen = false
     private var isPickerOpen = false
@@ -620,6 +624,9 @@ class FloatingPanelService : Service() {
                         if (contentPickerEmptySnapshots >= 3) {
                             contentPickerEmptySnapshots = 0
                             showIndicator(getString(R.string.content_picker_no_controls))
+                            // Flush whatever was accumulated before giving up, so no
+                            // selections are lost on the a11y-unavailable path.
+                            flushContentPickerToClipboard()
                             stopContentPicker()
                             return@post
                         }
@@ -627,7 +634,7 @@ class FloatingPanelService : Service() {
                         contentPickerEmptySnapshots = 0
                     }
                     contentPickerControls = controls
-                    drawControlPickerBorders()
+                    drawContentPickerBorders()
                 }
             }
         }
@@ -649,29 +656,38 @@ class FloatingPanelService : Service() {
                 }
             }
             override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
-                if (event.actionMasked == android.view.MotionEvent.ACTION_UP) {
-                    handleControlPickerTap(event.x, event.y)
-                    return true
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_POINTER_DOWN -> {
+                        // Two-finger touch anywhere dismisses the picker and returns
+                        // to the app. All accumulated single-tap selections are
+                        // joined with newlines and written to the clipboard first.
+                        if (event.pointerCount >= 2) {
+                            flushContentPickerToClipboard()
+                            stopContentPicker()
+                            return true
+                        }
+                    }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        if (event.pointerCount <= 1) {
+                            handleContentPickerTap(event.x, event.y)
+                        }
+                        return true
+                    }
                 }
                 return true
-            }
-            // Pressing Back anywhere dismisses the picker (same as tapping an
-            // empty area). Without this the full-screen overlay would keep
-            // consuming input and the system Back would be unreachable.
-            override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-                if (event.action == android.view.KeyEvent.ACTION_DOWN &&
-                    event.keyCode == android.view.KeyEvent.KEYCODE_BACK
-                ) {
-                    stopContentPicker()
-                    return true
-                }
-                return super.dispatchKeyEvent(event)
             }
         }.apply {
             setBackgroundColor(android.graphics.Color.parseColor("#14141414"))
             isClickable = true
-            isFocusable = true
-            isFocusableInTouchMode = true
+            // NOT focusable: a focusable TYPE_APPLICATION_OVERLAY becomes the
+            // active window, so AccessibilityService.getRootInActiveWindow()
+            // would return OUR overlay's node tree instead of the target app's.
+            // Every node would then be skipped by the `pkg == packageName`
+            // guard, producing zero controls (no borders drawn). Non-focusable
+            // overlays still receive touch events when they sit on top of the
+            // window stack, so tap-to-copy and tap-empty-to-dismiss keep working.
+            isFocusable = false
+            isFocusableInTouchMode = false
         }
 
         contentPickerOverlay = overlay
@@ -681,7 +697,8 @@ class FloatingPanelService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -702,12 +719,12 @@ class FloatingPanelService : Service() {
         // Request the first snapshot, then keep refreshing on the shared interval
         // (1200ms — frequent enough to track scrolling pages without hammering
         // the accessibility tree traversal on the main thread).
-        requestControlPickerRefresh()
+        requestContentPickerRefresh()
         handler.postDelayed(contentPickerRefreshRunnable, CONTENT_PICKER_REFRESH_MS)
         showIndicator(getString(R.string.content_picker_hint))
     }
 
-    private fun requestControlPickerRefresh() {
+    private fun requestContentPickerRefresh() {
         try {
             val intent = Intent(this, PanelAccessibilityService::class.java).apply {
                 action = PanelAccessibilityService.ACTION_CONTENT_PICK_REFRESH
@@ -718,17 +735,17 @@ class FloatingPanelService : Service() {
         }
     }
 
-    private fun refreshControlPickerBorders() {
+    private fun refreshContentPickerBorders() {
         if (!contentPickerActive) return
-        requestControlPickerRefresh()
+        requestContentPickerRefresh()
         handler.postDelayed(contentPickerRefreshRunnable, CONTENT_PICKER_REFRESH_MS)
     }
 
-    private fun drawControlPickerBorders() {
+    private fun drawContentPickerBorders() {
         contentPickerOverlay?.invalidate()
     }
 
-    private fun handleControlPickerTap(x: Float, y: Float) {
+    private fun handleContentPickerTap(x: Float, y: Float) {
         val controls = contentPickerControls
         // Find the smallest control containing the tap point (most specific hit).
         var best: ContentInfo? = null
@@ -743,26 +760,42 @@ class FloatingPanelService : Service() {
             }
         }
         if (best != null) {
-            copyContentInfo(best)
+            accumulateContentInfo(best)
+        } else {
+            // Single-tap on empty area dismisses the picker exactly like the
+            // two-finger gesture: flush accumulated selections to the clipboard,
+            // then close. (Tapping a control keeps the picker open for more picks.)
+            flushContentPickerToClipboard()
+            stopContentPicker()
         }
-        stopContentPicker()
+        // NOTE: tapping a control keeps the picker open so the user can select
+        // multiple controls; the joined clipboard write happens on dismissal.
     }
 
-    private fun copyContentInfo(c: ContentInfo) {
-        // Priority: text → contentDescription → viewIdResourceName → (no copy)
+    /** Extract copyable text from a control and append it to the accumulation
+     *  list (priority: text → contentDescription → viewIdResourceName). */
+    private fun accumulateContentInfo(c: ContentInfo) {
         val text: String? = when {
             !c.text.isNullOrBlank() -> c.text
             !c.contentDescription.isNullOrBlank() -> c.contentDescription
             !c.viewIdResourceName.isNullOrBlank() -> c.viewIdResourceName
             else -> null
         }
-        if (text == null) return  // nothing copyable → do not write to clipboard
+        if (text == null) return  // nothing copyable → skip
+        contentPickerAccumulated.add(text)
+        showIndicator(getString(R.string.content_picker_copied))
+    }
+
+    /** Join every accumulated snippet with newlines and write them to the
+     *  clipboard once when the picker is dismissed via two-finger gesture. */
+    private fun flushContentPickerToClipboard() {
+        if (contentPickerAccumulated.isEmpty()) return
+        val joined = contentPickerAccumulated.joinToString("\n")
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Content Picker", text))
-            showIndicator(getString(R.string.content_picker_copied))
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Content Picker", joined))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy control info", e)
+            Log.e(TAG, "Failed to write accumulated control info", e)
         }
     }
 
@@ -771,6 +804,7 @@ class FloatingPanelService : Service() {
         contentPickerActive = false
         handler.removeCallbacks(contentPickerRefreshRunnable)
         contentPickerEmptySnapshots = 0
+        contentPickerAccumulated.clear()
         PanelAccessibilityService.contentPickerCallback = null
         contentPickerControls = emptyList()
         contentPickerOverlay?.let { ov ->
@@ -1552,6 +1586,11 @@ class FloatingPanelService : Service() {
             // the case where the user filled a valid title/URL but didn't tap
             // DONE — without the explicit save the row was silently lost.
             onClose = { pickerPanelView?.commitPendingEdits(); closePicker() }
+            onEditModeChanged = { editing ->
+                // While the picker's EDIT mode is on, let the user long-press a
+                // sidebar item to drag-reorder it. DONE exits and disables drag.
+                sidePanelView?.setEditButtonVisible(editing)
+            }
             onAppLaunched = { closePanel() }
             onToggleApp = { app, isSelected ->
                 if (isSelected) {

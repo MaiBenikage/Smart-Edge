@@ -65,6 +65,9 @@ class AppPickerPanelView @JvmOverloads constructor(
     // ====================================================================================
     var onClose: (() -> Unit)? = null
     var onAppLaunched: (() -> Unit)? = null
+    /** Fired whenever the picker's EDIT/DONE state changes, so the sidebar can
+     *  enable/disable long-press drag-to-reorder (ItemTouchHelper) to match. */
+    var onEditModeChanged: ((Boolean) -> Unit)? = null
 
     /** Fired when a user toggles a regular app, activity, or shortcut in edit mode. */
     var onToggleApp: ((AppInfo, Boolean) -> Unit)? = null
@@ -369,6 +372,7 @@ class AppPickerPanelView @JvmOverloads constructor(
             // (sidebar changes only saved when Done is clicked)
             if (isEditMode) {
                 isEditMode = false
+                onEditModeChanged?.invoke(false)
                 updateHeaderAndEditButton()
             }
         }
@@ -424,6 +428,7 @@ class AppPickerPanelView @JvmOverloads constructor(
     fun setEditMode(enabled: Boolean) {
         if (isEditMode == enabled) return
         isEditMode = enabled
+        onEditModeChanged?.invoke(enabled)
         updateHeaderAndEditButton()
         if (activeTab == PickerTab.CUSTOM) {
             // ListAdapter items carry stale `isEditing` flags — must rebuild
