@@ -84,6 +84,9 @@ class SidePanelView @JvmOverloads constructor(
     //   [2] = start rawY for tap-vs-drag classification on ACTION_UP
     private val volumeDragState = FloatArray(3)
     private val brightnessDragState = FloatArray(3)
+    // Accumulated vertical travel (px) between emitted units for the drag buttons,
+    // mirroring the edge-slide gesture's pixelsPerUnit accumulation.
+    private var accumulatedDragPx = 0f
 
     // Dedicated handler + transient indicator used by the drag buttons. Distinct
     // from [updateHandler] / [updateRunnable] (which drive the periodic system-info
@@ -166,11 +169,11 @@ class SidePanelView @JvmOverloads constructor(
             onToolDrag = { toolId, direction ->
                 when (toolId) {
                     "smartedge.tool.volume_up" -> {
-                        adjustVolumeByPercent(direction * 3)
+                        adjustVolumeByPercent(direction)
                         showVolumeIndicator()
                     }
                     "smartedge.tool.brightness_up" -> {
-                        adjustBrightnessByPercent(direction * 5)
+                        adjustBrightnessByPercent(direction)
                         showBrightnessIndicator()
                     }
                 }
@@ -305,14 +308,15 @@ class SidePanelView @JvmOverloads constructor(
                 view = v,
                 event = event,
                 dragState = volumeDragState,
-                tickDistanceDp = 14f,
+                baseDistanceDp = 25f,   // mirrors EdgeHandleView volume: 25dp/unit
                 onTap = {
                     // Tap → show the system volume panel (no value change required).
                     showSystemVolumeBar()
                 },
                 onStep = { direction ->
                     // Enabled only after a 1s long-press (see handleDragTouch).
-                    adjustVolumeByPercent(direction * 3)
+                    // Each unit = one volume step (same semantics as edge-slide).
+                    adjustVolumeByPercent(direction)
                     showVolumeIndicator()
                 }
             )
@@ -322,11 +326,12 @@ class SidePanelView @JvmOverloads constructor(
                 view = v,
                 event = event,
                 dragState = brightnessDragState,
-                tickDistanceDp = 6f,
+                baseDistanceDp = 3f,    // mirrors EdgeHandleView brightness: 3dp/unit
                 onTap = { toggleAutoBrightness() },
                 onStep = { direction ->
                     // Enabled only after a 1s long-press (see handleDragTouch).
-                    adjustBrightnessByPercent(direction * 5)
+                    // Each unit = one brightness level (same semantics as edge-slide).
+                    adjustBrightnessByPercent(direction)
                     showBrightnessIndicator()
                 }
             )
@@ -849,21 +854,18 @@ class SidePanelView @JvmOverloads constructor(
         // that is exactly the "do not have setStreamVolume Permission" log — while
         // adjustStreamVolume is allowed (the edge-slide path works). Using the
         // same relative API keeps the tools gesture working where edge-slide works.
+        // `delta` is now a unit count (edge-slide semantics): |delta| volume steps.
         val direction = if (delta > 0) android.media.AudioManager.ADJUST_RAISE
                         else android.media.AudioManager.ADJUST_LOWER
-        // Convert the percent delta into whole steps: for a 15-step stream a 3%
-        // delta is 0.45 steps → at least 1 step per tick (matches Audit L1 fix,
-        // without the old index-round-trip freeze).
-        val steps = if (delta > 0) Math.max(1, (max * delta) / 100)
-                    else Math.min(-1, (max * delta) / 100)
+        val steps = Math.abs(delta).coerceAtLeast(1)
         try {
-            repeat(Math.abs(steps)) {
+            repeat(steps) {
                 audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
             }
         } catch (e: SecurityException) {
             // adjustStreamVolume rejected too — last resort via privileged shell.
             val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val target = (current + steps).coerceIn(0, max)
+            val target = (current + delta).coerceIn(0, max)
             if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
                 Log.w(TAG, "Privileged volume fallback failed", e)
             }
@@ -873,10 +875,11 @@ class SidePanelView @JvmOverloads constructor(
     }
 
     /**
-     * Adjust screen brightness by `deltaPercent` percent (sign indicates direction).
+     * Adjust screen brightness by `delta` units (sign indicates direction).
+     * Each unit is one brightness level on the 0..255 scale (edge-slide semantics).
      * One Settings.System.putInt call.
      */
-    private fun adjustBrightnessByPercent(deltaPercent: Int) {
+    private fun adjustBrightnessByPercent(delta: Int) {
         try {
             if (!android.provider.Settings.System.canWrite(context)) {
                 android.widget.Toast.makeText(
@@ -902,8 +905,9 @@ class SidePanelView @JvmOverloads constructor(
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
                 125
             )
-            val deltaUnits = (deltaPercent * MAX_BRIGHTNESS) / 100
-            val brightness = (current + deltaUnits).coerceIn(0, MAX_BRIGHTNESS)
+            // delta is now a unit count (edge-slide semantics): |delta| brightness
+            // levels (1 level = 1 unit on the 0..255 scale).
+            val brightness = (current + delta).coerceIn(0, MAX_BRIGHTNESS)
             android.provider.Settings.System.putInt(
                 cResolver,
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
@@ -940,10 +944,10 @@ class SidePanelView @JvmOverloads constructor(
      * Behavior:
      *  • ACTION_DOWN  — record anchor; play scale pulse + brief haptic.
      *  • ACTION_MOVE  — translate the button's view up/down by ∆Y (capped at ±60dp visually).
-     *                   For every `tickDistanceDp * density` of vertical motion since the
-     *                   last tick, fire [onStep] with direction = +1 if user dragged UP,
-     *                   -1 if DOWN. Multiple steps are coalesced so a fast flick still
-     *                   feels responsive.
+     *                   For every `pixelsPerUnit` of vertical motion since the last
+     *                   emission, fire [onStep] with direction = +1 if user dragged UP,
+     *                   -1 if DOWN. Multiple units are coalesced so a fast flick still
+     *                   feels responsive (mirrors the edge-slide accumulation).
      *  • ACTION_UP    — spring the button back to translationY = 0. If total travel is
      *                   less than tapSlop (8dp), fire [onTap] once so the button still
      *                   works for users who don't discover the drag gesture.
@@ -960,12 +964,16 @@ class SidePanelView @JvmOverloads constructor(
         view: View,
         event: android.view.MotionEvent,
         dragState: FloatArray,
-        tickDistanceDp: Float,
+        baseDistanceDp: Float,
         onTap: () -> Unit,
         onStep: (direction: Int) -> Unit
     ): Boolean {
         val density = resources.displayMetrics.density
-        val tickPx = tickDistanceDp * density
+        // Sensitivity multiplier mirrors the edge-slide gesture: pixelsPerUnit =
+        // baseDistanceDp * density * (100 / sensitivity). Higher sensitivity
+        // (lower slideSensitivity value) → fewer pixels per unit → more steps.
+        val multiplier = 100f / panelPrefs.slideSensitivity.coerceIn(1, 200)
+        val pixelsPerUnit = (baseDistanceDp * density * multiplier).coerceAtLeast(1f)
         val tapSlopPx = 8f * density
         val tagKey = 0x20F15EED // local tag for arm state Runnable / Boolean
 
@@ -1011,13 +1019,18 @@ class SidePanelView @JvmOverloads constructor(
                     }
                     return true
                 }
-                // Armed: detect vertical steps.
-                val sinceLastTick = dragState[1] - event.rawY
-                if (Math.abs(sinceLastTick) >= tickPx) {
-                    val direction = if (sinceLastTick > 0f) +1 else -1
-                    val ticks = (Math.abs(sinceLastTick) / tickPx).toInt().coerceAtLeast(1)
-                    repeat(ticks) { onStep(direction) }
-                    dragState[1] = event.rawY
+                // Armed: accumulate vertical travel and emit whole units, exactly
+                // like the edge-slide gesture (EdgeHandleView). A fast flick can
+                // produce multiple units in one event.
+                val dy = dragState[1] - event.rawY
+                dragState[1] = event.rawY
+                accumulatedDragPx += dy
+                val absAccum = Math.abs(accumulatedDragPx)
+                if (absAccum >= pixelsPerUnit) {
+                    val units = (absAccum / pixelsPerUnit).toInt().coerceAtLeast(1)
+                    val direction = if (accumulatedDragPx > 0f) +1 else -1
+                    repeat(units) { onStep(direction) }
+                    accumulatedDragPx -= direction * units * pixelsPerUnit
                 }
                 true
             }
@@ -1030,12 +1043,14 @@ class SidePanelView @JvmOverloads constructor(
                     onTap()
                 }
                 view.setTag(tagKey, false)
+                accumulatedDragPx = 0f
                 true
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
                 view.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
                 view.setTag(tagKey, false)
+                accumulatedDragPx = 0f
                 true
             }
             else -> false
