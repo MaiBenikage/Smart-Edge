@@ -83,6 +83,10 @@ class FloatingPanelService : Service() {
     private val contentPickerFeedbackHideRunnable = Runnable {
         contentPickerFeedbackText?.visibility = android.view.View.GONE
     }
+    /** Standalone mini-overlay used to confirm a clipboard flush after the
+     *  Content Picker overlay is dismissed. Created as its own window so the
+     *  confirmation is visible regardless of rootLayout/Toast/Window limits. */
+    private var confirmOverlay: android.view.View? = null
 
     private var isPanelOpen = false
     private var isPickerOpen = false
@@ -839,21 +843,70 @@ class FloatingPanelService : Service() {
 
     /** Join every accumulated snippet with newlines and write them to the
      *  clipboard once when the picker is dismissed via two-finger gesture. */
+    /** Show a standalone confirmation overlay (bottom-center, same look and
+     *  duration as the regular indicator) that survives the Content Picker
+     *  overlay dismissal. The mini window is independent of rootLayout, Toast,
+     *  and PopupWindow anchor constraints, so it is reliably visible. */
+    private fun showConfirmOverlay(text: String) {
+        confirmOverlay?.let { old ->
+            try { if (old.isAttachedToWindow) windowManager.removeView(old) } catch (e: Exception) {}
+        }
+        val density = resources.displayMetrics.density
+        val label = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 14f
+            setPadding((16 * density).toInt(), (10 * density).toInt(), (16 * density).toInt(), (10 * density).toInt())
+            gravity = android.view.Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.parseColor("#E6303030"))
+                cornerRadius = 24f * density
+            }
+            this.text = text
+            elevation = 8f * density
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+            bottomMargin = (90 * density).toInt()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        confirmOverlay = label
+        try {
+            windowManager.addView(label, params)
+            handler.postDelayed({
+                confirmOverlay?.let { ov ->
+                    if (ov.isAttachedToWindow) {
+                        try { windowManager.removeView(ov) } catch (e: Exception) {}
+                    }
+                }
+                confirmOverlay = null
+            }, INDICATOR_SHOW_DURATION_MS)
+        } catch (e: Exception) {
+            confirmOverlay = null
+            Log.e(TAG, "Failed to show confirm overlay", e)
+        }
+    }
+
     private fun flushContentPickerToClipboard() {
         if (contentPickerAccumulated.isEmpty()) return
         val joined = contentPickerAccumulated.joinToString("\n")
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Content Picker", joined))
-            // Confirm the flush (actual clipboard write) once, right before the
-            // picker overlay is removed on dismissal.
-            try {
-                android.widget.Toast.makeText(
-                    this,
-                    getString(R.string.content_picker_copied),
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-            } catch (e: Exception) {}
+            // Confirm the flush (actual clipboard write) once via a standalone
+            // mini-overlay. It outlives the picker overlay dismissal (independent
+            // window), so the user reliably sees "Copied to clipboard" even when
+            // system Toast from a Service context is dropped by the OS.
+            showConfirmOverlay(getString(R.string.content_picker_copied))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write accumulated control info", e)
         }
@@ -1230,6 +1283,12 @@ class FloatingPanelService : Service() {
         // death. Without this the Singleton → Service reference would leak the
         // entire WindowManager overlay tree across service restarts.
         AutomationManager.onEngineLost = null
+        // Remove the standalone confirmation overlay if it is still attached
+        // (avoids WindowLeaked when the service dies before the 1.5s timeout).
+        confirmOverlay?.let { ov ->
+            try { if (ov.isAttachedToWindow) windowManager.removeView(ov) } catch (e: Exception) {}
+        }
+        confirmOverlay = null
         // Audit L6: cancel every pending message on the foreground Handler.
         // `handler.removeCallbacksAndMessages(null)` clears the indicator-fade
         // runnable as well as anything scheduled via postDelayed above.
