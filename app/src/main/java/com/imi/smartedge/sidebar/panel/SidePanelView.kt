@@ -816,8 +816,9 @@ class SidePanelView @JvmOverloads constructor(
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         val percent = if (max > 0) (current * 100) / max else 0
         val msg = context.getString(R.string.indicator_volume_percent, percent)
+        // Single overlay indicator only (no per-tick Toast — that produced a
+        // repeated popup on every drag step).
         showToolIndicator(msg)
-        showToolToast(msg)
     }
 
     private fun showBrightnessIndicator() {
@@ -830,14 +831,6 @@ class SidePanelView @JvmOverloads constructor(
             )
             val msg = context.getString(R.string.indicator_brightness_percent, (bri * 100) / MAX_BRIGHTNESS)
             showToolIndicator(msg)
-            showToolToast(msg)
-        } catch (e: Exception) {}
-    }
-
-    /** Small helper that shows a system toast using a (already localized) string. */
-    private fun showToolToast(msg: String) {
-        try {
-            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {}
     }
 

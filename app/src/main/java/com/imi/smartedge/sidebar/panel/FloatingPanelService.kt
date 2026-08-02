@@ -77,6 +77,12 @@ class FloatingPanelService : Service() {
      *  clipboard (joined with newlines) when the picker is dismissed by the
      *  two-finger gesture. */
     private val contentPickerAccumulated = mutableListOf<String>()
+    /** In-overlay feedback label so the user sees "read" feedback even though
+     *  the host rootLayout is removed while the picker is active. */
+    private var contentPickerFeedbackText: android.widget.TextView? = null
+    private val contentPickerFeedbackHideRunnable = Runnable {
+        contentPickerFeedbackText?.visibility = android.view.View.GONE
+    }
 
     private var isPanelOpen = false
     private var isPickerOpen = false
@@ -694,6 +700,29 @@ class FloatingPanelService : Service() {
             // window stack, so tap-to-copy and tap-empty-to-dismiss keep working.
             isFocusable = false
             isFocusableInTouchMode = false
+            // In-overlay feedback label (top-center) so feedback is visible even
+            // while the picker covers the screen and the host rootLayout is gone.
+            contentPickerFeedbackText = android.widget.TextView(this@FloatingPanelService).apply {
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 14f
+                setPadding((16 * resources.displayMetrics.density).toInt(),
+                           (10 * resources.displayMetrics.density).toInt(),
+                           (16 * resources.displayMetrics.density).toInt(),
+                           (10 * resources.displayMetrics.density).toInt())
+                gravity = android.view.Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(android.graphics.Color.parseColor("#E6303030"))
+                    cornerRadius = 24f * resources.displayMetrics.density
+                }
+                visibility = android.view.View.GONE
+                layoutParams = android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+                    topMargin = (40 * resources.displayMetrics.density).toInt()
+                }
+            }.also { addView(it) }
         }
 
         contentPickerOverlay = overlay
@@ -727,7 +756,7 @@ class FloatingPanelService : Service() {
         // the accessibility tree traversal on the main thread).
         requestContentPickerRefresh()
         handler.postDelayed(contentPickerRefreshRunnable, CONTENT_PICKER_REFRESH_MS)
-        showIndicator(getString(R.string.content_picker_hint))
+        showContentPickerFeedback(getString(R.string.content_picker_hint))
     }
 
     private fun requestContentPickerRefresh() {
@@ -780,6 +809,19 @@ class FloatingPanelService : Service() {
 
     /** Extract copyable text from a control and append it to the accumulation
      *  list (priority: text → contentDescription → viewIdResourceName). */
+    /** Show transient feedback inside the Content Picker overlay (top-center).
+     *  Unlike Toast, this is guaranteed visible because the overlay is the top
+     *  window and the host rootLayout is removed while picking. */
+    private fun showContentPickerFeedback(text: String) {
+        val label = contentPickerFeedbackText ?: return
+        handler.removeCallbacks(contentPickerFeedbackHideRunnable)
+        label.text = text
+        label.visibility = android.view.View.VISIBLE
+        label.alpha = 1f
+        label.animate().cancel()
+        handler.postDelayed(contentPickerFeedbackHideRunnable, INDICATOR_SHOW_DURATION_MS)
+    }
+
     private fun accumulateContentInfo(c: ContentInfo) {
         val text: String? = when {
             !c.text.isNullOrBlank() -> c.text
@@ -789,15 +831,10 @@ class FloatingPanelService : Service() {
         }
         if (text == null) return  // nothing copyable → skip
         contentPickerAccumulated.add(text)
-        // Only give per-tap feedback via a Toast (resource string); the "Copied to
-        // clipboard" confirmation is delivered when the picker flushes on dismiss.
-        try {
-            android.widget.Toast.makeText(
-                this,
-                getString(R.string.content_picker_concatenated),
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        } catch (e: Exception) {}
+        // Per-tap feedback inside the overlay: user sees the control content was
+        // read and appended. The "Copied to clipboard" confirmation is delivered
+        // when the picker flushes on dismiss.
+        showContentPickerFeedback(getString(R.string.content_picker_concatenated))
     }
 
     /** Join every accumulated snippet with newlines and write them to the
@@ -2180,15 +2217,6 @@ class FloatingPanelService : Service() {
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         val percent = if (max > 0) (current * 100) / max else 0
         showIndicator(getString(R.string.indicator_volume_percent, percent))
-        // System toast with the same info as the volume tool, so the result is
-        // visible even when the overlay indicator is not (e.g. edge-slide).
-        try {
-            android.widget.Toast.makeText(
-                this,
-                getString(R.string.indicator_volume_percent, percent),
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        } catch (e: Exception) {}
     }
 
     fun adjustBrightness(delta: Int) {
@@ -2233,15 +2261,6 @@ class FloatingPanelService : Service() {
 
             val percent = (brightness * 100) / 255
             showIndicator(getString(R.string.indicator_brightness_percent, percent))
-            // System toast with the same info as the brightness tool, so the
-            // result is visible even when the overlay indicator is not.
-            try {
-                android.widget.Toast.makeText(
-                    this,
-                    getString(R.string.indicator_brightness_percent, percent),
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-            } catch (e: Exception) {}
         } catch (e: Exception) {
             android.util.Log.e("FloatingPanelService", "Failed to adjust brightness", e)
         }
