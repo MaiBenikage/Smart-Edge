@@ -1240,6 +1240,7 @@ class SidePanelView @JvmOverloads constructor(
     }
 
     private companion object {
+        const val TAG = "SidePanelView"
         // Indicator layout constants (dp)
         const val INDICATOR_PADDING_H_DP = 16
         const val INDICATOR_PADDING_V_DP = 10
