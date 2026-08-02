@@ -3,5 +3,8 @@
     <uses-policies>
         <!-- setKeyguardDisabled(): allow the Black Screen tool to turn the
              screen off without showing the lock screen on wake. -->
+        <force-lock />
+        <!-- lockNow(): allow the Lock Screen tool to lock the device
+             immediately via DevicePolicyManager. -->
     </uses-policies>
 </device-admin>

@@ -35,6 +35,9 @@ class SidePanelView @JvmOverloads constructor(
     var onToolClick: ((String) -> Unit)? = null
     var onBlackScreen: (() -> Unit)? = null
     var onLockScreen: (() -> Unit)? = null
+    /** When set, forwards indicator text to the host service's unified
+     *  showIndicator; otherwise showToolIndicator renders its own overlay. */
+    var onShowIndicator: ((String) -> Unit)? = null
 
     private val binding: SidePanelLayoutBinding = SidePanelLayoutBinding.inflate(LayoutInflater.from(context), this, true)
     private val adapter: PanelAppsAdapter
@@ -754,6 +757,14 @@ class SidePanelView @JvmOverloads constructor(
      * Same visual style as the historical "Volume: 50%" / "Brightness: 25%" chips.
      */
     private fun showToolIndicator(text: String) {
+        val host = onShowIndicator
+        if (host != null) {
+            // Host service owns the unified indicator (FloatingPanelService
+            // showIndicator). Delegate for identical behavior; do not also render
+            // a local copy.
+            host(text)
+            return
+        }
         val root = parent as? android.widget.FrameLayout
         if (root != null) {
             if (panelIndicatorText == null) {
@@ -799,7 +810,9 @@ class SidePanelView @JvmOverloads constructor(
         val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         val percent = if (max > 0) (current * 100) / max else 0
-        showToolIndicator("Volume: $percent%")
+        val msg = context.getString(R.string.indicator_volume_percent, percent)
+        showToolIndicator(msg)
+        showToolToast(msg)
     }
 
     private fun showBrightnessIndicator() {
@@ -810,21 +823,17 @@ class SidePanelView @JvmOverloads constructor(
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
                 125
             )
-            showToolIndicator("Brightness: ${(bri * 100) / MAX_BRIGHTNESS}%")
+            val msg = context.getString(R.string.indicator_brightness_percent, (bri * 100) / MAX_BRIGHTNESS)
+            showToolIndicator(msg)
+            showToolToast(msg)
         } catch (e: Exception) {}
     }
 
-    /**
-     * Set media volume to an absolute percentage in [0..100]. Single-shot IPC.
-     * Replaces the legacy `adjustStreamVolume`-in-a-loop pattern that produced N
-     * synchronous binder calls per drag frame.
-     */
-    private fun setVolumePercent(percent: Int) {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        if (max <= 0) return
-        val target = ((percent.coerceIn(0, 100) / 100f) * max).toInt()
-        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0)
+    /** Small helper that shows a system toast using a (already localized) string. */
+    private fun showToolToast(msg: String) {
+        try {
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {}
     }
 
     /**
@@ -834,18 +843,33 @@ class SidePanelView @JvmOverloads constructor(
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         if (max <= 0) return
-        val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        // Audit L1 — the previous code translated percent → index via `(percent*max)/100`
-        // and read back the new index every tick. For standard 15-step streams, a
-        // 3% delta round-trips to indices 7 → 7.35 → 7, so the volume visibly froze.
-        // Compute the index step directly and enforce at least ±1 step per gesture.
-        val step = if (delta > 0) Math.max(1, (max * delta) / 100)
-                   else Math.min(-1, (max * delta) / 100)
-        audioManager.setStreamVolume(
-            android.media.AudioManager.STREAM_MUSIC,
-            (current + step).coerceIn(0, max),
-            0
-        )
+        // Use adjustStreamVolume (relative) instead of setStreamVolume (absolute).
+        // On some OEM forks (ColorOS/OxygenOS) AudioManagerExtImpl rejects
+        // setStreamVolume for third-party apps despite MODIFY_AUDIO_SETTINGS —
+        // that is exactly the "do not have setStreamVolume Permission" log — while
+        // adjustStreamVolume is allowed (the edge-slide path works). Using the
+        // same relative API keeps the tools gesture working where edge-slide works.
+        val direction = if (delta > 0) android.media.AudioManager.ADJUST_RAISE
+                        else android.media.AudioManager.ADJUST_LOWER
+        // Convert the percent delta into whole steps: for a 15-step stream a 3%
+        // delta is 0.45 steps → at least 1 step per tick (matches Audit L1 fix,
+        // without the old index-round-trip freeze).
+        val steps = if (delta > 0) Math.max(1, (max * delta) / 100)
+                    else Math.min(-1, (max * delta) / 100)
+        try {
+            repeat(Math.abs(steps)) {
+                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
+            }
+        } catch (e: SecurityException) {
+            // adjustStreamVolume rejected too — last resort via privileged shell.
+            val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val target = (current + steps).coerceIn(0, max)
+            if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
+                Log.w(TAG, "Privileged volume fallback failed", e)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "adjustStreamVolume failed", e)
+        }
     }
 
     /**
@@ -885,12 +909,27 @@ class SidePanelView @JvmOverloads constructor(
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
                 brightness
             )
+            val floatVal = brightness / 255f
             try {
                 android.provider.Settings.System.putFloat(
                     cResolver,
                     "screen_brightness_float",
-                    brightness / 255f
+                    floatVal
                 )
+            } catch (e: Exception) {
+                try {
+                    android.provider.Settings.System.putString(
+                        cResolver,
+                        "screen_brightness_float",
+                        floatVal.toString()
+                    )
+                } catch (e2: Exception) {}
+            }
+            // Force a notification change so the system UI slider stays in sync
+            // (mirrors FloatingPanelService.adjustBrightness).
+            try {
+                cResolver.notifyChange(android.provider.Settings.System.getUriFor(android.provider.Settings.System.SCREEN_BRIGHTNESS), null)
+                cResolver.notifyChange(android.provider.Settings.System.getUriFor("screen_brightness_float"), null)
             } catch (e: Exception) {}
         } catch (e: Exception) {}
     }

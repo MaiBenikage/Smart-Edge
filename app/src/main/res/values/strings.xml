@@ -486,6 +486,7 @@
     <string name="tool_name_content_picker">Content Picker</string>
     <string name="content_picker_hint">Tap a control to copy it</string>
     <string name="content_picker_copied">Copied to clipboard</string>
+    <string name="content_picker_concatenated">Content concatenated</string>
     <string name="content_picker_no_controls">No controls detected — picker closed</string>
     <string name="tool_name_tools">Tools</string>
 </resources>

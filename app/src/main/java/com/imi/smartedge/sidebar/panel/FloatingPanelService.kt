@@ -568,6 +568,10 @@ class FloatingPanelService : Service() {
 
     private fun activateLockScreen() {
         try {
+            // Mutual exclusion: locking during Black Screen or Content Picker is
+            // meaningless (black screen already turned the screen off; the picker
+            // owns a full-screen overlay). Bail out cleanly.
+            if (blackScreenOverlay != null || contentPickerActive) return
             closePanel(immediate = true)
             val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
             dpm.lockNow()
@@ -601,7 +605,9 @@ class FloatingPanelService : Service() {
     // ════════════════════════════════════════════════════════════════════
 
     private fun startContentPicker() {
-        if (contentPickerActive) return
+        // Mutual exclusion: Content Picker and Black Screen both own full-screen
+        // overlays. If Black Screen is active, don't stack a second overlay.
+        if (contentPickerActive || blackScreenOverlay != null) return
         contentPickerActive = true
         closePanel(immediate = true)
 
@@ -783,7 +789,15 @@ class FloatingPanelService : Service() {
         }
         if (text == null) return  // nothing copyable → skip
         contentPickerAccumulated.add(text)
-        showIndicator(getString(R.string.content_picker_copied))
+        // Only give per-tap feedback via a Toast (resource string); the "Copied to
+        // clipboard" confirmation is delivered when the picker flushes on dismiss.
+        try {
+            android.widget.Toast.makeText(
+                this,
+                getString(R.string.content_picker_concatenated),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {}
     }
 
     /** Join every accumulated snippet with newlines and write them to the
@@ -794,6 +808,15 @@ class FloatingPanelService : Service() {
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Content Picker", joined))
+            // Confirm the flush (actual clipboard write) once, right before the
+            // picker overlay is removed on dismissal.
+            try {
+                android.widget.Toast.makeText(
+                    this,
+                    getString(R.string.content_picker_copied),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            } catch (e: Exception) {}
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write accumulated control info", e)
         }
@@ -840,6 +863,8 @@ class FloatingPanelService : Service() {
         try {
             // Guard against re-entrant activation — if overlay already exists, ignore.
             if (blackScreenOverlay != null) return
+            // Mutual exclusion with Content Picker: both own full-screen overlays.
+            if (contentPickerActive) return
 
             closePanel()
             val resolver = contentResolver
@@ -1477,6 +1502,7 @@ class FloatingPanelService : Service() {
         // duty without it), so degrade-safe rather than crash.
         try {
             sidePanelView = SidePanelView(this).apply {
+                onShowIndicator = { text -> showIndicator(text) }
                 onClose = { closePanel() }
                 onAppsChanged = { refreshApps() }
                 onAddClick = { isEdit -> togglePicker(isEdit) }
@@ -2032,13 +2058,16 @@ class FloatingPanelService : Service() {
                         // of individual dashboard toggles. The dashboard toggles
                         // only control the inline tools GridLayout below the app
                         // list in the sidebar panel (applyTheme() in SidePanelView).
-                        tools.add(AppInfo("smartedge.tool.screenshot", getString(R.string.tool_name_screenshot), type = AppInfo.Type.TOOL))
-                        tools.add(AppInfo("smartedge.tool.blackscreen", getString(R.string.tool_name_blackscreen), type = AppInfo.Type.TOOL))
-                        tools.add(AppInfo("smartedge.tool.content_picker", getString(R.string.tool_name_content_picker), type = AppInfo.Type.TOOL))
+                        // Order matches the dashboard items settings page and the
+                        // sidebar's inline tools section: power → volume → brightness
+                        // → screenshot → black screen → lock screen → content picker.
                         tools.add(AppInfo("smartedge.shortcut.reboot", getString(R.string.tool_name_power), type = AppInfo.Type.SHORTCUT))
                         tools.add(AppInfo("smartedge.tool.volume_up", getString(R.string.tool_name_volume), type = AppInfo.Type.TOOL))
                         tools.add(AppInfo("smartedge.tool.brightness_up", getString(R.string.tool_name_brightness), type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.tool.screenshot", getString(R.string.tool_name_screenshot), type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.tool.blackscreen", getString(R.string.tool_name_blackscreen), type = AppInfo.Type.TOOL))
                         tools.add(AppInfo("smartedge.tool.lockscreen", getString(R.string.tool_name_lock), type = AppInfo.Type.TOOL))
+                        tools.add(AppInfo("smartedge.tool.content_picker", getString(R.string.tool_name_content_picker), type = AppInfo.Type.TOOL))
                         
                         tools
                     }
@@ -2125,16 +2154,41 @@ class FloatingPanelService : Service() {
         if (delta == 0) return
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val direction = if (delta > 0) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
-        
-        // Repeat the adjustment for the magnitude of delta to maintain speed
-        repeat(Math.abs(delta)) {
-            audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
+
+        try {
+            // Repeat the adjustment for the magnitude of delta to maintain speed
+            repeat(Math.abs(delta)) {
+                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
+            }
+        } catch (e: SecurityException) {
+            // OEM ExtImpl (ColorOS/OxygenOS) may reject adjustStreamVolume for
+            // third-party apps despite MODIFY_AUDIO_SETTINGS. Fall back to the
+            // privileged shell path when available.
+            val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            if (max > 0) {
+                val target = (current + delta).coerceIn(0, max)
+                if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
+                    Log.w(TAG, "Privileged volume fallback failed", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "adjustStreamVolume failed", e)
         }
-        
+
         val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         val percent = if (max > 0) (current * 100) / max else 0
         showIndicator(getString(R.string.indicator_volume_percent, percent))
+        // System toast with the same info as the volume tool, so the result is
+        // visible even when the overlay indicator is not (e.g. edge-slide).
+        try {
+            android.widget.Toast.makeText(
+                this,
+                getString(R.string.indicator_volume_percent, percent),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {}
     }
 
     fun adjustBrightness(delta: Int) {
@@ -2179,6 +2233,15 @@ class FloatingPanelService : Service() {
 
             val percent = (brightness * 100) / 255
             showIndicator(getString(R.string.indicator_brightness_percent, percent))
+            // System toast with the same info as the brightness tool, so the
+            // result is visible even when the overlay indicator is not.
+            try {
+                android.widget.Toast.makeText(
+                    this,
+                    getString(R.string.indicator_brightness_percent, percent),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            } catch (e: Exception) {}
         } catch (e: Exception) {
             android.util.Log.e("FloatingPanelService", "Failed to adjust brightness", e)
         }

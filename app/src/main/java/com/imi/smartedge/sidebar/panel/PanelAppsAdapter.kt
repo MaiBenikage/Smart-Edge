@@ -266,6 +266,29 @@ class PanelAppsAdapter(
                             action = PanelAccessibilityService.ACTION_SHOW_POWER_MENU
                         }
                     }
+                    app.type == AppInfo.Type.CUSTOM -> {
+                        // Custom sidebar rows: content is either an `intent:#Intent;...`
+                        // URI or a plain URL. Match the picker's handling exactly —
+                        // parse intent URIs, launch plain URLs with ACTION_VIEW.
+                        if (!context.isSafeIntentUri(app.intentUri)) {
+                            android.widget.Toast.makeText(
+                                context,
+                                context.getString(R.string.toast_custom_item_blocked),
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            null
+                        } else {
+                            try {
+                                if (app.intentUri.orEmpty().startsWith("intent:")) {
+                                    Intent.parseUri(app.intentUri, Intent.URI_INTENT_SCHEME)
+                                } else {
+                                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(app.intentUri))
+                                }
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                    }
                     app.intentUri != null -> {
                         // Audit S2 — same safety gate the picker enforces. Without
                         // this check, a custom `intent:` row that targets another
