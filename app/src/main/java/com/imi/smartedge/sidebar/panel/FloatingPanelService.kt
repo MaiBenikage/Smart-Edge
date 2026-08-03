@@ -422,6 +422,7 @@ class FloatingPanelService : Service() {
                     if (!isPanelOpen) {
                         isPickerOpen = false
                         pickerPanelView?.visibility = View.GONE
+                        pickerPanelView?.onPickerHidden()
                         sidePanelView?.animatePickerToggle(false)
                     } else if (isPickerOpen) {
                         pickerPanelView?.loadApps() 
@@ -1972,6 +1973,7 @@ class FloatingPanelService : Service() {
             if (isPickerOpen) {
                 isPickerOpen = false
                 pickerPanelView?.visibility = View.GONE
+                pickerPanelView?.onPickerHidden()
             }
             sidePanelView?.visibility = View.GONE
             updateBlur(false)

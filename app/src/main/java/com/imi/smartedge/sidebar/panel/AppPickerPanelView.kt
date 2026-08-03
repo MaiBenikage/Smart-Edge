@@ -439,6 +439,19 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
     }
 
+    /** Called by the host when the picker is hidden (outside tap / panel close).
+     *  Cancels any in-flight custom-item edit and exits global edit mode so the
+     *  Add/Edit buttons are not left hidden when the picker reopens on the
+     *  CUSTOM tab. */
+    fun onPickerHidden() {
+        if (editingCustomId != null) {
+            cancelCustomItemEdit()
+        }
+        if (isEditMode) {
+            setEditMode(false)
+        }
+    }
+
     fun setMaxRecyclerViewHeight(maxPx: Int) {
         lastMaxPx = maxPx
         updatePickerHeight()
@@ -557,6 +570,13 @@ class AppPickerPanelView @JvmOverloads constructor(
             PickerTab.CUSTOM -> {
                 customItems = panelPrefs.getCustomItems().toMutableList()
                 rebuildAndSubmit()
+                // Round-F: refresh header add/edit button visibility. openPicker()
+                // calls loadApps() on re-show, but the previous hide did not reset
+                // the button state — without this the Add/Edit buttons stay GONE
+                // (activeTab is still CUSTOM and a stale isEditMode/editingCustomId
+                // makes updateHeaderAndEditButton show them hidden) until the user
+                // switches tabs and back.
+                updateHeaderAndEditButton()
             }
         }
     }
@@ -1601,11 +1621,25 @@ class AppPickerPanelView @JvmOverloads constructor(
 
                 // Drag enabled
                 holder.dragHandle.alpha = 1.0f
-                holder.dragHandle.setOnTouchListener { _, event ->
-                    if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                        itemTouchHelper?.startDrag(holder)
+                holder.dragHandle.setOnTouchListener { v, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            // Prevent the parent RecyclerView / sidebar scroll from
+                            // stealing the gesture once a drag is armed. Without
+                            // disallowIntercept the vertical scroll can cancel the
+                            // ItemTouchHelper drag, making the bottom rows (hardest
+                            // to reach before the viewport settles) undraggable.
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                            itemTouchHelper?.startDrag(holder)
+                            true
+                        }
+                        MotionEvent.ACTION_MOVE -> true   // consume the drag motion
+                        MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                            false
+                        }
+                        else -> false
                     }
-                    false
                 }
             }
         }

@@ -288,9 +288,9 @@
             <ImageButton
                 android:id="@+id/btnClose"
                 android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="8dp"
+                android:layout_height="32dp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="4dp"
                 android:background="@drawable/bg_close_btn"
                 android:backgroundTint="#1AFFFFFF"
                 android:contentDescription="@string/xml_cd_toggle_picker"
