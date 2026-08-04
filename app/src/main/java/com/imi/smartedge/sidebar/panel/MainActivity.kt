@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.view.View.GONE
 import android.widget.TextView
@@ -74,7 +75,7 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
             try {
                 shortcutManager.dynamicShortcuts = listOf(shortcut)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("MainActivity", "Failed to set dynamic shortcuts", e)
             }
         }
     }

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
@@ -90,7 +91,7 @@ class ToggleActivity : AppCompatActivity() {
                 startService(intent)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("ToggleActivity", "Failed to start service", e)
         }
 
         // 4. Close immediately

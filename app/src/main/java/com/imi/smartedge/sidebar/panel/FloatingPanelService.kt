@@ -1190,11 +1190,11 @@ class FloatingPanelService : Service() {
                 overlay.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             }
 
-            // 2. Remove the black overlay safely
+            // 2. Remove the black overlay safely (removeViewImmediate avoids WindowLeaked)
             blackScreenOverlay?.let { overlay ->
                 try {
                     if (overlay.isAttachedToWindow) {
-                        windowManager.removeView(overlay)
+                        windowManager.removeViewImmediate(overlay)
                     }
                 } catch (e: Exception) {}
             }
@@ -1324,7 +1324,15 @@ class FloatingPanelService : Service() {
         // Release black screen resources if active
         blackScreenWakeLock?.let { if (it.isHeld) it.release() }
         blackScreenWakeLock = null
-        removeView(blackScreenOverlay)
+        blackScreenOverlay?.let { overlay ->
+            try {
+                if (overlay.isAttachedToWindow) {
+                    windowManager.removeViewImmediate(overlay)
+                }
+            } catch (e: Exception) {}
+        }
+        blackScreenOverlay = null
+        blackScreenOverlayParams = null
         // Drop any active control picker overlay + callback.
         stopContentPicker()
         // Lifecycle guard: if the service dies while a true screen-off session is
@@ -1710,7 +1718,13 @@ class FloatingPanelService : Service() {
             // when the ghost item was looked up. Saving on close also catches
             // the case where the user filled a valid title/URL but didn't tap
             // DONE — without the explicit save the row was silently lost.
-            onClose = { pickerPanelView?.commitPendingEdits(); closePicker() }
+            onClose = { pickerPanelView?.let { picker ->
+    picker.commitPendingEdits()
+    if (picker.isEditMode) {
+        picker.setEditMode(false)
+    }
+    closePicker()
+} }
             onEditModeChanged = { editing ->
                 // While the picker's EDIT mode is on, let the user long-press a
                 // sidebar item to drag-reorder it. DONE exits and disables drag.

@@ -3,6 +3,7 @@ package com.imi.smartedge.sidebar.panel
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.core.content.edit
 
 /**
@@ -835,7 +836,7 @@ class PanelPreferences(context: Context) {
                 context.startService(intent)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("PanelPreferences", "Failed to start foreground service", e)
         }
     }
 

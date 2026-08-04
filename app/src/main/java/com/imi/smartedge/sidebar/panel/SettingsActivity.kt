@@ -3,6 +3,7 @@ package com.imi.smartedge.sidebar.panel
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -125,7 +126,7 @@ class SettingsActivity : AppCompatActivity() {
             val bgColor = Color.parseColor(panelPrefs.panelBackgroundColor)
             binding.btnPickBg.backgroundTintList = android.content.res.ColorStateList.valueOf(bgColor)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("SettingsActivity", "Failed to pick accent color", e)
         }
 
         updateSupportUI()

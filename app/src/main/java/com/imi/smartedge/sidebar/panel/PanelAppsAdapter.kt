@@ -326,7 +326,7 @@ class PanelAppsAdapter(
                             context.startActivity(launchIntent)
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        Log.e("PanelAppsAdapter", "Failed to launch app", e)
                     }
                     // Close panel AFTER initiating launch
                     onAppLaunched()

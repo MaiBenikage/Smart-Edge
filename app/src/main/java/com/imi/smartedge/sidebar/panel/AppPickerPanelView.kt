@@ -1035,6 +1035,11 @@ class AppPickerPanelView @JvmOverloads constructor(
         // submitList has finished applying + laying out.
         adapter.submitList(items) {
             updatePickerHeight()
+            // Force rebind of the last custom row so drag-handle / edit/delete
+            // chrome is never left stale on the bottom item after list changes.
+            if (activeTab == PickerTab.CUSTOM && adapter.itemCount > 0) {
+                adapter.notifyItemChanged(adapter.itemCount - 1, "CHROME_UPDATE")
+            }
             onCommit?.invoke()
         }
     }
