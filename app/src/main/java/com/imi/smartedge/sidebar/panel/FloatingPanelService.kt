@@ -2127,6 +2127,10 @@ class FloatingPanelService : Service() {
     private fun closePicker() {
         if (!isPickerOpen) return
         isPickerOpen = false
+        // Must clear CUSTOM modify/edit chrome (editingCustomId + header buttons)
+        // on every close path — not only ACTION_REFRESH / closePanel. Without this,
+        // ADD → modify → outside-tap → re-open leaves Add/Edit GONE until tab switch.
+        pickerPanelView?.onPickerHidden()
         // Defer column restore until the close animation settles. The delayed
         // block clears the picker flag then setColumns(originalCols) so apps
         // and tools stay in lockstep via currentCols.
@@ -2147,6 +2151,7 @@ class FloatingPanelService : Service() {
             }
         }, PICKER_CLOSE_COLUMNS_DELAY_MS)
         pickerPanelView?.let { picker ->
+            // onPickerHidden already exits edit mode; keep this for non-CUSTOM tabs.
             picker.setEditMode(false)
             picker.invalidateAppList()
             val isRight = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT

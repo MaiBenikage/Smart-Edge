@@ -448,7 +448,13 @@ class AppPickerPanelView @JvmOverloads constructor(
             cancelCustomItemEdit()
         }
         if (isEditMode) {
+            // setEditMode already refreshes header + rebuilds CUSTOM rows.
             setEditMode(false)
+        } else {
+            // Even when already out of global edit mode, force header chrome
+            // (Add/Edit) back to the normal CUSTOM state after a fold/hide.
+            updateHeaderAndEditButton()
+            if (activeTab == PickerTab.CUSTOM) rebuildAndSubmit()
         }
     }
 
@@ -1035,10 +1041,11 @@ class AppPickerPanelView @JvmOverloads constructor(
         // submitList has finished applying + laying out.
         adapter.submitList(items) {
             updatePickerHeight()
-            // Force rebind of the last custom row so drag-handle / edit/delete
-            // chrome is never left stale on the bottom item after list changes.
+            // Force full rebind of EVERY custom row (first + last included).
+            // Payload-only / last-only rebinds left edge rows with GONE buttons
+            // or a disabled drag handle after recycle from modify/edit states.
             if (activeTab == PickerTab.CUSTOM && adapter.itemCount > 0) {
-                adapter.notifyItemChanged(adapter.itemCount - 1, "CHROME_UPDATE")
+                adapter.notifyItemRangeChanged(0, adapter.itemCount)
             }
             onCommit?.invoke()
         }
@@ -1285,6 +1292,20 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            bindFull(holder, position)
+        }
+
+        // Always full-bind custom rows even when DiffUtil/payloads fire — partial
+        // payload binds previously left first/last rows with GONE buttons / dead drag.
+        override fun onBindViewHolder(
+            holder: RecyclerView.ViewHolder,
+            position: Int,
+            payloads: MutableList<Any>
+        ) {
+            bindFull(holder, position)
+        }
+
+        private fun bindFull(holder: RecyclerView.ViewHolder, position: Int) {
             when (val item = getItem(position)) {
                 is PickerItem.AppRow -> bindApp(holder as AppViewHolder, item.app, isChild = false)
                 is PickerItem.TreeChild -> bindApp(holder as AppViewHolder, item.app, isChild = true)
@@ -1540,10 +1561,12 @@ class AppPickerPanelView @JvmOverloads constructor(
                 holder.tvTitle.text = ci.title.ifBlank { context.getString(R.string.custom_untitled) }
                 holder.tvContent.text = ci.content.ifBlank { context.getString(R.string.custom_no_url_intent) }
 
-                // All interactive chrome hidden while another row is being edited:
-                // edit/delete buttons, badge, drag handle. Content stays read-only.
-                holder.btnEdit.visibility = View.GONE
-                holder.btnDelete.visibility = View.GONE
+                // Keep button column space with INVISIBLE (not GONE) so row height
+                // matches NORMAL and the list does not jump when entering modify.
+                holder.btnEdit.visibility = View.INVISIBLE
+                holder.btnDelete.visibility = View.INVISIBLE
+                holder.btnEdit.setOnClickListener(null)
+                holder.btnDelete.setOnClickListener(null)
                 holder.badge.visibility = View.GONE
                 holder.badge.setOnClickListener(null)
                 holder.dragHandle.alpha = 0.3f
@@ -1576,9 +1599,12 @@ class AppPickerPanelView @JvmOverloads constructor(
                     toggleCustomInPanel(itemId)
                 }
 
-                // Per-item buttons hidden, drag disabled
-                holder.btnEdit.visibility = View.GONE
-                holder.btnDelete.visibility = View.GONE
+                // INVISIBLE (not GONE): preserve right-column width/height so
+                // global EDIT does not shrink row spacing and jump the list.
+                holder.btnEdit.visibility = View.INVISIBLE
+                holder.btnDelete.visibility = View.INVISIBLE
+                holder.btnEdit.setOnClickListener(null)
+                holder.btnDelete.setOnClickListener(null)
                 holder.dragHandle.alpha = 0.3f
                 holder.dragHandle.setOnTouchListener(null)
 
@@ -1598,15 +1624,20 @@ class AppPickerPanelView @JvmOverloads constructor(
                 holder.badge.visibility = View.GONE
                 holder.badge.setOnClickListener(null)
 
-                // Buttons: Edit + Delete
+                // Buttons: Edit + Delete — always re-show after any prior GONE/INVISIBLE.
                 holder.btnEdit.visibility = View.VISIBLE
                 holder.btnDelete.visibility = View.VISIBLE
+                holder.btnEdit.isEnabled = true
+                holder.btnDelete.isEnabled = true
+                holder.btnEdit.isClickable = true
+                holder.btnDelete.isClickable = true
                 holder.btnEdit.setImageResource(R.drawable.ic_edit)
                 holder.btnEdit.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#1AFFFFFF"))
                 holder.btnEdit.contentDescription = context.getString(R.string.cd_edit)
-                holder.btnDelete.setImageResource(R.drawable.ic_close)
-                holder.btnDelete.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#FF6B6B"))
-                holder.btnDelete.contentDescription = context.getString(R.string.cd_cancel)
+                // Trash icon for normal-state delete
+                holder.btnDelete.setImageResource(R.drawable.ic_delete)
+                holder.btnDelete.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#1AFFFFFF"))
+                holder.btnDelete.contentDescription = context.getString(R.string.cd_delete)
 
                 holder.btnEdit.setOnClickListener {
                     if (panelPrefs.hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -1618,27 +1649,29 @@ class AppPickerPanelView @JvmOverloads constructor(
                     SpringAnimator.scalePulse(it)
                     onCustomItemDeleteTapped(itemId)
                 }
-                // Trash icon for normal-state delete (Modify state reuses the
-                // same button as Cancel, bound separately above).
-                holder.btnDelete.setImageResource(R.drawable.ic_delete)
-                holder.btnDelete.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#1AFFFFFF"))
-                holder.btnDelete.contentDescription = context.getString(R.string.cd_delete)
 
-                // Drag enabled
+                // Drag enabled — re-arm every bind so recycled first/last rows
+                // never keep a null listener from modify/edit states.
                 holder.dragHandle.alpha = 1.0f
+                holder.dragHandle.isEnabled = true
+                holder.dragHandle.isClickable = true
                 holder.dragHandle.setOnTouchListener { v, event ->
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             // Prevent the parent RecyclerView / sidebar scroll from
                             // stealing the gesture once a drag is armed. Without
                             // disallowIntercept the vertical scroll can cancel the
-                            // ItemTouchHelper drag, making the bottom rows (hardest
-                            // to reach before the viewport settles) undraggable.
+                            // ItemTouchHelper drag, making edge rows undraggable.
                             v.parent?.requestDisallowInterceptTouchEvent(true)
-                            itemTouchHelper?.startDrag(holder)
+                            // Use adapterPosition so a recycled holder still starts
+                            // drag for the currently bound row, not a stale one.
+                            val pos = holder.bindingAdapterPosition
+                            if (pos != RecyclerView.NO_POSITION) {
+                                itemTouchHelper?.startDrag(holder)
+                            }
                             true
                         }
-                        MotionEvent.ACTION_MOVE -> true   // consume the drag motion
+                        MotionEvent.ACTION_MOVE -> true
                         MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
                             v.parent?.requestDisallowInterceptTouchEvent(false)
                             false
