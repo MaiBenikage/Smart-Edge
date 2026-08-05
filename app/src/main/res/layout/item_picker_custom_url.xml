@@ -9,7 +9,7 @@
     android:id="@+id/customRowRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="2dp">
+    android:layout_marginBottom="0dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -34,6 +34,7 @@
 
         <!-- Middle column: title + content -->
         <FrameLayout
+            android:id="@+id/customBody"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"

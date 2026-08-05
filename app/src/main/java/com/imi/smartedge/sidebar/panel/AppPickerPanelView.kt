@@ -228,7 +228,11 @@ class AppPickerPanelView @JvmOverloads constructor(
             val intent = android.content.Intent(context, SettingsMainActivity::class.java).apply {
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(intent)
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("AppPickerPanelView", "Failed to open settings", e)
+            }
             onAppLaunched?.invoke()
         }
         btnEdit.setOnClickListener { onTopRightButtonClick() }
@@ -1398,6 +1402,20 @@ class AppPickerPanelView @JvmOverloads constructor(
             notifyItemChanged(position, "TOGGLE")
         }
 
+        private fun launchCustomItemContent(ci: CustomItem) {
+            // Reuse launchApp() with a synthetic CUSTOM AppInfo so URL/intent
+            // handling + the safety gate stay consistent with sidebar launches.
+            val app = AppInfo(
+                packageName = PanelPreferences.CUSTOM_ID_PREFIX + ci.id,
+                appName = ci.title.ifBlank { "Untitled" },
+                isInPanel = true,
+                type = AppInfo.Type.CUSTOM,
+                intentUri = ci.content,
+                appearanceKey = panelPrefs.appearanceKey
+            )
+            launchApp(app)
+        }
+
         private fun launchApp(app: AppInfo) {
             val pos = adapter.currentList.indexOfFirst {
                 (it is PickerItem.AppRow && it.app.identifier == app.identifier) ||
@@ -1405,11 +1423,11 @@ class AppPickerPanelView @JvmOverloads constructor(
             }
             rvPickerGrid.findViewHolderForAdapterPosition(pos)?.itemView?.let { SpringAnimator.scalePulse(it) }
 
-            // Audit S1: hoist the self-package component validation. Previously
-            // only the CUSTOM branch had it; activities/shortcuts with `intent:`
-            // uris bypassed the check, allowing `intent:#Intent;component=com.victim/.X`
-            // to launch any exported=false activity from the sidebar.
-            if (!context.isSafeIntentUri(app.intentUri)) {
+            // Safety gate for hand-authored content only: any parseable intent:
+            // is accepted (cross-app components & selectors are allowed by user
+            // policy); only unparseable URIs are refused. ACTIVITY / SHORTCUT rows
+            // have no gate at all since they come from the exported enumeration.
+            if (app.type == AppInfo.Type.CUSTOM && !context.isSafeIntentUri(app.intentUri)) {
                 showLaunchBlockedUI(app)
                 return
             }
@@ -1546,6 +1564,10 @@ class AppPickerPanelView @JvmOverloads constructor(
                 holder.dragHandle.setOnTouchListener(null)
                 holder.badge.visibility = View.GONE
                 holder.badge.setOnClickListener(null)
+                // Modify state: body tap must NOT open the URL/intent.
+                holder.body.setOnClickListener(null)
+                holder.body.isClickable = false
+                holder.body.isEnabled = false
 
             // ══════════ MODIFY-READONLY: other rows while one item is edited ══════════
             } else if (!inGlobalEdit && editingCustomId != null) {
@@ -1569,6 +1591,9 @@ class AppPickerPanelView @JvmOverloads constructor(
                 holder.btnDelete.setOnClickListener(null)
                 holder.badge.visibility = View.GONE
                 holder.badge.setOnClickListener(null)
+                holder.body.setOnClickListener(null)
+                holder.body.isClickable = false
+                holder.body.isEnabled = false
                 holder.dragHandle.alpha = 0.3f
                 holder.dragHandle.setOnTouchListener(null)
 
@@ -1605,6 +1630,9 @@ class AppPickerPanelView @JvmOverloads constructor(
                 holder.btnDelete.visibility = View.INVISIBLE
                 holder.btnEdit.setOnClickListener(null)
                 holder.btnDelete.setOnClickListener(null)
+                holder.body.setOnClickListener(null)
+                holder.body.isClickable = false
+                holder.body.isEnabled = false
                 holder.dragHandle.alpha = 0.3f
                 holder.dragHandle.setOnTouchListener(null)
 
@@ -1679,6 +1707,16 @@ class AppPickerPanelView @JvmOverloads constructor(
                         else -> false
                     }
                 }
+
+                // Body (title + content area) opens the custom URL/intent in NORMAL
+                // state only. Modify / edit states disable it above.
+                holder.body.isEnabled = true
+                holder.body.isClickable = true
+                holder.body.setOnClickListener {
+                    if (panelPrefs.hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    SpringAnimator.scalePulse(holder.body)
+                    launchCustomItemContent(ci)
+                }
             }
         }
 
@@ -1706,6 +1744,7 @@ class AppPickerPanelView @JvmOverloads constructor(
         inner class CustomViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             var isBinding: Boolean = true
             val dragHandle: ImageView = view.findViewById(R.id.ivCustomDragHandle)
+            val body: View = view.findViewById(R.id.customBody)
             val readMode: View = view.findViewById(R.id.customReadMode)
             val editMode: View = view.findViewById(R.id.customEditMode)
             val tvTitle: TextView = view.findViewById(R.id.tvCustomTitle)

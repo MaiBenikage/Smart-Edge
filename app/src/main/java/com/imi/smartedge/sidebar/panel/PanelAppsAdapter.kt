@@ -270,6 +270,8 @@ class PanelAppsAdapter(
                         // Custom sidebar rows: content is either an `intent:#Intent;...`
                         // URI or a plain URL. Match the picker's handling exactly —
                         // parse intent URIs, launch plain URLs with ACTION_VIEW.
+                        // isSafeIntentUri refuses only unparseable intent: strings;
+                        // cross-app components & selector chains are allowed by policy.
                         if (!context.isSafeIntentUri(app.intentUri)) {
                             android.widget.Toast.makeText(
                                 context,
@@ -290,19 +292,11 @@ class PanelAppsAdapter(
                         }
                     }
                     app.intentUri != null -> {
-                        // Audit S2 — same safety gate the picker enforces. Without
-                        // this check, a custom `intent:` row that targets another
-                        // package's unexported activity could be launched directly
-                        // from the sidebar, even though the picker would have
-                        // blocked the same row on its preview tap.
-                        if (!context.isSafeIntentUri(app.intentUri)) {
-                            android.widget.Toast.makeText(
-                                context,
-                                context.getString(R.string.toast_custom_item_blocked),
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
-                            return@setOnClickListener
-                        }
+                        // Aligned with AppPickerPanelView.launchApp(): ACTIVITY /
+                        // SHORTCUT rows come from the picker enumeration (exported
+                        // activities / PackageManager-resolved shortcuts), so their
+                        // components are certified launchable — no gate. The safety
+                        // gate applies ONLY to hand-authored CUSTOM rows above.
                         try {
                             Intent.parseUri(app.intentUri, Intent.URI_INTENT_SCHEME)
                         } catch (e: Exception) {

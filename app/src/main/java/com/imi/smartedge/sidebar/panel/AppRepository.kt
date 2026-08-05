@@ -482,7 +482,6 @@ class AppRepository(context: Context) {
                 Triple(pkgName, actsMap.values.sortedBy { it.appName.lowercase() }, appLabel)
             }
             .sortedBy { it.third.lowercase() }
-            .sortedBy { it.third.lowercase() }
             .map { (pkg, acts, _) -> pkg to acts }
             .also {
                 activitiesCache = it
