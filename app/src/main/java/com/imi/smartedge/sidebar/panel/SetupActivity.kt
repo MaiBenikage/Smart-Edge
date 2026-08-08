@@ -182,7 +182,7 @@ class SetupActivity : AppCompatActivity() {
     private fun hasAutoStartPermission(): Boolean {
         return when {
             MIUIUtils.isMIUI() -> MIUIUtils.isAutoStartEnabled(this)
-            VivoUtils.isVivo() -> MIUIUtils.isAutoStartEnabled(this) // Wait, fix this possible typo from original code if needed but I'll stick to original logic for now
+            VivoUtils.isVivo() -> VivoUtils.isAutoStartEnabled(this)
             else -> hasInteractedWithAutoStart
         }
     }

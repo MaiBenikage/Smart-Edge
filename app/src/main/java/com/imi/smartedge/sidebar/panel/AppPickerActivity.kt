@@ -32,6 +32,7 @@ class AppPickerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAppPickerM3Binding
     private lateinit var panelPrefs: PanelPreferences
     private lateinit var pickerAdapter: AppPickerAdapter
+    private lateinit var repository: AppRepository
     private var allApps: List<AppInfo> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,6 +41,7 @@ class AppPickerActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         panelPrefs = PanelPreferences(this)
+        repository = AppRepository(this)
 
         // Setup toolbar
         supportActionBar?.apply {
@@ -97,7 +99,7 @@ class AppPickerActivity : AppCompatActivity() {
     private fun loadApps() {
         lifecycleScope.launch {
             val apps = withContext(Dispatchers.IO) {
-                AppRepository(this@AppPickerActivity).getAllApps()
+                repository.getAllApps()
             }
             allApps = apps
             pickerAdapter.submitList(apps)

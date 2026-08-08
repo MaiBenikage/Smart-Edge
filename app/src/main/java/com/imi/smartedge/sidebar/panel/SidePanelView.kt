@@ -370,7 +370,15 @@ class SidePanelView @JvmOverloads constructor(
 
     fun updateSideLayout() {
         val isRight = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
-        binding.btnClose.rotation = if (isRight) 180f else 0f
+        // Honor the picker-open state: resetting to the closed left/right arrow
+        // here while the picker is open would flip the chevron back to pointing
+        // sideways the moment any other path calls updateSideLayout() (e.g.
+        // clicking EDIT in the picker → setEditButtonVisible → updateSideLayout).
+        binding.btnClose.rotation = when {
+            isPickerOpenInternal -> 90f
+            isRight -> 180f
+            else -> 0f
+        }
 
         val scale = getFinalScaleFactor()
         val lp = binding.panelCard.layoutParams

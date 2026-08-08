@@ -135,6 +135,11 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_REFRESH
         }
-        startService(intent)
+        try {
+            startService(intent)
+        } catch (e: Exception) {
+            // Background-start restrictions (Android 12+) — nothing to show; the
+            // picker/panel refresh will be picked up on the next service start.
+        }
     }
 }

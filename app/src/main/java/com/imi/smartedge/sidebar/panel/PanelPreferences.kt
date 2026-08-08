@@ -16,7 +16,7 @@ class PanelPreferences(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     companion object {
-        private const val PREFS_NAME = "side_panel_prefs"
+        const val PREFS_NAME = "side_panel_prefs"
         private const val KEY_PANEL_APPS = "panel_apps"
         private const val KEY_PANEL_LABELS = "panel_item_labels"
         private const val KEY_PANEL_SIDE = "panel_side"

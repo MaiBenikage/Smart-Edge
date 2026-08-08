@@ -1,13 +1,10 @@
 package com.imi.smartedge.sidebar.panel
 
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.imi.smartedge.sidebar.panel.databinding.ActivitySettingsToolsBinding
-// import rikka.shizuku.Shizuku
-import android.content.pm.PackageManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 
@@ -15,7 +12,6 @@ class ToolsSettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsToolsBinding
     private lateinit var panelPrefs: PanelPreferences
-    // private val SHIZUKU_CODE = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,16 +46,10 @@ class ToolsSettingsActivity : AppCompatActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Shizuku.removeRequestPermissionResultListener(requestPermissionResultListener)
-    }
-
     private fun loadCurrentSettings() {
         binding.featureToolsMaster.isChecked = panelPrefs.showTools
         binding.layoutToolsSubOptions.alpha = if (panelPrefs.showTools) 1.0f else 0.5f
         binding.layoutToolsSubOptions.isEnabled = panelPrefs.showTools
-        // binding.divTools.visibility = if (panelPrefs.showTools) View.VISIBLE else View.GONE
 
         binding.featureSysInfo.isChecked = panelPrefs.showSysInfo
         binding.featurePowerMenu.isChecked = panelPrefs.showPowerMenu
@@ -105,7 +95,6 @@ class ToolsSettingsActivity : AppCompatActivity() {
             panelPrefs.showTools = isChecked
             binding.layoutToolsSubOptions.alpha = if (isChecked) 1.0f else 0.5f
             binding.layoutToolsSubOptions.isEnabled = isChecked
-            // binding.divTools.visibility = if (isChecked) View.VISIBLE else View.GONE
             applyOnly()
         }
 

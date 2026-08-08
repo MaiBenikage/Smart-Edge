@@ -23,7 +23,6 @@ class IconPackManager(private val context: Context) {
     // Using a simple cache to avoid repeated XML parsing during a session
     companion object {
         private val iconMapCache = ConcurrentHashMap<String, Map<String, String>>()
-        private var currentPackName = ""
     }
 
     fun getInstalledIconPacks(): List<IconPackInfo> {

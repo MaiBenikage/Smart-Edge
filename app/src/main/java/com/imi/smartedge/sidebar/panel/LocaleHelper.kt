@@ -34,12 +34,17 @@ object LocaleHelper {
     }
 
     private fun getPersistedData(context: Context, defaultLanguage: String): String? {
-        val preferences = context.getSharedPreferences("panel_prefs", Context.MODE_PRIVATE)
+        // Same file as PanelPreferences (side_panel_prefs). Used to live in a
+        // separate "panel_prefs" file, which meant the language preference was
+        // written to one file while PanelPreferences.appLanguage read another —
+        // settings export/import (which only covers side_panel_prefs) silently
+        // lost the language. Unify on the main prefs file so backups carry it.
+        val preferences = context.getSharedPreferences(PanelPreferences.PREFS_NAME, Context.MODE_PRIVATE)
         return preferences.getString(SELECTED_LANGUAGE, defaultLanguage)
     }
 
     private fun persist(context: Context, language: String?) {
-        val preferences = context.getSharedPreferences("panel_prefs", Context.MODE_PRIVATE)
+        val preferences = context.getSharedPreferences(PanelPreferences.PREFS_NAME, Context.MODE_PRIVATE)
         val editor = preferences.edit()
         editor.putString(SELECTED_LANGUAGE, language)
         editor.apply()

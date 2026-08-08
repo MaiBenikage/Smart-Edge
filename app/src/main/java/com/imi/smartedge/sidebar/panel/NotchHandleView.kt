@@ -135,18 +135,7 @@ class NotchHandleView @JvmOverloads constructor(
 
     override fun onDraw(canvas: android.graphics.Canvas) {
         super.onDraw(canvas)
-        /*
-        val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        if (isDebug) {
-            val paint = android.graphics.Paint().apply {
-                color = Color.RED
-                alpha = 80 // Semi-transparent red
-                style = android.graphics.Paint.Style.FILL
-            }
-            // Draw a rectangle covering the entire hit area
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
-        }
-        */
+        // Transparent, clickable hit area — nothing to render.
     }
 
     init {

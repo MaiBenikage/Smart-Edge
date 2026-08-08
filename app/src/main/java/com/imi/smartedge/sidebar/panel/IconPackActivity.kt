@@ -39,7 +39,10 @@ class IconPackActivity : AppCompatActivity() {
 
         val packs = mutableListOf<IconPackInfo>()
         // Add "None" option
-        packs.add(IconPackInfo("none", getString(R.string.icon_pack_default), getDrawable(android.R.drawable.sym_def_app_icon)!!))
+        val defaultIcon = getDrawable(android.R.drawable.sym_def_app_icon)
+        if (defaultIcon != null) {
+            packs.add(IconPackInfo("none", getString(R.string.icon_pack_default), defaultIcon))
+        }
         packs.addAll(iconPackManager.getInstalledIconPacks())
 
         rv.adapter = IconPackAdapter(packs, panelPrefs.selectedIconPack) { item ->
@@ -51,7 +54,12 @@ class IconPackActivity : AppCompatActivity() {
             val intent = android.content.Intent(this@IconPackActivity, FloatingPanelService::class.java).apply {
                 action = FloatingPanelService.ACTION_REFRESH
             }
-            startForegroundService(intent)
+            try {
+                startForegroundService(intent)
+            } catch (e: Exception) {
+                // Service may already be destroyed / background-start restricted.
+                try { startService(intent) } catch (_: Exception) {}
+            }
             finish()
         }    }
 
