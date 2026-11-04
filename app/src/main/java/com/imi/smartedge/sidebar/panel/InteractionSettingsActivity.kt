@@ -94,6 +94,10 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.featureRememberScroll.isChecked = panelPrefs.rememberScroll
         binding.featureAutoShowKeyboard.isChecked = panelPrefs.autoShowKeyboard
 
+        // 4. RECENT APPS
+        binding.featureRecentApps.isChecked = panelPrefs.recentEnabled
+        updateRecentSettingsUI()
+
         // 5. SHORTCUTS & AUTOMATION
         binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
 
@@ -127,6 +131,12 @@ class InteractionSettingsActivity : AppCompatActivity() {
         val volumeOn = panelPrefs.slideVolumeEnabled
         val anyOn = brightnessOn || volumeOn
         binding.layoutSlideSensitivity.visibility = if (anyOn) View.VISIBLE else View.GONE
+    }
+
+    /** Refresh the Recent Apps section summary texts from prefs. */
+    private fun updateRecentSettingsUI() {
+        binding.tvRecentHistorySizeValue.text = panelPrefs.recentHistorySize.toString()
+        binding.tvRecentMaxCountValue.text = panelPrefs.recentMaxCount.toString()
     }
 
     private fun updateSecureSettingsUI() {
@@ -254,6 +264,63 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.featureAutoShowKeyboard.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.autoShowKeyboard = isChecked
             applyOnly()
+        }
+
+        // Recent Apps Listeners
+        binding.featureRecentApps.setOnCheckedChangeListener { _, isChecked ->
+            panelPrefs.recentEnabled = isChecked
+            applyOnly()
+        }
+        binding.layoutRecentHistorySize.setOnClickListener {
+            val values = intArrayOf(64, 128, 256)
+            val options = values.map { it.toString() }.toTypedArray()
+            var selectedIndex = values.indexOf(panelPrefs.recentHistorySize)
+            if (selectedIndex == -1) selectedIndex = 1
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dialog_recent_history_size_title)
+                .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
+                    panelPrefs.recentHistorySize = values[which]
+                    updateRecentSettingsUI()
+                    applyOnly()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+        binding.layoutRecentMaxCount.setOnClickListener {
+            val values = (4..20).toList()
+            val options = values.map { it.toString() }.toTypedArray()
+            var selectedIndex = values.indexOf(panelPrefs.recentMaxCount)
+            if (selectedIndex == -1) selectedIndex = values.indexOf(8)
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dialog_recent_max_count_title)
+                .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
+                    panelPrefs.recentMaxCount = values[which]
+                    updateRecentSettingsUI()
+                    applyOnly()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+        binding.layoutRecentClear.setOnClickListener {
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.recent_clear_history)
+                .setPositiveButton(android.R.string.ok) { dialog, _ ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        RecentAppsManager(this@InteractionSettingsActivity).clearHistory()
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                this@InteractionSettingsActivity,
+                                R.string.recent_history_cleared,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
 
         // System & Behavior Listeners

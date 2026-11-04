@@ -52,7 +52,44 @@
         android:layout_marginEnd="8dp"
         app:layout_constraintVertical_bias="0.0"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/toolsContainer" />
+        app:layout_constraintBottom_toTopOf="@id/layoutRecentSection" />
+
+    <!-- Recent Section: most-frequently used apps (from launch history) -->
+    <LinearLayout
+        android:id="@+id/layoutRecentSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginTop="4dp"
+        app:layout_constraintTop_toBottomOf="@id/rvPanelApps"
+        app:layout_constraintBottom_toTopOf="@id/toolsContainer">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33FFFFFF"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/tvRecentHeader"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="2dp"
+            android:text="@string/recent_section_title"
+            android:textColor="#B3FFFFFF"
+            android:textSize="10sp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvRecentApps"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp" />
+    </LinearLayout>
 
     <!-- Tools Section (GridLayout mirrors panelColumns) -->
     <!-- NOTE: Do NOT set android:columnCount — it's only a default-placement hint
@@ -65,7 +102,7 @@
         android:useDefaultMargins="false"
         android:layout_marginTop="4dp"
         android:visibility="gone"
-        app:layout_constraintTop_toBottomOf="@id/rvPanelApps"
+        app:layout_constraintTop_toBottomOf="@id/layoutRecentSection"
         app:layout_constraintBottom_toTopOf="@id/layoutSysInfo">
 
         <!-- Divider -->

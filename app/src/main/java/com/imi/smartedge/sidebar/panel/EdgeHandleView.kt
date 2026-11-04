@@ -274,8 +274,7 @@ class EdgeHandleView @JvmOverloads constructor(
                 } catch (e: Exception) {
                     setColor(Color.WHITE)
                 }
-                
-                setStroke((1 * density).toInt(), Color.parseColor("#4DFFFFFF"))
+                // No stroke: the pill is a single unified color with no outline ring.
             }
 
             val triggerWidthDp = panelPrefs.handleWidth

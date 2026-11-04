@@ -322,6 +322,20 @@ class PanelAppsAdapter(
                     } catch (e: Exception) {
                         Log.e("PanelAppsAdapter", "Failed to launch app", e)
                     }
+                    // Record for the sidebar "Recent" section (real apps only;
+                    // tools / custom rows / internal shortcuts are excluded).
+                    // The accessibility-service foreground tracker also records
+                    // launches; RecentAppsManager debounces the duplicate.
+                    if ((app.type == AppInfo.Type.APP ||
+                            app.type == AppInfo.Type.ACTIVITY ||
+                            app.type == AppInfo.Type.SHORTCUT) &&
+                        !app.packageName.startsWith("smartedge.")
+                    ) {
+                        try {
+                            RecentAppsManager(context.applicationContext)
+                                .recordLaunch(app.packageName, RecentAppsManager.SOURCE_CLICK)
+                        } catch (_: Exception) {}
+                    }
                     // Close panel AFTER initiating launch
                     onAppLaunched()
                 }

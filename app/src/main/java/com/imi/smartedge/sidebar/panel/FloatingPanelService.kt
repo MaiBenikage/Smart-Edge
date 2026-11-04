@@ -1516,6 +1516,14 @@ class FloatingPanelService : Service() {
                 params.width = (panelPrefs.handleWidth * density).toInt()
                 params.height = h
                 params.y = requestedOffset.coerceIn(-maxOffset, maxOffset)
+
+                // Keep the handle glued to the physical screen edge even in
+                // landscape when a display cutout sits on the same side —
+                // otherwise the system insets the window into the cutout area.
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    params.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
                 
                 try {
                     edgeHandleView?.let { windowManager.updateViewLayout(it, params) }
@@ -1581,6 +1589,14 @@ class FloatingPanelService : Service() {
             
             val requestedOffset = dpToPx(panelPrefs.handleVerticalOffset)
             y = requestedOffset.coerceIn(-maxOffset, maxOffset)
+
+            // Keep the handle glued to the physical screen edge even in
+            // landscape when a display cutout sits on the same side —
+            // otherwise the system insets the window into the cutout area.
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
             
             // Log.d(TAG, "Handle Params: width=$width, height=$height, y=$y (requested=$requestedOffset, max=$maxOffset)")
         }
@@ -1950,6 +1966,9 @@ class FloatingPanelService : Service() {
             }
         }
         edgeHandleView?.visibility = View.GONE
+        // Start the fling-to-close quiet period: the tail of the swipe that
+        // opened the panel must not immediately close it again.
+        sidePanelView?.notifyPanelOpened()
     }
 
     private fun updateBlur(enabled: Boolean) {
@@ -2210,6 +2229,19 @@ class FloatingPanelService : Service() {
             }
             
             sidePanelView?.setApps(apps, onComplete)
+
+            // "Recent" section: most frequently used apps from launch history.
+            // Only at root level; folders show their own content.
+            val recentApps = if (panelPrefs.recentEnabled && currentFolderId == null) {
+                try {
+                    RecentAppsManager(this@FloatingPanelService).getTopRecentApps()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+            sidePanelView?.setRecentApps(recentApps)
         }
     }
 

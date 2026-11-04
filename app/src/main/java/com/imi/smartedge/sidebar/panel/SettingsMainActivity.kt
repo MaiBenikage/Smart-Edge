@@ -85,6 +85,7 @@ class SettingsMainActivity : AppCompatActivity() {
             R.layout.activity_settings_interaction to InteractionSettingsActivity::class.java,
             R.layout.activity_settings_handle to HandleSettingsActivity::class.java,
             R.layout.activity_settings_tools to ToolsSettingsActivity::class.java,
+            R.layout.activity_settings_text_actions to TextActionsSettingsActivity::class.java,
             R.layout.activity_settings_misc to MiscellaneousSettingsActivity::class.java
         )
 
@@ -165,6 +166,7 @@ class SettingsMainActivity : AppCompatActivity() {
         R.layout.activity_settings_interaction -> getString(R.string.section_interaction)
         R.layout.activity_settings_handle -> getString(R.string.section_handle)
         R.layout.activity_settings_tools -> getString(R.string.section_tools)
+        R.layout.activity_settings_text_actions -> getString(R.string.section_text_actions)
         R.layout.activity_settings_misc -> getString(R.string.section_misc)
         else -> getString(R.string.misc_section_general)
     }
@@ -234,6 +236,10 @@ class SettingsMainActivity : AppCompatActivity() {
 
         binding.btnTools.setOnClickListener {
             startActivity(Intent(this, ToolsSettingsActivity::class.java))
+        }
+
+        binding.btnTextActions.setOnClickListener {
+            startActivity(Intent(this, TextActionsSettingsActivity::class.java))
         }
 
         binding.btnReset.setOnClickListener {

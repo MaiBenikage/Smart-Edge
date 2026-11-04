@@ -41,6 +41,8 @@ class SidePanelView @JvmOverloads constructor(
 
     private val binding: SidePanelLayoutBinding = SidePanelLayoutBinding.inflate(LayoutInflater.from(context), this, true)
     private val adapter: PanelAppsAdapter
+    /** Adapter for the "Recent" section — same item style as the main app list. */
+    private val recentAdapter: PanelAppsAdapter
     private val panelPrefs = PanelPreferences(context)
     // Default to 1 column. Every write-path (setColumns, updateStyles) coerces via
     // coerceIn(1, 2) before this field sees a new value, so an out-of-range read
@@ -48,6 +50,12 @@ class SidePanelView @JvmOverloads constructor(
     // GridLayoutManager.spanCount / toolsContainer.columnCount and crash the process.
     private var currentCols = 1
     private var isPickerOpenInternal = false
+    /**
+     * True while a programmatic scroll restore is in flight. The scroll
+     * listener skips saving during this window so the restore can't
+     * overwrite (and corrupt) the stored position.
+     */
+    private var isRestoringScroll = false
 
     // Cached set of home/launcher packages — resolved once on first use in isGameMode().
     private var homePackages: Set<String>? = null
@@ -122,14 +130,28 @@ class SidePanelView @JvmOverloads constructor(
         } catch (e: Exception) {}
     }
 
+    // Fling-to-close guards: panelOpenedAtMs marks when the panel became
+    // visible (flings inside the quiet period are ignored); gestureDownX
+    // records the current gesture's start X so onFling can require a real
+    // outward displacement instead of just a velocity spike.
+    private var panelOpenedAtMs = 0L
+    private var gestureDownX = 0f
+
     private val gestureDetector = android.view.GestureDetector(context, object : android.view.GestureDetector.SimpleOnGestureListener() {
         override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+            // The tail of the swipe that opened the panel often carries an
+            // outward velocity spike (finger lift / overshoot correction).
+            // Ignore flings right after opening, and require a real outward
+            // displacement — not just a velocity spike — before closing.
+            if (android.os.SystemClock.uptimeMillis() - panelOpenedAtMs < FLING_QUIET_PERIOD_MS) return false
             val isRight = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
             if (Math.abs(velocityY) > Math.abs(velocityX)) return false
-            if (isRight && velocityX > 1200f) {
+            val dx = e2.x - gestureDownX
+            val minDxPx = FLING_MIN_DISPLACEMENT_DP * context.resources.displayMetrics.density
+            if (isRight && velocityX > 1200f && dx > minDxPx) {
                 onClose?.invoke()
                 return true
-            } else if (!isRight && velocityX < -1200f) {
+            } else if (!isRight && velocityX < -1200f && dx < -minDxPx) {
                 onClose?.invoke()
                 return true
             }
@@ -138,8 +160,20 @@ class SidePanelView @JvmOverloads constructor(
     })
 
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+            gestureDownX = ev.x
+        }
         gestureDetector.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
+    }
+
+    /**
+     * Call when the panel becomes visible. Starts the quiet period during
+     * which fling-to-close is ignored, so the opening swipe's tail can't
+     * immediately close the just-opened panel.
+     */
+    fun notifyPanelOpened() {
+        panelOpenedAtMs = android.os.SystemClock.uptimeMillis()
     }
 
     init {
@@ -180,6 +214,19 @@ class SidePanelView @JvmOverloads constructor(
             }
         )
 
+        // Recent section: same item style as the main list, but read-only
+        // (no add button, no edit/drag, no folders).
+        recentAdapter = PanelAppsAdapter(
+            context,
+            onRemove = { },
+            onAddClick = { },
+            onAppLaunched = { onClose?.invoke() },
+            onFolderClick = { },
+            onToolClick = { toolId ->
+                onToolClick?.invoke(toolId)
+            }
+        )
+
         binding.btnBack.setOnClickListener {
             if (panelPrefs.hapticEnabled) {
                 it.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
@@ -199,10 +246,34 @@ class SidePanelView @JvmOverloads constructor(
         (binding.rvPanelApps.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = true
         binding.rvPanelApps.recycledViewPool.setMaxRecycledViews(0, 0)
 
+        // Recent section list: mirrors the main list's column count and item style.
+        recentAdapter.setColumns(currentCols)
+        binding.rvRecentApps.layoutManager = GridLayoutManager(context, currentCols)
+        binding.rvRecentApps.adapter = recentAdapter
+        binding.rvRecentApps.setHasFixedSize(false)
+        binding.rvRecentApps.isNestedScrollingEnabled = true
+        binding.rvRecentApps.setItemViewCacheSize(0)
+        (binding.rvRecentApps.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = true
+        binding.rvRecentApps.recycledViewPool.setMaxRecycledViews(0, 0)
+        applyRecentMaxHeight()
+
         binding.rvPanelApps.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {
-                if (panelPrefs.rememberScroll) {
-                    panelPrefs.lastSidebarScroll = recyclerView.computeVerticalScrollOffset()
+                // Never record the programmatic restore below — it would
+                // overwrite the saved position with the restored one and,
+                // combined with repeated setApps() calls, ratchet the list
+                // down to the bottom ("remember scroll jumps to bottom").
+                // Save position + top offset (not raw pixels): robust when
+                // the list content changes between save and restore, and
+                // RecyclerView.scrollTo() bypasses the LayoutManager anyway.
+                if (panelPrefs.rememberScroll && !isRestoringScroll) {
+                    val lm = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+                    val pos = lm?.findFirstVisibleItemPosition()
+                        ?: androidx.recyclerview.widget.RecyclerView.NO_POSITION
+                    if (lm != null && pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
+                        panelPrefs.lastSidebarScrollPos = pos
+                        panelPrefs.lastSidebarScrollTop = lm.findViewByPosition(pos)?.top ?: 0
+                    }
                 }
             }
         })
@@ -443,6 +514,14 @@ class SidePanelView @JvmOverloads constructor(
             }
         }
 
+        // Recent section: divider + header + the recent list's ACTUAL height
+        // (only when the section is actually visible). Deducting the full
+        // 220dp cap here would needlessly squeeze the main list when there
+        // are only a few recent apps.
+        if (binding.layoutRecentSection.visibility == View.VISIBLE) {
+            nonAppHeightDp += 28f + recentListHeightDp()
+        }
+
         // Maximum allowed height for RV to keep panel within screen (with 24dp safety margin)
         val maxAllowedRvHeightDp = (screenHeightDp - nonAppHeightDp - 24).coerceAtLeast(100f)
         val targetRvHeightDp = panelPrefs.panelMaxHeight.toFloat().coerceAtMost(maxAllowedRvHeightDp)
@@ -581,10 +660,23 @@ class SidePanelView @JvmOverloads constructor(
         adapter.submitList(apps) {
             updateSideLayout()
 
-            // Restore scroll position if enabled (only for root level)
+            // Restore scroll position if enabled (only for root level).
+            // Use scrollToPositionWithOffset, not scrollTo/scrollBy: the raw
+            // View scroll APIs bypass RecyclerView's LayoutManager (visually
+            // a no-op or, when stacked across repeated setApps() calls, a
+            // ratchet to the bottom). Position + top offset survives content
+            // changes between save and restore.
             if (panelPrefs.rememberScroll && navigationStack.isEmpty()) {
                 binding.rvPanelApps.post {
-                    binding.rvPanelApps.scrollBy(0, panelPrefs.lastSidebarScroll)
+                    isRestoringScroll = true
+                    val lm = binding.rvPanelApps.layoutManager
+                        as? androidx.recyclerview.widget.LinearLayoutManager
+                    val count = adapter.itemCount
+                    val pos = panelPrefs.lastSidebarScrollPos.coerceIn(0, (count - 1).coerceAtLeast(0))
+                    if (lm != null && count > 0) {
+                        lm.scrollToPositionWithOffset(pos, panelPrefs.lastSidebarScrollTop)
+                    }
+                    binding.rvPanelApps.post { isRestoringScroll = false }
                 }
             } else {
                 binding.rvPanelApps.post {
@@ -596,12 +688,70 @@ class SidePanelView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Update the "Recent" section. Called by the host service alongside
+     * [setApps]; hidden when the feature is off, when inside a folder, or
+     * when there is no recorded history yet.
+     */
+    fun setRecentApps(apps: List<AppInfo>) {
+        val visible = panelPrefs.recentEnabled &&
+            navigationStack.isEmpty() &&
+            apps.isNotEmpty()
+        val list = if (visible) apps else emptyList()
+        binding.layoutRecentSection.visibility = if (visible) View.VISIBLE else View.GONE
+        // submitList() commits asynchronously — size the list AND re-budget
+        // the main list height in the commit callback so recentListHeightDp()
+        // reads the new item count, not the stale one.
+        recentAdapter.submitList(list) {
+            applyRecentMaxHeight()
+            updateSideLayout()
+        }
+        updateSideLayout()
+    }
+
+    /**
+     * Recent list height in dp, mirroring [applyRecentMaxHeight]'s math so
+     * [updateSideLayout] budgets exactly what the section will occupy.
+     */
+    private fun recentListHeightDp(): Int {
+        val count = recentAdapter.itemCount.coerceAtLeast(1)
+        val cols = currentCols.coerceAtLeast(1)
+        val rows = kotlin.math.ceil(count / cols.toDouble()).toInt().coerceAtLeast(1)
+        return (rows * 68).coerceAtMost(RECENT_MAX_HEIGHT_DP)
+    }
+
+    /**
+     * Size the recent list to its content but never taller than
+     * [RECENT_MAX_HEIGHT_DP], so it can't squeeze the main list / tools off-screen.
+     * (rvRecentApps is a direct child of a LinearLayout, so ConstraintLayout
+     * max-height params don't apply — we set an explicit pixel height instead.)
+     */
+    private fun applyRecentMaxHeight() {
+        val count = recentAdapter.itemCount
+        if (count == 0) return
+        val density = resources.displayMetrics.density
+        // Approx sidebar grid cell: 40dp icon + ~8sp label + vertical padding.
+        val rowHeightPx = (68 * density).toInt()
+        val cols = currentCols.coerceAtLeast(1)
+        val rows = kotlin.math.ceil(count / cols.toDouble()).toInt().coerceAtLeast(1)
+        val maxPx = context.dpToPx(RECENT_MAX_HEIGHT_DP).toInt()
+        val targetPx = (rows * rowHeightPx).coerceAtMost(maxPx)
+        val lp = binding.rvRecentApps.layoutParams
+        if (lp.height != targetPx) {
+            lp.height = targetPx
+            binding.rvRecentApps.layoutParams = lp
+        }
+    }
+
     fun updateStyles() {
         if (!isPickerOpenInternal) {
             val isGameMode = isGameMode()
             currentCols = (if (isGameMode) 2 else panelPrefs.panelColumns).coerceIn(1, 2)
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
+            // Keep the Recent section in the same column mode.
+            (binding.rvRecentApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
+            recentAdapter.setColumns(currentCols)
             applyTheme()
             // Sync tools grid AFTER applyTheme() sets visibility, so
             // GONE/VISIBLE children get correct row/col specs for the
@@ -629,6 +779,7 @@ class SidePanelView @JvmOverloads constructor(
 
     fun refreshIcons() {
         adapter.refreshIcons()
+        recentAdapter.refreshIcons()
     }
 
     /** Bind dashboard tool ImageButtons to assets SVG (with vector fallback). */
@@ -1270,5 +1421,14 @@ class SidePanelView @JvmOverloads constructor(
 
         // Memory monitoring
         const val MEMORY_UPDATE_INTERVAL_MS = 3000L
+
+        // Recent section: cap the recent list to ~3 rows so it scrolls
+        // internally instead of squeezing the main list / tools off-screen.
+        const val RECENT_MAX_HEIGHT_DP = 220
+
+        // Fling-to-close guards: quiet period after opening (ms) and minimum
+        // outward displacement (dp) required before a fling closes the panel.
+        const val FLING_QUIET_PERIOD_MS = 500L
+        const val FLING_MIN_DISPLACEMENT_DP = 48f
     }
 }

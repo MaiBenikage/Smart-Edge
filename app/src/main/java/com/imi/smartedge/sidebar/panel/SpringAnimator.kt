@@ -69,7 +69,11 @@ object SpringAnimator {
                 val spring = SpringAnimation(view, DynamicAnimation.TRANSLATION_X, 0f).apply {
                     this.spring.stiffness = stiffness
                     this.spring.dampingRatio = SPRING_DAMPING
-                    addEndListener { _, _, _, _ ->
+                    addEndListener { _, canceled, _, _ ->
+                        // A canceled animation (e.g. close interrupted by a new
+                        // open) must NOT run onEnd — its teardown belongs to the
+                        // old animation and would tear down the new state.
+                        if (canceled) return@addEndListener
                         activeSprings.remove(view)
                         view.setLayerType(View.LAYER_TYPE_NONE, null)
                         onEnd?.invoke()
@@ -86,7 +90,8 @@ object SpringAnimator {
                 val scaleYSpring = SpringAnimation(view, DynamicAnimation.SCALE_Y, 1f).apply {
                     this.spring.stiffness = stiffness * 1.2f
                     this.spring.dampingRatio = SpringForce.DAMPING_RATIO_LOW_BOUNCY
-                    addEndListener { _, _, _, _ ->
+                    addEndListener { _, canceled, _, _ ->
+                        if (canceled) return@addEndListener
                         view.setLayerType(View.LAYER_TYPE_NONE, null)
                         onEnd?.invoke()
                     }
@@ -137,7 +142,11 @@ object SpringAnimator {
             val spring = SpringAnimation(view, DynamicAnimation.TRANSLATION_X, targetX).apply {
                 this.spring.stiffness = stiffness
                 this.spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
-                addEndListener { _, _, _, _ ->
+                addEndListener { _, canceled, _, _ ->
+                    // Same guard as animateOpen: a canceled close must not run
+                    // its teardown or it destroys a panel that was re-opened
+                    // mid-close (the "swipe once, panel vanishes" race).
+                    if (canceled) return@addEndListener
                     activeSprings.remove(view)
                     view.setLayerType(View.LAYER_TYPE_NONE, null)
                     view.translationX = 0f
