@@ -272,6 +272,12 @@ class PanelAccessibilityService : AccessibilityService() {
             val isSystemPkg = packageName == "android" || packageName == "com.android.systemui"
             
             if (packageName != "com.imi.smartedge.sidebar.panel" && packageName != imePackage && !isSystemPkg) {
+                // Feed the sidebar "Recent" section: every user-app foreground
+                // switch counts as one use (debounced inside the manager).
+                try {
+                    RecentAppsManager(this).recordLaunch(packageName, RecentAppsManager.SOURCE_A11Y)
+                } catch (_: Exception) {}
+
                 if (panelPrefs.serviceEnabled) {
                     val closeIntent = Intent(this, FloatingPanelService::class.java).apply {
                         action = FloatingPanelService.ACTION_CLOSE_PANEL

@@ -7,8 +7,10 @@ import org.xmlpull.v1.XmlPullParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -31,6 +33,54 @@ class AppRepository(context: Context) {
 
     @Volatile private var activitiesCache: List<Pair<String, List<AppInfo>>>? = null
     @Volatile private var activitiesCacheAtMs: Long = 0L
+
+    /**
+     * Unified picker cache for the APPS / ACTIVITIES / SHORTCUTS tabs.
+     * The three tabs share one list and one refresh path so they are always
+     * consistent with each other ("one cache list, easy to maintain & refresh").
+     * CUSTOM-tab items are user data from SharedPreferences and stay separate.
+     */
+    data class PickerData(
+        val apps: List<AppInfo>,
+        val activities: List<Pair<String, List<AppInfo>>>,
+        val shortcuts: List<Pair<String, List<AppInfo>>>,
+        val loadedAtMs: Long
+    )
+
+    @Volatile private var pickerCache: PickerData? = null
+
+    /**
+     * Load (or return the cached) picker data for all three tabs at once.
+     * The three sources load in parallel — activities/shortcuts discovery is
+     * slow while the app list is fast, so parallel loading shortens the wait.
+     */
+    suspend fun getPickerData(forceRefresh: Boolean = false): PickerData {
+        val cached = pickerCache
+        if (!forceRefresh && cached != null) return cached
+        if (forceRefresh) {
+            // getActivitiesByPackage() has its own 60s TTL cache — a forced
+            // refresh must punch through it too, or the ACTIVITIES tab would
+            // keep showing stale entries.
+            activitiesCache = null
+            activitiesCacheAtMs = 0L
+        }
+        return coroutineScope {
+            val appsDeferred = async { getAllApps() }
+            val activitiesDeferred = async { getActivitiesByPackage() }
+            val shortcutsDeferred = async { getShortcutsByPackage() }
+            PickerData(
+                apps = appsDeferred.await(),
+                activities = activitiesDeferred.await(),
+                shortcuts = shortcutsDeferred.await(),
+                loadedAtMs = android.os.SystemClock.uptimeMillis()
+            ).also { pickerCache = it }
+        }
+    }
+
+    /** Drop only the unified picker cache (keeps icon-preload jobs alive). */
+    fun clearPickerCache() {
+        pickerCache = null
+    }
     
     @Volatile private var labelsBackfillAttempted = false
 
@@ -43,6 +93,7 @@ class AppRepository(context: Context) {
         iconPreloadScope.coroutineContext.cancelChildren()
         activitiesCache = null
         activitiesCacheAtMs = 0L
+        pickerCache = null
     }
 
     companion object {

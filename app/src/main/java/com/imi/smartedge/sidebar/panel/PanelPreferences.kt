@@ -70,8 +70,18 @@ class PanelPreferences(context: Context) {
         private const val KEY_PICKER_MAX_HEIGHT = "picker_max_height"
         private const val KEY_SHOW_NOTIFICATION_APPS = "show_notification_apps"
         private const val KEY_REMEMBER_SCROLL = "remember_scroll"
+        // --- Recent apps (sidebar "Recent" section) ---
+        private const val KEY_RECENT_ENABLED = "recent_enabled"
+        private const val KEY_RECENT_HISTORY_SIZE = "recent_history_size"
+        private const val KEY_RECENT_MAX_COUNT = "recent_max_count"
+        private const val KEY_RECENT_HISTORY = "recent_history_json"
+        private const val KEY_RECENT_LAST_PACKAGE = "recent_last_package"
+        private const val KEY_RECENT_LAST_TIME = "recent_last_time"
+        private const val KEY_RECENT_LAST_SOURCE = "recent_last_source"
         private const val KEY_AUTO_SHOW_KEYBOARD = "auto_show_keyboard"
         private const val KEY_SIDEBAR_SCROLL = "last_sidebar_scroll"
+        private const val KEY_SIDEBAR_SCROLL_POS = "last_sidebar_scroll_pos"
+        private const val KEY_SIDEBAR_SCROLL_TOP = "last_sidebar_scroll_top"
         private const val KEY_PICKER_SCROLL = "last_picker_scroll"
         private const val KEY_GAME_APPS = "game_apps"
         private const val KEY_AUTO_HIDE_FULLSCREEN = "auto_hide_fullscreen"
@@ -98,6 +108,7 @@ class PanelPreferences(context: Context) {
 
         // --- Custom Intents/URLs (user-added sidebar items) ---
         private const val KEY_CUSTOM_ITEMS = "custom_items_json"
+        private const val KEY_TEXT_ACTIONS = "text_actions_json"
         const val CUSTOM_ID_PREFIX = "smartedge.custom."
 
         /** Maximum number of pinned sidebar entries (apps, activities, shortcuts, custom). */
@@ -192,6 +203,9 @@ class PanelPreferences(context: Context) {
         const val DEFAULT_SLIDE_VOLUME = true
         const val DEFAULT_SLIDE_SENSITIVITY = 100
         const        val DEFAULT_SWIPE_SENSITIVITY = 100
+        const val DEFAULT_RECENT_ENABLED = true
+        const val DEFAULT_RECENT_HISTORY_SIZE = 128
+        const val DEFAULT_RECENT_MAX_COUNT = 8
     }
 
     fun resetUIColors() {
@@ -223,6 +237,7 @@ class PanelPreferences(context: Context) {
             KEY_PANEL_APPS to getPanelApps().take(MAX_PANEL_APPS).joinToString(DELIMITER) { encodeDelim(it) },
             KEY_PANEL_LABELS to (prefs.getString(KEY_PANEL_LABELS, null) ?: ""),
             KEY_CUSTOM_ITEMS to (prefs.getString(KEY_CUSTOM_ITEMS, null) ?: ""),
+            KEY_TEXT_ACTIONS to (prefs.getString(KEY_TEXT_ACTIONS, null) ?: ""),
             KEY_GAME_APPS to (prefs.getString(KEY_GAME_APPS, null) ?: ""),
             KEY_PANEL_SIDE to panelSide,
             KEY_ACCENT_COLOR to accentColor,
@@ -262,7 +277,9 @@ class PanelPreferences(context: Context) {
             KEY_NOTCH_TAP_ACTION to notchTapAction,
             KEY_NOTCH_DOUBLE_TAP_ACTION to notchDoubleTapAction,
             KEY_NOTCH_TRIPLE_TAP_ACTION to notchTripleTapAction,
-            KEY_NOTCH_LONG_PRESS_ACTION to notchLongPressAction
+            KEY_NOTCH_LONG_PRESS_ACTION to notchLongPressAction,
+            KEY_RECENT_HISTORY_SIZE to recentHistorySize,
+            KEY_RECENT_MAX_COUNT to recentMaxCount
         )
         ints.forEach { (k, v) -> obj.put(k, v) }
         
@@ -305,7 +322,8 @@ class PanelPreferences(context: Context) {
             KEY_AUTO_HIDE_FULLSCREEN to autoHideInFullscreen,
             KEY_DELIBERATE_GESTURE_GAMES to deliberateGestureInGames,
             KEY_NOTCH_GESTURES_ENABLED to notchGesturesEnabled,
-            KEY_USE_AUTOMATION_FOR_GESTURES to useAutomationForGestures
+            KEY_USE_AUTOMATION_FOR_GESTURES to useAutomationForGestures,
+            KEY_RECENT_ENABLED to recentEnabled
         )
         bools.forEach { (k, v) -> obj.put(k, v) }
 
@@ -343,6 +361,7 @@ class PanelPreferences(context: Context) {
                 readString(KEY_PANEL_APPS)?.let { putString(KEY_PANEL_APPS, it) }
                 readString(KEY_PANEL_LABELS)?.let { putString(KEY_PANEL_LABELS, it) }
                 readString(KEY_CUSTOM_ITEMS)?.let { putString(KEY_CUSTOM_ITEMS, it) }
+                readString(KEY_TEXT_ACTIONS)?.let { putString(KEY_TEXT_ACTIONS, it) }
                 readString(KEY_GAME_APPS)?.let { putString(KEY_GAME_APPS, it) }
                 readString(KEY_PANEL_SIDE)?.let { putString(KEY_PANEL_SIDE, it) }
                 readString(KEY_ACCENT_COLOR)?.let { putString(KEY_ACCENT_COLOR, it) }
@@ -381,6 +400,8 @@ class PanelPreferences(context: Context) {
                 if (obj.has(KEY_NOTCH_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_DOUBLE_TAP_ACTION)) putInt(KEY_NOTCH_DOUBLE_TAP_ACTION, obj.optInt(KEY_NOTCH_DOUBLE_TAP_ACTION, notchDoubleTapAction))
                 if (obj.has(KEY_NOTCH_TRIPLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_TRIPLE_TAP_ACTION)) putInt(KEY_NOTCH_TRIPLE_TAP_ACTION, obj.optInt(KEY_NOTCH_TRIPLE_TAP_ACTION, notchTripleTapAction))
                 if (obj.has(KEY_NOTCH_LONG_PRESS_ACTION) && !obj.isNull(KEY_NOTCH_LONG_PRESS_ACTION)) putInt(KEY_NOTCH_LONG_PRESS_ACTION, obj.optInt(KEY_NOTCH_LONG_PRESS_ACTION, notchLongPressAction))
+                if (obj.has(KEY_RECENT_HISTORY_SIZE) && !obj.isNull(KEY_RECENT_HISTORY_SIZE)) putInt(KEY_RECENT_HISTORY_SIZE, obj.optInt(KEY_RECENT_HISTORY_SIZE, recentHistorySize))
+                if (obj.has(KEY_RECENT_MAX_COUNT) && !obj.isNull(KEY_RECENT_MAX_COUNT)) putInt(KEY_RECENT_MAX_COUNT, obj.optInt(KEY_RECENT_MAX_COUNT, recentMaxCount))
 
                 // Float
                 if (obj.has(KEY_SCALE_FACTOR) && !obj.isNull(KEY_SCALE_FACTOR)) {
@@ -428,6 +449,7 @@ class PanelPreferences(context: Context) {
                 putBoolIfPresent(KEY_DELIBERATE_GESTURE_GAMES, deliberateGestureInGames)
                 putBoolIfPresent(KEY_NOTCH_GESTURES_ENABLED, notchGesturesEnabled)
                 putBoolIfPresent(KEY_USE_AUTOMATION_FOR_GESTURES, useAutomationForGestures)
+                putBoolIfPresent(KEY_RECENT_ENABLED, recentEnabled)
             }
             // Enforce sidebar cap after restore (also drops excess custom pins).
             val capped = getPanelApps()
@@ -507,6 +529,7 @@ class PanelPreferences(context: Context) {
             putString(KEY_PANEL_APPS, "")
             putString(KEY_PANEL_LABELS, "{}")
             putString(KEY_CUSTOM_ITEMS, "[]")
+            remove(KEY_TEXT_ACTIONS) // next getTextActions() re-seeds the built-in presets
             putString(KEY_GAME_APPS, "")
             putBoolean(KEY_AUTO_HIDE_FULLSCREEN, false)
             putString(KEY_FULLSCREEN_WHITELIST, "")
@@ -514,11 +537,20 @@ class PanelPreferences(context: Context) {
             putBoolean(KEY_ONLY_ON_HOME, false)
             putString(KEY_FAVORITE_APP, "")
             putBoolean(KEY_NOTCH_GESTURES_ENABLED, false)
+            putBoolean(KEY_RECENT_ENABLED, DEFAULT_RECENT_ENABLED)
+            putInt(KEY_RECENT_HISTORY_SIZE, DEFAULT_RECENT_HISTORY_SIZE)
+            putInt(KEY_RECENT_MAX_COUNT, DEFAULT_RECENT_MAX_COUNT)
+            remove(KEY_RECENT_HISTORY)
+            remove(KEY_RECENT_LAST_PACKAGE)
+            remove(KEY_RECENT_LAST_TIME)
+            remove(KEY_RECENT_LAST_SOURCE)
             remove(KEY_NOTCH_TAP_ACTION)
             remove(KEY_NOTCH_DOUBLE_TAP_ACTION)
             remove(KEY_NOTCH_TRIPLE_TAP_ACTION)
             remove(KEY_NOTCH_LONG_PRESS_ACTION)
             putInt(KEY_SIDEBAR_SCROLL, 0)
+            putInt(KEY_SIDEBAR_SCROLL_POS, 0)
+            putInt(KEY_SIDEBAR_SCROLL_TOP, 0)
             putInt(KEY_PICKER_SCROLL, 0)
         }
     }
@@ -535,9 +567,57 @@ class PanelPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_REMEMBER_SCROLL, false)
         set(value) = prefs.edit { putBoolean(KEY_REMEMBER_SCROLL, value) }
 
+    // ── Recent apps (sidebar "Recent" section) ───────────────────────────────
+    var recentEnabled: Boolean
+        get() = prefs.getBoolean(KEY_RECENT_ENABLED, DEFAULT_RECENT_ENABLED)
+        set(value) = prefs.edit { putBoolean(KEY_RECENT_ENABLED, value) }
+
+    /** How many launch events to keep in history: 64 / 128 / 256. */
+    var recentHistorySize: Int
+        get() = prefs.getInt(KEY_RECENT_HISTORY_SIZE, DEFAULT_RECENT_HISTORY_SIZE)
+        set(value) = prefs.edit { putInt(KEY_RECENT_HISTORY_SIZE, value) }
+
+    /** How many top apps to show in the Recent section: 4..20. */
+    var recentMaxCount: Int
+        get() = prefs.getInt(KEY_RECENT_MAX_COUNT, DEFAULT_RECENT_MAX_COUNT)
+        set(value) = prefs.edit { putInt(KEY_RECENT_MAX_COUNT, value) }
+
+    /** JSON array of package names (bounded FIFO history). Runtime data. */
+    var recentHistoryJson: String
+        get() = prefs.getString(KEY_RECENT_HISTORY, "[]") ?: "[]"
+        set(value) = prefs.edit { putString(KEY_RECENT_HISTORY, value) }
+
+    /** Debounce helpers so one launch isn't recorded twice. Runtime data. */
+    var recentLastPackage: String
+        get() = prefs.getString(KEY_RECENT_LAST_PACKAGE, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_RECENT_LAST_PACKAGE, value) }
+
+    var recentLastTime: Long
+        get() = prefs.getLong(KEY_RECENT_LAST_TIME, 0L)
+        set(value) = prefs.edit { putLong(KEY_RECENT_LAST_TIME, value) }
+
+    /** Which source recorded the last launch ("click" / "a11y"). Runtime data. */
+    var recentLastSource: String
+        get() = prefs.getString(KEY_RECENT_LAST_SOURCE, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_RECENT_LAST_SOURCE, value) }
+
     var lastSidebarScroll: Int
         get() = prefs.getInt(KEY_SIDEBAR_SCROLL, 0)
         set(value) = prefs.edit { putInt(KEY_SIDEBAR_SCROLL, value) }
+
+    /**
+     * Remember-scroll v2: first visible adapter position + its top offset.
+     * More robust than a raw pixel offset — RecyclerView.scrollTo() bypasses
+     * the LayoutManager, and pixel offsets go stale when the list content
+     * changes between save and restore.
+     */
+    var lastSidebarScrollPos: Int
+        get() = prefs.getInt(KEY_SIDEBAR_SCROLL_POS, 0)
+        set(value) = prefs.edit { putInt(KEY_SIDEBAR_SCROLL_POS, value) }
+
+    var lastSidebarScrollTop: Int
+        get() = prefs.getInt(KEY_SIDEBAR_SCROLL_TOP, 0)
+        set(value) = prefs.edit { putInt(KEY_SIDEBAR_SCROLL_TOP, value) }
 
     var lastPickerScroll: Int
         get() = prefs.getInt(KEY_PICKER_SCROLL, 0)
@@ -1099,6 +1179,92 @@ class PanelPreferences(context: Context) {
         }
         // setPanelApps takes List<String> and handles dedup + delimiter join internally.
         setPanelApps(nonCustom + orderedCustom)
+    }
+
+    // =====================================================================================
+    //                       Text-selection actions storage (ACTION_PROCESS_TEXT)
+    // =====================================================================================
+    // Stored as a JSON array under KEY_TEXT_ACTIONS. Each element is a TextAction
+    // (see TextAction.kt). On first read (key absent) the built-in presets from
+    // defaultTextActions() are seeded and persisted so the settings page and the
+    // ProcessTextActivity chooser start from something useful.
+    //
+    // Platform note: Android only allows ONE static ACTION_PROCESS_TEXT entry per
+    // app, so the manifest registers a single "Smart Edge…" activity. Tapping it
+    // opens an in-app chooser listing these actions — that is why the user can
+    // freely add/rename/reorder any number of them here.
+
+    /**
+     * Read the persisted list of [TextAction]s in user order.
+     * Seeds the built-in presets on first run (key absent).
+     */
+    fun getTextActions(): List<TextAction> {
+        if (!prefs.contains(KEY_TEXT_ACTIONS)) {
+            val defaults = defaultTextActions()
+            setTextActions(defaults)
+            return defaults
+        }
+        val raw = prefs.getString(KEY_TEXT_ACTIONS, null) ?: return emptyList()
+        if (raw.isBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { TextAction.fromJson(it) }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Atomically overwrite the text actions list. Order is the display order. */
+    fun setTextActions(items: List<TextAction>) {
+        val arr = org.json.JSONArray()
+        items.forEach { arr.put(it.toJson()) }
+        prefs.edit { putString(KEY_TEXT_ACTIONS, arr.toString()) }
+    }
+
+    /** Append a new action (id de-duplicated defensively). */
+    fun addTextAction(item: TextAction) {
+        val current = getTextActions().toMutableList()
+        current.removeAll { it.id == item.id }
+        current.add(item)
+        setTextActions(current)
+    }
+
+    /** Replace an existing action in-place (matched by id). */
+    fun updateTextAction(item: TextAction) {
+        val current = getTextActions().toMutableList()
+        val idx = current.indexOfFirst { it.id == item.id }
+        if (idx >= 0) {
+            current[idx] = item
+            setTextActions(current)
+        } else {
+            addTextAction(item)
+        }
+    }
+
+    /** Remove an action by id. Returns the removed action, or null if not found. */
+    fun removeTextAction(id: String): TextAction? {
+        val current = getTextActions().toMutableList()
+        val idx = current.indexOfFirst { it.id == id }
+        if (idx < 0) return null
+        val removed = current.removeAt(idx)
+        setTextActions(current)
+        return removed
+    }
+
+    /** Move an action from one position to another (drag/up-down reorder). */
+    fun moveTextAction(from: Int, to: Int) {
+        val current = getTextActions().toMutableList()
+        if (from !in current.indices || to !in current.indices || from == to) return
+        val item = current.removeAt(from)
+        current.add(to, item)
+        setTextActions(current)
+    }
+
+    /** Restore the built-in preset list, discarding user edits. */
+    fun resetTextActions() {
+        setTextActions(defaultTextActions())
     }
 
     var panelSide: String

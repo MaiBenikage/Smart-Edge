@@ -120,6 +120,28 @@
             android:label="Select Icon Pack"
             android:theme="@style/Theme.SidePanel" />
 
+        <activity
+            android:name=".TextActionsSettingsActivity"
+            android:label="@string/section_text_actions"
+            android:theme="@style/Theme.SidePanel.M3" />
+
+        <!-- Single entry shown in the system text-selection menu (ACTION_PROCESS_TEXT).
+             Android only allows static registrations, so there is exactly one entry
+             ("Smart Edge…"); tapping it opens the user's configured TextAction list. -->
+        <activity
+            android:name=".ProcessTextActivity"
+            android:label="Smart Edge…"
+            android:theme="@style/Theme.Transparent"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
 
 
         <service

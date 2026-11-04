@@ -21,7 +21,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
@@ -106,10 +105,11 @@ class AppPickerPanelView @JvmOverloads constructor(
     // case [findViewHolderForAdapterPosition] returns null).
     private val pendingCustomEdits = mutableMapOf<String, Pair<String, String>>()
 
-    // Lazy data for each tab. Populated on first switch.
-    private var allApps: List<AppInfo> = emptyList()
-    private var activitiesByPackage: List<Pair<String, List<AppInfo>>> = emptyList()
-    private var shortcutsByPackage: List<Pair<String, List<AppInfo>>> = emptyList()
+    // Unified lazy data for the APPS / ACTIVITIES / SHORTCUTS tabs: one shared
+    // cache (loaded in parallel on first use) instead of three separate lists,
+    // so the three tabs always show consistent data with a single refresh path.
+    // CUSTOM-tab items are user data from SharedPreferences and stay separate.
+    private var pickerData: AppRepository.PickerData? = null
     private var customItems: MutableList<CustomItem> = mutableListOf()
 
     // ====================================================================================
@@ -203,13 +203,9 @@ class AppPickerPanelView @JvmOverloads constructor(
             }
         })
 
-        // Layout manager based on theme + active tab
-        // Activities/Shortcuts/Custom → vertical list. Apps → grid (2 cols) or list (rich).
-        rvPickerGrid.layoutManager = when {
-            activeTab == PickerTab.APPS && panelPrefs.uiTheme != PanelPreferences.THEME_RICH ->
-                GridLayoutManager(context, 2)
-            else -> LinearLayoutManager(context)
-        }
+        // Layout manager: all four tabs share the same vertical list layout so
+        // items look identical everywhere (no more 2-column grid on APPS only).
+        rvPickerGrid.layoutManager = LinearLayoutManager(context)
         rvPickerGrid.setHasFixedSize(false)
         rvPickerGrid.setItemViewCacheSize(0)
         // setDrawingCacheEnabled() is no longer recommended by Android (deprecated
@@ -344,21 +340,16 @@ class AppPickerPanelView @JvmOverloads constructor(
 
         activeTab = newTab
 
-        // Toggle layout manager: apps grid vs everything else list
-        rvPickerGrid.layoutManager = when {
-            newTab == PickerTab.APPS && panelPrefs.uiTheme != PanelPreferences.THEME_RICH ->
-                GridLayoutManager(context, 2)
-            else -> LinearLayoutManager(context)
-        }
+        // All tabs share the same vertical list layout (unified item style).
+        rvPickerGrid.layoutManager = LinearLayoutManager(context)
 
         updateTabUI()
         updateHeaderAndEditButton()
 
-        // Lazy-load data if needed
+        // Lazy-load the unified cache on first switch to any of the three tabs.
         when (newTab) {
-            PickerTab.APPS -> if (allApps.isEmpty()) loadApps(forceRefresh = false)
-            PickerTab.ACTIVITIES -> if (activitiesByPackage.isEmpty()) loadActivities()
-            PickerTab.SHORTCUTS -> if (shortcutsByPackage.isEmpty()) loadShortcuts()
+            PickerTab.APPS, PickerTab.ACTIVITIES, PickerTab.SHORTCUTS ->
+                if (pickerData == null) loadPickerData(forceRefresh = false)
             PickerTab.CUSTOM -> customItems = panelPrefs.getCustomItems().toMutableList()
         }
 
@@ -484,9 +475,8 @@ class AppPickerPanelView @JvmOverloads constructor(
     }
 
     fun invalidateAppList() {
-        allApps = emptyList()
-        activitiesByPackage = emptyList()
-        shortcutsByPackage = emptyList()
+        pickerData = null
+        repository.clearPickerCache()
     }
 
     fun clearIcons() {
@@ -558,12 +548,13 @@ class AppPickerPanelView @JvmOverloads constructor(
     }
 
     fun loadApps(forceRefresh: Boolean = false) {
-        // Compatibility API — for the active tab, refresh its data.
-        if (!forceRefresh && allApps.isNotEmpty() && activeTab == PickerTab.APPS) {
+        // Compatibility API — refreshes the unified picker cache for the
+        // active tab (APPS / ACTIVITIES / SHORTCUTS share one cache).
+        if (!forceRefresh && pickerData != null && activeTab == PickerTab.APPS) {
             // Sync in-panel flags from prefs
             val panelIds = panelPrefs.getPanelApps().toSet()
             var changed = false
-            allApps.forEach {
+            pickerData?.apps?.forEach {
                 val inPanel = panelIds.contains(it.identifier)
                 if (it.isInPanel != inPanel) {
                     it.isInPanel = inPanel
@@ -574,9 +565,8 @@ class AppPickerPanelView @JvmOverloads constructor(
             return
         }
         when (activeTab) {
-            PickerTab.APPS -> loadAppsInternal(forceRefresh)
-            PickerTab.ACTIVITIES -> loadActivities()
-            PickerTab.SHORTCUTS -> loadShortcuts()
+            PickerTab.APPS, PickerTab.ACTIVITIES, PickerTab.SHORTCUTS ->
+                loadPickerData(forceRefresh)
             PickerTab.CUSTOM -> {
                 customItems = panelPrefs.getCustomItems().toMutableList()
                 rebuildAndSubmit()
@@ -594,41 +584,23 @@ class AppPickerPanelView @JvmOverloads constructor(
     // ====================================================================================
     //                                Data loading
     // ====================================================================================
-    private fun loadAppsInternal(@Suppress("UNUSED_PARAMETER") forceRefresh: Boolean) {
-        // `forceRefresh` is honored upstream by [loadApps] (which short-circuits
-        // the cached allApps). The internal method always re-fetches via
-        // repository.getAllApps() so the param is informational here only.
+    /**
+     * Load the unified picker cache (apps + activities + shortcuts, in
+     * parallel) and rebuild the current tab. One function, one cache, one
+     * refresh path for all three tabs.
+     */
+    private fun loadPickerData(forceRefresh: Boolean = false) {
         val originalHeader = tvHeader.text
         tvHeader.text = context.getString(R.string.loading_apps)
         _scope.launch {
-            val apps = withContext(Dispatchers.IO) { repository.getAllApps() }
-            allApps = apps
+            val data = withContext(Dispatchers.IO) { repository.getPickerData(forceRefresh) }
+            pickerData = data
             tvHeader.text = originalHeader
             // Sync panel state and rebuild
             val panelIds = panelPrefs.getPanelApps().toSet()
-            apps.forEach { it.isInPanel = panelIds.contains(it.identifier) }
+            data.apps.forEach { it.isInPanel = panelIds.contains(it.identifier) }
             rebuildAndSubmit()
             playStaggeredEntryAnim()
-        }
-    }
-
-    private fun loadActivities() {
-        tvHeader.text = context.getString(R.string.picker_scanning_activities)
-        _scope.launch {
-            val data = withContext(Dispatchers.IO) { repository.getActivitiesByPackage() }
-            activitiesByPackage = data
-            tvHeader.text = context.getString(R.string.picker_all_activities)
-            rebuildAndSubmit()
-        }
-    }
-
-    private fun loadShortcuts() {
-        tvHeader.text = context.getString(R.string.picker_scanning_shortcuts)
-        _scope.launch {
-            val data = withContext(Dispatchers.IO) { repository.getShortcutsByPackage() }
-            shortcutsByPackage = data
-            tvHeader.text = context.getString(R.string.picker_all_shortcuts)
-            rebuildAndSubmit()
         }
     }
 
@@ -946,10 +918,11 @@ class AppPickerPanelView @JvmOverloads constructor(
         val result = mutableListOf<PickerItem>()
         when (activeTab) {
             PickerTab.APPS -> {
-                if (allApps.isEmpty()) {
+                val apps = pickerData?.apps.orEmpty()
+                if (apps.isEmpty()) {
                     result.add(PickerItem.EmptyState(context.getString(R.string.picker_no_apps_found)))
                 } else {
-                    val filtered = if (q.isEmpty()) allApps else allApps.filter { matchesQuery(it.appName, q) }
+                    val filtered = if (q.isEmpty()) apps else apps.filter { matchesQuery(it.appName, q) }
                     if (filtered.isEmpty()) {
                         result.add(PickerItem.EmptyState(context.getString(R.string.picker_no_matches_for, q)))
                     } else {
@@ -958,6 +931,7 @@ class AppPickerPanelView @JvmOverloads constructor(
                 }
             }
             PickerTab.ACTIVITIES -> {
+                val activitiesByPackage = pickerData?.activities.orEmpty()
                 if (activitiesByPackage.isEmpty()) {
                     result.add(PickerItem.EmptyState(context.getString(R.string.picker_no_activities_available)))
                 } else {
@@ -978,6 +952,7 @@ class AppPickerPanelView @JvmOverloads constructor(
                 }
             }
             PickerTab.SHORTCUTS -> {
+                val shortcutsByPackage = pickerData?.shortcuts.orEmpty()
                 if (shortcutsByPackage.isEmpty()) {
                     val msg = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
                         context.getString(R.string.picker_requires_android_71)
@@ -1065,21 +1040,12 @@ class AppPickerPanelView @JvmOverloads constructor(
             return
         }
         val density = resources.displayMetrics.density
-        val theme = panelPrefs.uiTheme
-        val isRich = theme == PanelPreferences.THEME_RICH
 
-        val itemHeightDp = when {
-            activeTab != PickerTab.APPS -> 64  // header rows + custom rows are taller
-            isRich -> 72
-            else -> 100
-        }
+        // Unified: every tab is a single-column list with ~64dp rows
+        // (app card / header / custom row all share the same row height).
+        val itemHeightDp = 64
         val itemHeightPx = (itemHeightDp * density).toInt()
-        val cols = when {
-            activeTab != PickerTab.APPS -> 1
-            isRich -> 1
-            else -> 2
-        }
-        val rows = Math.ceil(itemsCount.toDouble() / cols).toInt()
+        val rows = itemsCount
         val estimated = rows * itemHeightPx
 
         if (estimated < lastMaxPx) {
@@ -1224,7 +1190,7 @@ class AppPickerPanelView @JvmOverloads constructor(
         abstract val stableId: String
 
         data class AppRow(val app: AppInfo) : PickerItem() {
-            override val stableId = "app_${app.identifier}"
+            override val stableId = "row_${app.identifier}"
         }
 
         data class TreeHeader(
@@ -1237,7 +1203,7 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
 
         data class TreeChild(val app: AppInfo) : PickerItem() {
-            override val stableId = "child_${app.identifier}"
+            override val stableId = "row_${app.identifier}"
         }
 
         data class CustomRow(
@@ -1283,11 +1249,9 @@ class AppPickerPanelView @JvmOverloads constructor(
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val inflater = LayoutInflater.from(parent.context)
             return when (viewType) {
-                VT_APP -> {
-                    val layoutId = if (panelPrefs.uiTheme == PanelPreferences.THEME_RICH)
-                        R.layout.item_picker_app_rich else R.layout.item_picker_app_modern
-                    AppViewHolder(inflater.inflate(layoutId, parent, false))
-                }
+                // VT_APP: one unified horizontal card for every tab (no more
+                // rich-vs-modern split) so all four tabs look identical.
+                VT_APP -> AppViewHolder(inflater.inflate(R.layout.item_picker_app_rich, parent, false))
                 VT_HEADER -> HeaderViewHolder(inflater.inflate(R.layout.item_picker_app_header, parent, false))
                 VT_CUSTOM -> CustomViewHolder(inflater.inflate(R.layout.item_picker_custom_url, parent, false))
                 VT_EMPTY -> EmptyViewHolder(inflater.inflate(R.layout.item_picker_empty_state, parent, false))
@@ -1320,20 +1284,20 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
 
         // --- APP / CHILD ---
+        // Unified item metrics: one icon size / text size for every tab
+        // (single source of truth — the layout XML is no longer overridden
+        // with conflicting per-theme values).
         private fun bindApp(holder: AppViewHolder, app: AppInfo, isChild: Boolean) {
             val scale = context.getAutoScalingFactor() * panelPrefs.scaleFactor
-            val isRich = panelPrefs.uiTheme == PanelPreferences.THEME_RICH
-            val baseIconSize = if (isRich) ICON_SIZE_RICH_DP else ICON_SIZE_NORMAL_DP
-            val baseTextSize = if (isRich) BASE_TEXT_SIZE_RICH else BASE_TEXT_SIZE_NORMAL
-            val basePkgTextSize = if (isRich) BASE_PKG_TEXT_SIZE_RICH else BASE_PKG_TEXT_SIZE_NORMAL
+            val iconPx = (context.dpToPx(PICKER_ICON_DP) * scale).toInt()
 
             holder.ivIcon.layoutParams.let { lp ->
-                lp.width = (context.dpToPx(baseIconSize) * scale).toInt()
-                lp.height = (context.dpToPx(baseIconSize) * scale).toInt()
+                lp.width = iconPx
+                lp.height = iconPx
                 holder.ivIcon.layoutParams = lp
             }
-            holder.tvName.textSize = baseTextSize * scale
-            holder.tvPackage?.textSize = basePkgTextSize * scale
+            holder.tvName.textSize = PICKER_NAME_SP * scale
+            holder.tvPackage?.textSize = PICKER_PKG_SP * scale
             holder.tvName.text = app.appName
             holder.tvPackage?.text = app.packageName
 
@@ -1784,6 +1748,12 @@ class AppPickerPanelView @JvmOverloads constructor(
         const val BASE_TEXT_SIZE_NORMAL = 14f
         const val BASE_PKG_TEXT_SIZE_RICH = 13f
         const val BASE_PKG_TEXT_SIZE_NORMAL = 12f
+        // Unified picker item metrics — single source of truth used by
+        // bindApp() for every tab (matches item_picker_app_rich.xml):
+        // 32dp icon inside the 40dp icon circle, 13sp name, 10sp package.
+        const val PICKER_ICON_DP = 32
+        const val PICKER_NAME_SP = 13f
+        const val PICKER_PKG_SP = 10f
 
         // Animation timing (ms)
         const val EDIT_MODE_ANIM_DURATION_MS = 400L
