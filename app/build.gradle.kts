@@ -48,7 +48,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            // Audit fix: getByName("release") threw at configuration time on
+            // any machine without keystore.properties, breaking even
+            // assembleDebug. findByName returns null when the keystore is
+            // absent, so release builds are simply unsigned then instead.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

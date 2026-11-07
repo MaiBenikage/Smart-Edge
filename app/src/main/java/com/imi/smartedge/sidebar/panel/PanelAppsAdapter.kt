@@ -83,6 +83,14 @@ class PanelAppsAdapter(
             "smartedge.tool.volume_up",
             "smartedge.tool.brightness_up"
         )
+
+        // Audit fix: Color.parseColor() was called on every bind (per row,
+        // per scroll frame). Parse once, reuse the ints.
+        // #D9FFFFFF as a signed 32-bit int is -637534209 (-0x26000001);
+        // #33FFFFFF and #4DFFFFFF fit in a positive Int as-is.
+        private const val LABEL_COLOR = -0x26000001 // #D9FFFFFF
+        private const val TOOL_BG_COLOR = 0x33FFFFFF // #33FFFFFF
+        private const val ADD_BG_COLOR = 0x4DFFFFFF // #4DFFFFFF
     }
 
     inner class AppViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -166,7 +174,7 @@ class PanelAppsAdapter(
             holder.tvName.textSize = baseTextSize * scale
             
             // Keep app labels white for the dark floating panel
-            holder.tvName.setTextColor(android.graphics.Color.parseColor("#D9FFFFFF"))
+            holder.tvName.setTextColor(LABEL_COLOR)
 
             // Adjust padding for 2-column mode to look more centered
             if (currentColumns == 2) {
@@ -183,13 +191,13 @@ class PanelAppsAdapter(
 
                 // SVG / vector tool icons (assets first, drawable fallback).
                 val toolIcon = if (app.type == AppInfo.Type.TOOL || app.packageName == "smartedge.shortcut.reboot") {
-                    ToolIconHelper.forToolId(context, app.packageName, (baseIconSize * scale).toInt().coerceIn(20, 40))
+                    ToolIconHelper.forToolId(context, app.packageName)
                 } else null
                 if (toolIcon != null) {
                     holder.ivIcon.setImageDrawable(toolIcon)
                     holder.ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
                     holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                        setColor(TOOL_BG_COLOR)
                         cornerRadius = context.dpToPx(12).toFloat()
                     }
                     holder.ivIcon.setPadding(context.dpToPx(6), context.dpToPx(6), context.dpToPx(6), context.dpToPx(6))
@@ -203,7 +211,7 @@ class PanelAppsAdapter(
                     holder.ivIcon.setImageResource(iconRes)
                     holder.ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
                     holder.ivIcon.background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                        setColor(TOOL_BG_COLOR)
                         cornerRadius = context.dpToPx(12).toFloat()
                     }
                     holder.ivIcon.setPadding(context.dpToPx(8), context.dpToPx(8), context.dpToPx(8), context.dpToPx(8))
@@ -389,7 +397,7 @@ class PanelAppsAdapter(
                             if (Math.abs(sinceLastTick) >= tickPx) {
                                 val direction = if (sinceLastTick > 0f) +1 else -1
                                 val ticks = (Math.abs(sinceLastTick) / tickPx).toInt().coerceAtLeast(1)
-                                repeat(ticks) { onToolDrag?.invoke(app.packageName, direction) }
+                                repeat(ticks) { onToolDrag.invoke(app.packageName, direction) }
                                 dragState[1] = event.rawY
                             }
                             true
@@ -430,7 +438,7 @@ class PanelAppsAdapter(
             }
 
             // Revert back to original dark-centric tints for the add button
-            val bgTint = android.graphics.Color.parseColor("#4DFFFFFF")
+            val bgTint = ADD_BG_COLOR
             val iconTint = android.graphics.Color.WHITE
             
             holder.ivAdd.backgroundTintList = android.content.res.ColorStateList.valueOf(bgTint)

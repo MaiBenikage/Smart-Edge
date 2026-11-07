@@ -134,6 +134,12 @@ class AppPickerPanelView @JvmOverloads constructor(
     private val panelPrefs = PanelPreferences(context)
 
     private var _scope = CoroutineScope(Dispatchers.Main + Job())
+    // Audit fix: search previously rebuilt the whole flattened list on
+    // every keystroke with no debounce. A 200ms debounce coalesces fast
+    // typing into a single rebuild; the runnable is cancelled on detach
+    // so it cannot fire after the view leaves the window.
+    private val searchHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val searchDebounceRunnable = Runnable { rebuildAndSubmit() }
     private var itemTouchHelper: ItemTouchHelper? = null
     private var lastMaxPx: Int = -1
     private var notificationChangedListener: (() -> Unit)? = null
@@ -177,11 +183,13 @@ class AppPickerPanelView @JvmOverloads constructor(
             EditorInfo.IME_FLAG_NO_FULLSCREEN or
             EditorInfo.IME_FLAG_NO_EXTRACT_UI
 
-        // Search → rebuild flattened list
+        // Search → rebuild flattened list, debounced 200ms so fast typing
+        // does not rebuild (and re-submit to DiffUtil) on every keystroke.
         etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                rebuildAndSubmit()
+                searchHandler.removeCallbacks(searchDebounceRunnable)
+                searchHandler.postDelayed(searchDebounceRunnable, 200L)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
@@ -207,12 +215,16 @@ class AppPickerPanelView @JvmOverloads constructor(
         // items look identical everywhere (no more 2-column grid on APPS only).
         rvPickerGrid.layoutManager = LinearLayoutManager(context)
         rvPickerGrid.setHasFixedSize(false)
-        rvPickerGrid.setItemViewCacheSize(0)
+        // Audit fix: recycling was fully disabled (cache size 0, pool 0),
+        // so every scroll re-inflated rows. bindFull() fully re-binds every
+        // holder (text, icon via Glide.clear + load, check state), so reuse
+        // is safe. Modest cache only — the picker is a short-lived overlay.
+        rvPickerGrid.setItemViewCacheSize(4)
         // setDrawingCacheEnabled() is no longer recommended by Android (deprecated
         // since API 28). Hardware-accelerated rendering (which is the default
         // since API 14) is the supported replacement; passing `false` here was
         // already a no-op because RecyclerView is HW-accelerated by default.
-        rvPickerGrid.recycledViewPool.setMaxRecycledViews(0, 0)
+        rvPickerGrid.recycledViewPool.setMaxRecycledViews(0, 8)
         rvPickerGrid.adapter = adapter
 
         // Drag/swipe helper for custom items
@@ -298,6 +310,7 @@ class AppPickerPanelView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        searchHandler.removeCallbacks(searchDebounceRunnable)
         notificationChangedListener?.let {
             NotificationTrackingService.removeOnNotificationsChangedListener(it)
         }
@@ -642,7 +655,8 @@ class AppPickerPanelView @JvmOverloads constructor(
 
     /** Enter edit mode on a specific custom item (Edit → Confirm flow). */
     private fun onCustomItemEditTapped(id: String) {
-        val ci = customItems.firstOrNull { it.id == id } ?: return
+        // Existence check only — the item itself is read from the adapter list.
+        if (customItems.none { it.id == id }) return
 
         if (editingCustomId == id) {
             // CONFIRM: save changes
@@ -1575,12 +1589,11 @@ class AppPickerPanelView @JvmOverloads constructor(
                 holder.tvTitle.text = ci.title.ifBlank { context.getString(R.string.custom_untitled) }
                 holder.tvContent.text = ci.content.ifBlank { context.getString(R.string.custom_no_url_intent) }
 
-                // Badge: enabled and visible — tap toggles sidebar membership
+                // Badge: enabled and visible — tap toggles sidebar membership.
+                // badge is declared as ImageView, so no type check is needed.
                 holder.badge.visibility = View.VISIBLE
-                if (holder.badge is ImageView) {
-                    holder.badge.imageTintList = if (item.isInSidebar) accentCsl
+                holder.badge.imageTintList = if (item.isInSidebar) accentCsl
                     else android.content.res.ColorStateList.valueOf(Color.parseColor("#B3FFFFFF"))
-                }
                 holder.badge.rotation = if (item.isInSidebar) 45f else 0f
                 holder.badge.setOnClickListener {
                     if (panelPrefs.hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)

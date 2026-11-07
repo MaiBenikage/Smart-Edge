@@ -52,7 +52,30 @@
         android:layout_marginEnd="8dp"
         app:layout_constraintVertical_bias="0.0"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/layoutRecentSection" />
+        app:layout_constraintBottom_toTopOf="@id/separatorAppsRecent" />
+
+    <!-- Draggable separator between the app list and the Recent section.
+         16dp tall so it is easy to grab; the visible pill is centred inside.
+         Hidden whenever the Recent section is hidden (nothing to split).
+         Its height is part of the panel chrome and is accounted for in
+         SidePanelView.updateSideLayout(). -->
+    <FrameLayout
+        android:id="@+id/separatorAppsRecent"
+        android:layout_width="match_parent"
+        android:layout_height="16dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/apps_recent_separator_desc"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/rvPanelApps"
+        app:layout_constraintBottom_toTopOf="@id/layoutRecentSection">
+
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_close_btn"
+            android:backgroundTint="#40FFFFFF" />
+    </FrameLayout>
 
     <!-- Recent Section: most-frequently used apps (from launch history) -->
     <LinearLayout
@@ -62,7 +85,7 @@
         android:orientation="vertical"
         android:visibility="gone"
         android:layout_marginTop="4dp"
-        app:layout_constraintTop_toBottomOf="@id/rvPanelApps"
+        app:layout_constraintTop_toBottomOf="@id/separatorAppsRecent"
         app:layout_constraintBottom_toTopOf="@id/toolsContainer">
 
         <View

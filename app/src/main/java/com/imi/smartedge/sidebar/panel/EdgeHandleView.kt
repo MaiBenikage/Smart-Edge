@@ -66,6 +66,12 @@ class EdgeHandleView @JvmOverloads constructor(
     private var isTempHighAlpha = false
     private var lastPillState: String? = null
 
+    // Audit fix: the IME-insets listener created a fresh ValueAnimator on
+    // every insets change without cancelling the previous one, so two
+    // animators could fight over params.y. One shared animator, cancelled
+    // before each new run, is the only one that may drive the handle.
+    private var imeAnimator: android.animation.ValueAnimator? = null
+
     private val density = resources.displayMetrics.density
     private val triggerThreshold = 16 * density
 
@@ -199,14 +205,16 @@ class EdgeHandleView @JvmOverloads constructor(
                         val overlap = handleBottomAbsY - keyboardTop
                         val margin = (32 * density).toInt()
                         val newY = params.y - overlap - margin
-                        
-                        val animator = android.animation.ValueAnimator.ofInt(params.y, newY.toInt())
-                        animator.duration = 200
-                        animator.addUpdateListener { animation ->
-                            params.y = animation.animatedValue as Int
-                            updateLayoutSafely(params)
+
+                        imeAnimator?.cancel()
+                        imeAnimator = android.animation.ValueAnimator.ofInt(params.y, newY.toInt()).apply {
+                            duration = 200
+                            addUpdateListener { animation ->
+                                params.y = animation.animatedValue as Int
+                                updateLayoutSafely(params)
+                            }
+                            start()
                         }
-                        animator.start()
                     }
                 } else {
                     val h = if (showPill) (panelPrefs.handleHeight * density).toInt()
@@ -216,13 +224,15 @@ class EdgeHandleView @JvmOverloads constructor(
                     val targetY = (panelPrefs.handleVerticalOffset * density).toInt().coerceIn(-maxOffset, maxOffset)
                     
                     if (params.y != targetY) {
-                        val animator = android.animation.ValueAnimator.ofInt(params.y, targetY)
-                        animator.duration = 200
-                        animator.addUpdateListener { animation ->
-                            params.y = animation.animatedValue as Int
-                            updateLayoutSafely(params)
+                        imeAnimator?.cancel()
+                        imeAnimator = android.animation.ValueAnimator.ofInt(params.y, targetY).apply {
+                            duration = 200
+                            addUpdateListener { animation ->
+                                params.y = animation.animatedValue as Int
+                                updateLayoutSafely(params)
+                            }
+                            start()
                         }
-                        animator.start()
                     }
                 }
             }
@@ -417,7 +427,11 @@ class EdgeHandleView @JvmOverloads constructor(
                         accumulatedDy += dySinceLast
                         val sensitivity = panelPrefs.slideSensitivity.coerceIn(1, 200)
                         val multiplier = 100f / sensitivity
-                        
+
+                        // One unit = 1 percent point of volume/brightness
+                        // (see FloatingPanelService.adjustVolume /
+                        // adjustBrightness); the fractional part accumulates
+                        // there until it makes a whole hardware step/level.
                         if (isSlidingVolume) {
                             val pixelsPerUnit = (25f * density * multiplier).coerceAtLeast(1f)
                             if (Math.abs(accumulatedDy) >= pixelsPerUnit) {

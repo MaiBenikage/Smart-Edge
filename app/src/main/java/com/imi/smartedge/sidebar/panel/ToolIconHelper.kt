@@ -34,7 +34,9 @@ object ToolIconHelper {
         "content_picker" to R.drawable.ic_tool_content_picker
     )
 
-    fun forToolId(context: Context, toolId: String, sizeDp: Int = 24): Drawable? {
+    // The icon size is set by the hosting ImageView's layout params at the
+    // call sites, so no size parameter is needed here.
+    fun forToolId(context: Context, toolId: String): Drawable? {
         if (toolId == "smartedge.tool.tools") {
             return ContextCompat.getDrawable(context, R.drawable.ic_section_tools)?.mutate()
         }
@@ -45,7 +47,7 @@ object ToolIconHelper {
         return copy(d)
     }
 
-    fun forDashboard(context: Context, key: String, sizeDp: Int = 22): Drawable? {
+    fun forDashboard(context: Context, key: String): Drawable? {
         val cacheKey = "d:$key"
         cache.get(cacheKey)?.let { return copy(it) }
         val d = DRAWABLE_BY_DASH[key]?.let { ContextCompat.getDrawable(context, it)?.mutate() } ?: return null

@@ -28,12 +28,23 @@ class NotificationTrackingService : NotificationListenerService() {
             listeners.remove(listener)
         }
 
+        // Audit fix: listeners were invoked synchronously on the
+        // NotificationListenerService binder thread, so UI-touching
+        // listeners raced/janked there. Post to the main looper instead.
+        private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
         private fun notifyListeners() {
-            listeners.forEach { listener ->
-                try {
-                    listener.invoke()
-                } catch (_: Exception) {
-                    // Ignore individual listener failures
+            // Snapshot the set: a listener may add/remove listeners while
+            // being notified, and CopyOnWriteArraySet iteration is safe but
+            // posting each invocation separately keeps ordering predictable.
+            val snapshot = listeners.toList()
+            mainHandler.post {
+                snapshot.forEach { listener ->
+                    try {
+                        listener.invoke()
+                    } catch (_: Exception) {
+                        // Ignore individual listener failures
+                    }
                 }
             }
         }
@@ -51,6 +62,34 @@ class NotificationTrackingService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         updateActiveNotifications()
+    }
+
+    /**
+     * Audit fix: the service previously had no disconnect/destroy
+     * handling, so if notification-listener permission was revoked or
+     * disabled, `notificationPackages` kept stale packages forever
+     * (getActiveNotificationPackages() kept returning them) and the
+     * static listener set was never cleared by the service itself.
+     * On disconnect the tracked set is no longer trustworthy — clear it
+     * and notify once so the sidebar drops its notification apps.
+     */
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        if (notificationPackages.isNotEmpty()) {
+            notificationPackages.clear()
+            notifyListeners()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Clear only the tracked packages (stale after destroy). Do NOT
+        // clear `listeners` here: hosts (FloatingPanelService /
+        // AppPickerPanelView) register once in onCreate and remove their
+        // own listener on destroy; clearing the set here would silently
+        // drop their registrations across a service rebind, and
+        // onListenerConnected would then notify nobody.
+        notificationPackages.clear()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {

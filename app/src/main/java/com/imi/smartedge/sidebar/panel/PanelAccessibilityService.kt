@@ -33,6 +33,15 @@ class PanelAccessibilityService : AccessibilityService() {
     // windows (web pages, long lists) cannot block a11y event dispatch.
     private val collectExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
+    // Audit fix — Content Picker walk coalescing. Repeated
+    // ACTION_CONTENT_PICK_REFRESH intents previously enqueued a full tree
+    // walk each time with no cancellation, so rapid refreshes queued
+    // unbounded walks. At most one walk runs at a time; a refresh that
+    // arrives mid-walk sets [collectPending], and the running walk
+    // re-runs once at the end so the final snapshot is fresh.
+    private val collectInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val collectPending = java.util.concurrent.atomic.AtomicBoolean(false)
+
     override fun onCreate() {
         super.onCreate()
         panelPrefs = PanelPreferences(this)
@@ -200,11 +209,25 @@ class PanelAccessibilityService : AccessibilityService() {
      */
     private fun collectControlsAndNotify() {
         val cb = contentPickerCallback ?: return
+        // Coalesce: if a walk is already running, just mark a re-run
+        // pending instead of queueing another full tree walk.
+        if (!collectInFlight.compareAndSet(false, true)) {
+            collectPending.set(true)
+            return
+        }
         // Run the (potentially large) accessibility tree walk off the main
         // thread. rootInActiveWindow is safe to touch from a background thread
         // once obtained; the snapshot + callback are the only parts that must
         // hop back to the main looper.
-        val root = rootInActiveWindow ?: run { cb(emptyList()); return }
+        val root = rootInActiveWindow ?: run {
+            collectInFlight.set(false)
+            // Re-check the callback at post time too (see below).
+            if (contentPickerCallback === cb && isRunning) cb(emptyList())
+            if (collectPending.compareAndSet(true, false)) {
+                collectControlsAndNotify()
+            }
+            return
+        }
         val out = ArrayList<ContentInfo>(64)
         val target = this
         collectExecutor.execute {
@@ -239,15 +262,28 @@ class PanelAccessibilityService : AccessibilityService() {
                     for (i in 0 until childCount) {
                         walk(node.getChild(i))
                     }
-                    // Explicitly recycle nodes on API < 33; from API 33 the
-                    // platform recycles AccessibilityNodeInfo automatically.
-                    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-                        try { node.recycle() } catch (_: Exception) {}
-                    }
+                    // No manual recycle(): AccessibilityNodeInfo.recycle() is
+                    // deprecated (API 34) — the platform now manages node
+                    // lifetime automatically, and unrecycled nodes are
+                    // reclaimed by GC.
                 }
                 walk(root)
             } catch (_: Exception) {}
-            accessibilityHandler.post { cb(out) }
+            // Audit fix: re-check the callback at post time. The old code
+            // captured `cb` once and fired it even if the callback had been
+            // replaced/nulled or the service destroyed while the walk ran.
+            // Clearing in-flight first lets a pending re-run start promptly.
+            collectInFlight.set(false)
+            accessibilityHandler.post {
+                if (contentPickerCallback === cb && isRunning) {
+                    cb(out)
+                }
+                // A refresh arrived while this walk was running: re-run once
+                // so the delivered snapshot is not stale.
+                if (collectPending.compareAndSet(true, false)) {
+                    collectControlsAndNotify()
+                }
+            }
         }
     }
 
@@ -326,6 +362,12 @@ class PanelAccessibilityService : AccessibilityService() {
         // Without this, the Looper keeps the bound lambda (capturing `this`)
         // alive until it naturally runs, even though the service is gone.
         accessibilityHandler.removeCallbacksAndMessages(null)
-        collectExecutor.shutdown()
+        // Audit fix: shutdown() alone lets queued walks still run and post
+        // to a dead service. shutdownNow() drops queued walks, and clearing
+        // the callback (re-checked at post time in collectControlsAndNotify)
+        // makes an already-running walk a no-op when it finishes.
+        contentPickerCallback = null
+        collectPending.set(false)
+        collectExecutor.shutdownNow()
     }
 }

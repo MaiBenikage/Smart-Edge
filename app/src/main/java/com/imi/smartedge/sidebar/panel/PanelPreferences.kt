@@ -67,6 +67,7 @@ class PanelPreferences(context: Context) {
         private const val KEY_HOME_BUTTON_STYLE = "home_button_style"
         private const val KEY_SCALE_FACTOR = "scale_factor"
         private const val KEY_PANEL_MAX_HEIGHT = "panel_max_height"
+        private const val KEY_APPS_RECENT_SPLIT_PERCENT = "apps_recent_split_percent"
         private const val KEY_PICKER_MAX_HEIGHT = "picker_max_height"
         private const val KEY_SHOW_NOTIFICATION_APPS = "show_notification_apps"
         private const val KEY_REMEMBER_SCROLL = "remember_scroll"
@@ -113,6 +114,15 @@ class PanelPreferences(context: Context) {
 
         /** Maximum number of pinned sidebar entries (apps, activities, shortcuts, custom). */
         const val MAX_PANEL_APPS = 128
+
+        /**
+         * Shared lock for panel-list read-modify-write (setPanelApps /
+         * addApp / removeApp). Must be a companion (static) lock: callers
+         * each construct their own PanelPreferences instance, so an
+         * instance lock would not serialize anything across them.
+         */
+        @JvmStatic
+        val PANEL_APPS_LOCK = Any()
 
         // Audit U3: UUID v4 `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (8-4-4-4-12 hex
         // with fixed-position hyphens). Anything else is rejected on addCustomItem
@@ -206,6 +216,11 @@ class PanelPreferences(context: Context) {
         const val DEFAULT_RECENT_ENABLED = true
         const val DEFAULT_RECENT_HISTORY_SIZE = 128
         const val DEFAULT_RECENT_MAX_COUNT = 8
+        /** Default split of the shared apps/recent height budget: 50% apps, 50% recents. */
+        const val DEFAULT_APPS_RECENT_SPLIT_PERCENT = 50
+        /** Drag limits: neither list may be squeezed below 20% of the shared budget. */
+        const val MIN_APPS_RECENT_SPLIT_PERCENT = 20
+        const val MAX_APPS_RECENT_SPLIT_PERCENT = 80
     }
 
     fun resetUIColors() {
@@ -601,6 +616,25 @@ class PanelPreferences(context: Context) {
         get() = prefs.getString(KEY_RECENT_LAST_SOURCE, "") ?: ""
         set(value) = prefs.edit { putString(KEY_RECENT_LAST_SOURCE, value) }
 
+    /**
+     * Persist a recorded launch atomically in a single SharedPreferences
+     * edit: history JSON + last package/time/source together. The old
+     * path wrote each of the four values in its own `prefs.edit { }`
+     * (four async disk-write enqueues per launch, on the accessibility
+     * thread), so a kill between writes left history and debounce state
+     * inconsistent. Use this from [RecentAppsManager.recordLaunch].
+     */
+    fun saveRecentLaunch(history: List<String>, pkg: String, time: Long, source: String) {
+        val arr = org.json.JSONArray()
+        for (item in history) arr.put(item)
+        prefs.edit {
+            putString(KEY_RECENT_HISTORY, arr.toString())
+            putString(KEY_RECENT_LAST_PACKAGE, pkg)
+            putLong(KEY_RECENT_LAST_TIME, time)
+            putString(KEY_RECENT_LAST_SOURCE, source)
+        }
+    }
+
     var lastSidebarScroll: Int
         get() = prefs.getInt(KEY_SIDEBAR_SCROLL, 0)
         set(value) = prefs.edit { putInt(KEY_SIDEBAR_SCROLL, value) }
@@ -630,6 +664,23 @@ class PanelPreferences(context: Context) {
     var panelMaxHeight: Int
         get() = prefs.getInt(KEY_PANEL_MAX_HEIGHT, 350)
         set(value) = prefs.edit { putInt(KEY_PANEL_MAX_HEIGHT, value) }
+
+    /**
+     * Percent of the shared apps+recents height budget given to the sidebar
+     * app list; the recent list gets the remainder (100 - this value).
+     * Default 50/50. Both getter and setter clamp to
+     * [MIN_APPS_RECENT_SPLIT_PERCENT]..[MAX_APPS_RECENT_SPLIT_PERCENT] so a
+     * corrupt / hand-edited value can never collapse either list to zero.
+     */
+    var appsRecentSplitPercent: Int
+        get() = prefs.getInt(KEY_APPS_RECENT_SPLIT_PERCENT, DEFAULT_APPS_RECENT_SPLIT_PERCENT)
+            .coerceIn(MIN_APPS_RECENT_SPLIT_PERCENT, MAX_APPS_RECENT_SPLIT_PERCENT)
+        set(value) = prefs.edit {
+            putInt(
+                KEY_APPS_RECENT_SPLIT_PERCENT,
+                value.coerceIn(MIN_APPS_RECENT_SPLIT_PERCENT, MAX_APPS_RECENT_SPLIT_PERCENT)
+            )
+        }
 
     var pickerMaxHeight: Int
         get() = prefs.getInt(KEY_PICKER_MAX_HEIGHT, 450)
@@ -969,42 +1020,58 @@ class PanelPreferences(context: Context) {
     }
 
     fun setPanelApps(identifiers: List<String>) {
-        val unique = identifiers.filter { it.isNotBlank() }.distinct().take(MAX_PANEL_APPS)
-        prefs.edit { putString(KEY_PANEL_APPS, unique.joinToString(DELIMITER) { encodeDelim(it) }) }
-        // Drop display labels for identifiers no longer pinned (reorder / bulk replace / uninstall).
-        val rawLabels = prefs.getString(KEY_PANEL_LABELS, null)
-        if (!rawLabels.isNullOrBlank()) {
-            try {
-                val obj = org.json.JSONObject(rawLabels)
-                val pinned = unique.toSet()
-                var changed = false
-                for (k in obj.keys().asSequence().toList()) {
-                    if (k !in pinned) {
-                        obj.remove(k)
-                        changed = true
+        // Audit fix: read-modify-write on the panel list must be atomic
+        // across PanelPreferences instances. Every caller (service,
+        // picker, settings) creates its own instance, so an instance
+        // lock would not protect anything; PANEL_APPS_LOCK is shared
+        // (companion object) and synchronized() is re-entrant, so addApp/
+        // removeApp calling setPanelApps() under the same lock is safe.
+        synchronized(PANEL_APPS_LOCK) {
+            val unique = identifiers.filter { it.isNotBlank() }.distinct().take(MAX_PANEL_APPS)
+            // Drop display labels for identifiers no longer pinned
+            // (reorder / bulk replace / uninstall) — folded into the
+            // same single edit as the list itself (was a second edit).
+            var prunedLabels: String? = null
+            val rawLabels = prefs.getString(KEY_PANEL_LABELS, null)
+            if (!rawLabels.isNullOrBlank()) {
+                try {
+                    val obj = org.json.JSONObject(rawLabels)
+                    val pinned = unique.toSet()
+                    var changed = false
+                    for (k in obj.keys().asSequence().toList()) {
+                        if (k !in pinned) {
+                            obj.remove(k)
+                            changed = true
+                        }
                     }
-                }
-                if (changed) {
-                    prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
-                }
-            } catch (_: Exception) {}
+                    if (changed) prunedLabels = obj.toString()
+                } catch (_: Exception) {}
+            }
+            prefs.edit {
+                putString(KEY_PANEL_APPS, unique.joinToString(DELIMITER) { encodeDelim(it) })
+                if (prunedLabels != null) putString(KEY_PANEL_LABELS, prunedLabels)
+            }
         }
     }
 
     fun addApp(identifier: String): Boolean {
         if (identifier.isBlank()) return false
-        val current = getPanelApps().toMutableList()
-        if (current.contains(identifier)) return true
-        if (current.size >= MAX_PANEL_APPS) return false
-        current.add(identifier)
-        setPanelApps(current)
-        return true
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getPanelApps().toMutableList()
+            if (current.contains(identifier)) return true
+            if (current.size >= MAX_PANEL_APPS) return false
+            current.add(identifier)
+            setPanelApps(current)
+            return true
+        }
     }
 
     fun removeApp(identifier: String) {
-        val current = getPanelApps().toMutableList()
-        current.remove(identifier)
-        setPanelApps(current)
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getPanelApps().toMutableList()
+            current.remove(identifier)
+            setPanelApps(current)
+        }
         removePanelItemLabel(identifier)
     }
 
@@ -1023,6 +1090,27 @@ class PanelPreferences(context: Context) {
             obj.optString(identifier, "").takeIf { it.isNotBlank() }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /**
+     * All pinned-item display labels in one JSON parse. Prefer this over
+     * calling [getPanelItemLabel] in a loop (e.g.
+     * `AppRepository.getAppsForIdentifiers`): the per-identifier version
+     * re-parses the whole labels JSON for every identifier (O(n²)).
+     */
+    fun getPanelItemLabels(): Map<String, String> {
+        val raw = prefs.getString(KEY_PANEL_LABELS, null) ?: return emptyMap()
+        return try {
+            val obj = org.json.JSONObject(raw)
+            val out = LinkedHashMap<String, String>()
+            for (key in obj.keys()) {
+                val value = obj.optString(key, "")
+                if (value.isNotBlank()) out[key] = value
+            }
+            out
+        } catch (_: Exception) {
+            emptyMap()
         }
     }
 

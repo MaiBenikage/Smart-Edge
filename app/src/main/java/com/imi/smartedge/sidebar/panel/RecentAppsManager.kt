@@ -49,6 +49,52 @@ class RecentAppsManager(context: Context) {
          * "repeat opens are recorded repeatedly" requirement.
          */
         private const val DEBOUNCE_MS = 3000L
+
+        /**
+         * Packages that must never appear in the Recent section because the
+         * app is already pinned in the sidebar app list.
+         *
+         * Sidebar membership is stored as identifiers, not packages:
+         * a plain app's identifier *is* its package, but a pinned
+         * activity/shortcut's identifier is an `intent:` URI whose owning
+         * package lives in [AppInfo.packageName] (resolved by
+         * `AppRepository.getAppsForIdentifiers`), and a custom item's
+         * identifier is `smartedge.custom.<uuid>`. Comparing only
+         * identifiers would therefore miss pinned activities/shortcuts
+         * entirely. Package-level comparison is the correct level here:
+         * the Recent section shows apps, and a pinned activity of an app
+         * still means that app is already present in the sidebar.
+         *
+         * `smartedge.*` tokens (tools, folders, shortcuts, custom ids) are
+         * not real packages and are skipped, except for custom items whose
+         * payload is an `intent:` URI — that URI's package is extracted.
+         */
+        fun excludedPackagesFor(sidebarApps: List<AppInfo>): Set<String> {
+            val out = LinkedHashSet<String>()
+            for (app in sidebarApps) {
+                val pkg = app.packageName.trim()
+                if (pkg.isNotEmpty() && !pkg.startsWith("smartedge.")) {
+                    out.add(pkg)
+                    continue
+                }
+                // Custom item whose launch payload is an intent: resolve its package.
+                val payload = app.intentUri
+                if (payload != null && payload.startsWith("intent:")) {
+                    try {
+                        val intent = android.content.Intent.parseUri(
+                            payload, android.content.Intent.URI_INTENT_SCHEME
+                        )
+                        val target = intent.`package`
+                            ?: intent.component?.packageName
+                            ?: ""
+                        if (target.isNotEmpty()) out.add(target)
+                    } catch (_: Exception) {
+                        // Malformed custom payload — nothing to exclude.
+                    }
+                }
+            }
+            return out
+        }
     }
 
     /**
@@ -83,10 +129,9 @@ class RecentAppsManager(context: Context) {
             while (history.size > capacity) {
                 history.removeAt(0)
             }
-            saveHistory(history)
-            panelPrefs.recentLastPackage = pkg
-            panelPrefs.recentLastTime = now
-            panelPrefs.recentLastSource = source
+            // One atomic prefs edit for history + debounce state (was four
+            // separate edits per launch — see PanelPreferences.saveRecentLaunch).
+            panelPrefs.saveRecentLaunch(history, pkg, now, source)
         } catch (e: Exception) {
             Log.w(TAG, "recordLaunch failed", e)
         }
@@ -94,11 +139,15 @@ class RecentAppsManager(context: Context) {
 
     /**
      * Compute the most frequently used packages from the recorded history.
+     * @param excludedPackages packages already in the sidebar app list —
+     * they are removed *before* the [PanelPreferences.recentMaxCount]
+     * limit is applied, so the Recent section still fills up with the
+     * next most-used apps instead of shrinking.
      * @return package names ordered by frequency (most used first), at most
      * [PanelPreferences.recentMaxCount] entries.
      */
     @Synchronized
-    fun getTopPackages(): List<String> {
+    fun getTopPackages(excludedPackages: Set<String> = emptySet()): List<String> {
         val history = try {
             loadHistory()
         } catch (e: Exception) {
@@ -118,6 +167,7 @@ class RecentAppsManager(context: Context) {
         }
 
         return counts.entries
+            .filter { it.key !in excludedPackages }
             .sortedWith(
                 compareByDescending<Map.Entry<String, Int>> { it.value }
                     .thenByDescending { lastSeen[it.key] ?: 0 }
@@ -127,12 +177,17 @@ class RecentAppsManager(context: Context) {
     }
 
     /** Resolve the top packages to displayable [AppInfo] entries. */
-    suspend fun getTopRecentApps(): List<AppInfo> {
-        val packages = getTopPackages()
+    suspend fun getTopRecentApps(excludedPackages: Set<String> = emptySet()): List<AppInfo> {
+        val packages = getTopPackages(excludedPackages)
         if (packages.isEmpty()) return emptyList()
         return try {
             val repo = AppRepository(appContext)
+            // Defensive second filter: getAppsForIdentifiers resolves each
+            // package to an AppInfo whose packageName should already be
+            // clean, but never let a sidebar app through if resolution
+            // ever maps a package differently.
             repo.getAppsForIdentifiers(packages)
+                .filter { it.packageName !in excludedPackages }
         } catch (e: Exception) {
             Log.w(TAG, "getTopRecentApps failed", e)
             emptyList()

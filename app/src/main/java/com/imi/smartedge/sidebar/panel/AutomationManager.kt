@@ -43,6 +43,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 object AutomationManager {
     private const val TAG = "AutomationManager"
 
+    /** Maximum time to wait for a spawned `su`/Shizuku process before killing it. */
+    private const val EXEC_TIMEOUT_SECONDS = 10L
+
     enum class EngineState { UNKNOWN, NONE, SHIZUKU_READY, ROOT_READY, SHIZUKU_AND_ROOT }
 
     private val _engineState = MutableStateFlow(EngineState.UNKNOWN)
@@ -79,6 +82,18 @@ object AutomationManager {
     // guarantees a single registration across all coroutine invocations.
     private val listenerRegistered = AtomicBoolean(false)
 
+    // Audit fix — refresh() throttle + single-flight. The old refresh()
+    // forked a `su` probe on every onResume with no timestamp, in-flight
+    // flag, or cache-age check, so concurrent calls probed in parallel
+    // and rapid activity resumes re-probed constantly. Skip a probe
+    // started within REFRESH_THROTTLE_MS of the last one (unless forced,
+    // e.g. after a Shizuku permission grant), and never run two probes
+    // at once.
+    private const val REFRESH_THROTTLE_MS = 5_000L
+    @Volatile
+    private var lastRefreshAtMs: Long = 0L
+    private val refreshInFlight = AtomicBoolean(false)
+
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
         scope.launch {
             refreshMutex.withLock {
@@ -92,7 +107,8 @@ object AutomationManager {
 
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
         if (grantResult == PackageManager.PERMISSION_GRANTED) {
-            refresh()
+            // A permission grant is a real state change — bypass the throttle.
+            refresh(force = true)
         }
     }
 
@@ -100,9 +116,22 @@ object AutomationManager {
      * Fire-and-forget engine probe. Safe to call from onResume (idempotent, cheap
      * no-op if cached == recenlty probed). Registers the Shizuku listeners on
      * the first invocation only; subsequent calls just re-probe.
+     *
+     * Throttled to at most one probe per [REFRESH_THROTTLE_MS] unless
+     * [force] is true, and single-flight: a probe already running makes
+     * this call a no-op instead of forking a parallel `su` probe.
      */
-    fun refresh() {
+    fun refresh(force: Boolean = false) {
         scope.launch {
+            if (!force) {
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastRefreshAtMs < REFRESH_THROTTLE_MS &&
+                    _engineState.value != EngineState.UNKNOWN
+                ) return@launch
+            }
+            if (!refreshInFlight.compareAndSet(false, true)) return@launch
+            try {
+                lastRefreshAtMs = android.os.SystemClock.uptimeMillis()
             // Audit L3: compareAndSet returns true exactly once across all racing
             // refresh() calls. Losers no-op (they don't need to register; the
             // winning thread already did).
@@ -142,6 +171,9 @@ object AutomationManager {
                     Handler(Looper.getMainLooper()).post { onEngineLost?.invoke() }
                 }
             }
+            } finally {
+                refreshInFlight.set(false)
+            }
         }
     }
 
@@ -172,12 +204,49 @@ object AutomationManager {
     private fun isRootAvailableInternal(): Boolean {
         return try {
             val process = Runtime.getRuntime().exec("su -c id")
-            val reader = process.inputStream.bufferedReader()
-            val output = reader.readLine()
-            process.waitFor() == 0 && output != null && output.contains("uid=0")
+            try {
+                val output = process.inputStream.bufferedReader().use { it.readLine() }
+                // Bounded wait: a hung `su` prompt must never block the probe
+                // (and the refresh coroutine) forever.
+                val finished = process.waitFor(EXEC_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+                if (!finished) process.destroyForcibly()
+                finished && process.exitValue() == 0 && output != null && output.contains("uid=0")
+            } finally {
+                closeProcessStreams(process)
+            }
         } catch (e: Exception) {
             false
         }
+    }
+
+    /**
+     * Wait for a spawned process with a timeout, destroying it if it hangs,
+     * and always close its streams. The old runShizuku/runRoot used an
+     * unbounded `waitFor()` and never closed/drained the streams, so a hung
+     * `su`/Shizuku process could block the calling (sometimes UI) thread
+     * indefinitely and leak file descriptors.
+     */
+    private fun waitForProcess(process: Process): Boolean {
+        return try {
+            val finished = process.waitFor(EXEC_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                false
+            } else {
+                process.exitValue() == 0
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "waitForProcess failed", e)
+            false
+        } finally {
+            closeProcessStreams(process)
+        }
+    }
+
+    private fun closeProcessStreams(process: Process) {
+        try { process.inputStream.close() } catch (_: Exception) {}
+        try { process.errorStream.close() } catch (_: Exception) {}
+        try { process.outputStream.close() } catch (_: Exception) {}
     }
 
     // --- UNCHANGED UTILITY APIs (signatures preserved) ---
@@ -187,8 +256,8 @@ object AutomationManager {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
             val thread = Thread {
                 try {
-                    val exitCode = process.waitFor()
-                    onResult(exitCode == 0)
+                    // Bounded wait (was an unbounded waitFor() on a raw thread).
+                    onResult(waitForProcess(process))
                 } catch (e: Exception) {
                     onResult(false)
                 }
@@ -206,7 +275,8 @@ object AutomationManager {
         }
 
         val suExists = try {
-            Runtime.getRuntime().exec("which su").waitFor() == 0
+            val process = Runtime.getRuntime().exec("which su")
+            waitForProcess(process)
         } catch (e: Exception) {
             false
         }
@@ -273,7 +343,7 @@ object AutomationManager {
     @Suppress("DEPRECATION")
     private fun runShizuku(command: String): Boolean = try {
         val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
-        process.waitFor() == 0
+        waitForProcess(process)
     } catch (e: Exception) {
         Log.e(TAG, "Shizuku execution failed: $command", e)
         false
@@ -281,7 +351,7 @@ object AutomationManager {
 
     private fun runRoot(command: String): Boolean = try {
         val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
-        process.waitFor() == 0
+        waitForProcess(process)
     } catch (e: Exception) {
         Log.e(TAG, "Root execution failed: $command", e)
         false

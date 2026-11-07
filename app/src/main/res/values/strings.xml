@@ -547,6 +547,8 @@
     <string name="tool_name_tools">Tools</string>
     <!-- Recent apps section (sidebar) -->
     <string name="recent_section_title">Recent</string>
+    <string name="apps_recent_separator_desc">Drag up or down to adjust how much space the app list and the recent list get</string>
+    <string name="indicator_apps_recent_split">Apps %1$d%% · Recent %2$d%%</string>
     <string name="feature_recent_apps_label">Recent Apps</string>
     <string name="feature_recent_apps_desc">Show your most frequently used apps in the sidebar</string>
     <string name="recent_history_size_label">Recent History Size</string>

@@ -12,6 +12,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -50,30 +52,58 @@ class AppRepository(context: Context) {
     @Volatile private var pickerCache: PickerData? = null
 
     /**
+     * Serializes getPickerData() loads within this instance so two
+     * concurrent callers cannot both miss the cache and each run the
+     * three expensive PackageManager scans (check-then-act race).
+     */
+    private val pickerMutex = Mutex()
+
+    /**
      * Load (or return the cached) picker data for all three tabs at once.
      * The three sources load in parallel — activities/shortcuts discovery is
      * slow while the app list is fast, so parallel loading shortens the wait.
+     *
+     * Audit fix: the cache previously never expired — `loadedAtMs` was
+     * stored but never read, so installs/uninstalls never appeared until
+     * a forced refresh. It now honours the same 60s TTL as the
+     * activities cache. The load is also serialized with [pickerMutex]:
+     * a second concurrent caller waits, then hits the freshly filled
+     * cache instead of duplicating the scans.
      */
     suspend fun getPickerData(forceRefresh: Boolean = false): PickerData {
         val cached = pickerCache
-        if (!forceRefresh && cached != null) return cached
-        if (forceRefresh) {
-            // getActivitiesByPackage() has its own 60s TTL cache — a forced
-            // refresh must punch through it too, or the ACTIVITIES tab would
-            // keep showing stale entries.
-            activitiesCache = null
-            activitiesCacheAtMs = 0L
+        if (!forceRefresh && cached != null &&
+            android.os.SystemClock.uptimeMillis() - cached.loadedAtMs < ACTIVITIES_CACHE_TTL_MS
+        ) {
+            return cached
         }
-        return coroutineScope {
-            val appsDeferred = async { getAllApps() }
-            val activitiesDeferred = async { getActivitiesByPackage() }
-            val shortcutsDeferred = async { getShortcutsByPackage() }
-            PickerData(
-                apps = appsDeferred.await(),
-                activities = activitiesDeferred.await(),
-                shortcuts = shortcutsDeferred.await(),
-                loadedAtMs = android.os.SystemClock.uptimeMillis()
-            ).also { pickerCache = it }
+        return pickerMutex.withLock {
+            // Re-check under the lock: another caller may have filled the
+            // cache while this one was waiting.
+            val fresh = pickerCache
+            if (!forceRefresh && fresh != null &&
+                android.os.SystemClock.uptimeMillis() - fresh.loadedAtMs < ACTIVITIES_CACHE_TTL_MS
+            ) {
+                return@withLock fresh
+            }
+            if (forceRefresh) {
+                // getActivitiesByPackage() has its own 60s TTL cache — a forced
+                // refresh must punch through it too, or the ACTIVITIES tab would
+                // keep showing stale entries.
+                activitiesCache = null
+                activitiesCacheAtMs = 0L
+            }
+            coroutineScope {
+                val appsDeferred = async { getAllApps() }
+                val activitiesDeferred = async { getActivitiesByPackage() }
+                val shortcutsDeferred = async { getShortcutsByPackage() }
+                PickerData(
+                    apps = appsDeferred.await(),
+                    activities = activitiesDeferred.await(),
+                    shortcuts = shortcutsDeferred.await(),
+                    loadedAtMs = android.os.SystemClock.uptimeMillis()
+                ).also { pickerCache = it }
+            }
         }
     }
 
@@ -312,27 +342,36 @@ class AppRepository(context: Context) {
     suspend fun getAppsForIdentifiers(identifiers: List<String>): List<AppInfo> = withContext(Dispatchers.IO) {
         if (identifiers.isEmpty()) return@withContext emptyList()
 
+        // Audit fix: hoist the three per-identifier re-reads out of the
+        // loop. Previously every custom id re-parsed the whole custom-items
+        // JSON, every intent: id re-parsed the whole labels JSON, and every
+        // AppInfo re-read three prefs for appearanceKey (3 SharedPreferences
+        // reads per item). With N pinned items that was O(n²) JSON parsing.
+        val appearanceKey = panelPrefs.appearanceKey
+        val customItemsById = panelPrefs.getCustomItems().associateBy { it.id }
+        val panelItemLabels = panelPrefs.getPanelItemLabels()
+
         identifiers.mapNotNull { id ->
             when {
                 id == "smartedge.shortcut.one_hand" -> {
-                    AppInfo(id, "One-Handed Mode", true, AppInfo.Type.SHORTCUT, appearanceKey = panelPrefs.appearanceKey)
+                    AppInfo(id, "One-Handed Mode", true, AppInfo.Type.SHORTCUT, appearanceKey = appearanceKey)
                 }
                 id == "smartedge.shortcut.reboot" -> {
-                    AppInfo(id, "Power Menu", true, AppInfo.Type.SHORTCUT, appearanceKey = panelPrefs.appearanceKey)
+                    AppInfo(id, "Power Menu", true, AppInfo.Type.SHORTCUT, appearanceKey = appearanceKey)
                 }
                 id.startsWith("smartedge.folder.") -> {
                     val name = id.substringAfterLast(".").replaceFirstChar { it.uppercase() }
-                    AppInfo(id, name, true, AppInfo.Type.FOLDER, appearanceKey = panelPrefs.appearanceKey)
+                    AppInfo(id, name, true, AppInfo.Type.FOLDER, appearanceKey = appearanceKey)
                 }
                 id.startsWith("smartedge.tool.") -> {
                     val name = id.substringAfterLast(".").replaceFirstChar { it.uppercase() }
-                    AppInfo(id, name, true, AppInfo.Type.TOOL, appearanceKey = panelPrefs.appearanceKey)
+                    AppInfo(id, name, true, AppInfo.Type.TOOL, appearanceKey = appearanceKey)
                 }
                 id.startsWith(PanelPreferences.CUSTOM_ID_PREFIX) -> {
                     // smartedge.custom.<uuid> — look up the CustomItem, synthesize an AppInfo.
                     // packageName holds the full sidebar identifier so AppInfo.identifier is stable.
                     val customId = id.removePrefix(PanelPreferences.CUSTOM_ID_PREFIX)
-                    val item = panelPrefs.getCustomItems().firstOrNull { it.id == customId }
+                    val item = customItemsById[customId]
                     if (item != null) {
                         AppInfo(
                             packageName = id,
@@ -341,7 +380,7 @@ class AppRepository(context: Context) {
                             type = AppInfo.Type.CUSTOM,
                             intentUri = item.content,
                             activityName = if (item.isUrl) "URL" else "INTENT",
-                            appearanceKey = panelPrefs.appearanceKey
+                            appearanceKey = appearanceKey
                         )
                     } else null
                 }
@@ -354,7 +393,7 @@ class AppRepository(context: Context) {
                         // (shortcut shortLabel / activity label from the picker).
                         // resolveActivity().loadLabel() often returns the *app* name
                         // for shortcut intents, which is wrong in the sidebar.
-                        val savedLabel = panelPrefs.getPanelItemLabel(id)
+                        val savedLabel = panelItemLabels[id]
                         val resolveInfo = packageManager.resolveActivity(intent, 0)
                         val resolvedName = resolveInfo?.loadLabel(packageManager)?.toString()
                         val fallback = intent.component?.shortClassName?.substringAfterLast('.')
@@ -382,7 +421,7 @@ class AppRepository(context: Context) {
                             type = resolvedType,
                             intentUri = id,
                             activityName = intent.component?.className,
-                            appearanceKey = panelPrefs.appearanceKey
+                            appearanceKey = appearanceKey
                         )
                     } catch (e: Exception) {
                         null
@@ -396,7 +435,7 @@ class AppRepository(context: Context) {
                             appName = packageManager.getApplicationLabel(appInfo).toString(),
                             isInPanel = true,
                             type = AppInfo.Type.APP,
-                            appearanceKey = panelPrefs.appearanceKey
+                            appearanceKey = appearanceKey
                         )
                     } catch (e: Exception) {
                         null
@@ -876,9 +915,9 @@ class AppRepository(context: Context) {
 
         val labelByUri = mutableMapOf<String, String>()
         try {
-            getShortcutsByPackage().forEach { (_, items) ->
-                items.forEach { sc ->
-                    val uri = sc.intentUri ?: return@forEach
+            for ((_, items) in getShortcutsByPackage()) {
+                for (sc in items) {
+                    val uri = sc.intentUri ?: continue
                     if (sc.appName.isNotBlank()) labelByUri[uri] = sc.appName
                 }
             }
@@ -886,9 +925,9 @@ class AppRepository(context: Context) {
 
         // Also map activity labels from discovery cache / path for activity pins.
         try {
-            getActivitiesByPackage().forEach { (_, items) ->
-                items.forEach { act ->
-                    val uri = act.intentUri ?: return@forEach
+            for ((_, items) in getActivitiesByPackage()) {
+                for (act in items) {
+                    val uri = act.intentUri ?: continue
                     if (!labelByUri.containsKey(uri) && act.appName.isNotBlank()) {
                         labelByUri[uri] = act.appName
                     }

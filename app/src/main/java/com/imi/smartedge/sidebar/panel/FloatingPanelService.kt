@@ -385,9 +385,9 @@ class FloatingPanelService : Service() {
                     val currentPkg = panelPrefs.currentForegroundPackage
                     val isInGameList = panelPrefs.getGameApps().contains(currentPkg)
                     val isDynamicGame = if (isInGameList) true else {
-                        val isLandscape = resources.configuration.orientation ==
+                        val isLandscapeOrientation = resources.configuration.orientation ==
                                 android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                        isLandscape && currentPkg.isNotBlank() &&
+                        isLandscapeOrientation && currentPkg.isNotBlank() &&
                                 !isCurrentPackageLauncher() &&
                                 !isVideoPlayerPackage(currentPkg)
                     }
@@ -737,7 +737,6 @@ class FloatingPanelService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-            WindowManager.LayoutParams.FLAG_FULLSCREEN or
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
@@ -885,13 +884,18 @@ class FloatingPanelService : Service() {
         confirmOverlay = label
         try {
             windowManager.addView(label, params)
+            // Audit fix: the delayed runnable previously dereferenced the
+            // shared confirmOverlay field, not the captured label — a second
+            // call within 1,500ms made the first runnable remove/null the
+            // second overlay early. Capture this call's label and only
+            // clear the field if it still holds that label.
             handler.postDelayed({
-                confirmOverlay?.let { ov ->
-                    if (ov.isAttachedToWindow) {
-                        try { windowManager.removeView(ov) } catch (e: Exception) {}
-                    }
+                if (label.isAttachedToWindow) {
+                    try { windowManager.removeView(label) } catch (e: Exception) {}
                 }
-                confirmOverlay = null
+                if (confirmOverlay === label) {
+                    confirmOverlay = null
+                }
             }, INDICATOR_SHOW_DURATION_MS)
         } catch (e: Exception) {
             confirmOverlay = null
@@ -1021,8 +1025,10 @@ class FloatingPanelService : Service() {
             //      PARTIAL_WAKE_LOCK keeps the CPU running so the foreground
             //      app stays alive, while the screen itself is turned off via
             //      a minimal SCREEN_OFF_TIMEOUT and keyguard is suppressed.
-            //    - Legacy dim overlay: SCREEN_BRIGHT_WAKE_LOCK guarantees the
-            //      overlay window's FLAG_KEEP_SCREEN_ON is honored on OEM forks.
+            //    - Legacy dim overlay: no wake lock — the overlay window's
+            //      FLAG_KEEP_SCREEN_ON keeps the screen on, which is the
+            //      supported replacement for the deprecated
+            //      SCREEN_BRIGHT_WAKE_LOCK.
             val useTrueScreenOff = try {
                 panelPrefs.enableDeviceAdmin &&
                     (getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager)
@@ -1061,14 +1067,10 @@ class FloatingPanelService : Service() {
                             SCREEN_OFF_TIMEOUT_MIN_MS
                         )
                     } catch (e: Exception) {}
-                } else {
-                    blackScreenWakeLock = powerManager.newWakeLock(
-                        android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
-                        android.os.PowerManager.ON_AFTER_RELEASE,
-                        "SmartEdge:BlackScreen"
-                    )
-                    blackScreenWakeLock?.acquire() // held until Black Screen is dismissed (no fixed timeout so long-running background tasks survive past 10 min)
                 }
+                // No wake lock in legacy dim mode: the overlay below carries
+                // FLAG_KEEP_SCREEN_ON, the supported replacement for the
+                // deprecated SCREEN_BRIGHT_WAKE_LOCK.
             } catch (_: Exception) {}
 
             // 5. Create full-screen black overlay with FLAG_KEEP_SCREEN_ON
@@ -1104,25 +1106,12 @@ class FloatingPanelService : Service() {
                 // In true screen-off mode the screen is physically off, so there is
                 // nothing to keep on; keepScreenOn would fight the screen-off timer.
                 keepScreenOn = !trueScreenOffActive
-                // Hide status & navigation bars (immersive mode).
-                @Suppress("DEPRECATION")
-                systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
-                setOnSystemUiVisibilityChangeListener { vis ->
-                    if (vis and View.SYSTEM_UI_FLAG_HIDE_NAVIGATION == 0) {
-                        @Suppress("DEPRECATION")
-                        systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            or View.SYSTEM_UI_FLAG_FULLSCREEN
-                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
-                    }
-                }
+                // Status & navigation bars are hidden once the overlay is
+                // attached (hideSystemBarsForOverlay, called after addView)
+                // via the platform WindowInsetsController on API 30+ (legacy
+                // systemUiVisibility flags below that). Transient bars
+                // auto-hide again after a swipe, so no re-hide listener
+                // is needed.
                 // Tap no longer exits — Back is the exit gesture.
                 setOnFocusChangeListener { v, hasFocus ->
                     if (!hasFocus && blackScreenOverlay === v) {
@@ -1138,16 +1127,15 @@ class FloatingPanelService : Service() {
             // overlay, defeating immersive mode.
             // FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS tells WM we handle the area
             // behind status/nav bars ourselves, so our black fill covers them.
-            // FLAG_FULLSCREEN + FLAG_LAYOUT_NO_LIMITS extends the overlay into
-            // the system-bar regions, and systemUiVisibility on the view below
-            // hides the bars entirely.
+            // FLAG_LAYOUT_IN_SCREEN + FLAG_LAYOUT_NO_LIMITS extends the overlay
+            // into the system-bar regions, and WindowInsetsControllerCompat
+            // (applied after addView) hides the bars themselves.
             blackScreenOverlayParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 (if (trueScreenOffActive) 0 else WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) or
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                 PixelFormat.OPAQUE
@@ -1169,6 +1157,7 @@ class FloatingPanelService : Service() {
                         // Ensure the overlay owns focus so Back is delivered here.
                         overlay.isFocusableInTouchMode = true
                         overlay.requestFocus()
+                        hideSystemBarsForOverlay(overlay)
                     }
                 }
             }, BLACK_SCREEN_OVERLAY_DELAY_MS)
@@ -1186,8 +1175,7 @@ class FloatingPanelService : Service() {
         try {
             // 1. FIRST: exit immersive mode — restore status & navigation bars
             blackScreenOverlay?.let { overlay ->
-                @Suppress("DEPRECATION")
-                overlay.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+                showSystemBarsForOverlay(overlay)
             }
 
             // 2. Remove the black overlay safely (removeViewImmediate avoids WindowLeaked)
@@ -1233,6 +1221,23 @@ class FloatingPanelService : Service() {
             // 4. Restore brightness + auto-mode via the pure helper.
             //    The BrightnessSnapshot was constructed by activateBlackScreen
             //    and stored in savedBrightness / savedBrightnessMode fields.
+            restoreSavedBrightness()
+
+            showIndicator(getString(R.string.indicator_black_screen_off))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to deactivate black screen", e)
+        }
+    }
+
+    /**
+     * Restore the brightness saved by [activateBlackScreen], without any
+     * UI (no indicator overlay). Used by [deactivateBlackScreen] and by
+     * [onDestroy]: if the service is killed while Black Screen is active,
+     * onDestroy must restore brightness too, or the device is left stuck
+     * at minimum brightness.
+     */
+    private fun restoreSavedBrightness() {
+        try {
             val resolver = contentResolver
             val canWrite = android.provider.Settings.System.canWrite(this)
             restoreBrightness(
@@ -1260,16 +1265,20 @@ class FloatingPanelService : Service() {
                     }
                 }
             )
-
-            showIndicator(getString(R.string.indicator_black_screen_off))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to deactivate black screen", e)
+            Log.e(TAG, "Failed to restore brightness", e)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        // Audit fix: restore brightness if Black Screen was active. The old
+        // onDestroy only removed the overlay and released the wake lock, so
+        // a kill during Black Screen left the device at minimum brightness.
+        if (blackScreenOverlay != null) {
+            restoreSavedBrightness()
+        }
         try {
             cameraManager?.unregisterTorchCallback(torchCallback)
         } catch (e: Exception) {}
@@ -1548,11 +1557,11 @@ class FloatingPanelService : Service() {
                     openPanel()
                 }
             }
-            onAdjustBrightness = { delta ->
-                adjustBrightness(delta)
+            onAdjustBrightness = { deltaPercent ->
+                adjustBrightness(deltaPercent)
             }
-            onAdjustVolume = { delta ->
-                adjustVolume(delta)
+            onAdjustVolume = { deltaPercent ->
+                adjustVolume(deltaPercent)
             }
             onSideChanged = { _ ->
                 // Pill was dragged to the opposite edge — sync the whole service UI
@@ -2039,6 +2048,23 @@ class FloatingPanelService : Service() {
         }
 
         if (isPickerOpen) closePicker()
+        if (sidePanelView == null) {
+            // Audit fix: the animated cleanup below lives inside
+            // sidePanelView?.let, so when the panel view failed to init
+            // (initSidePanel sets it to null) an animated close did nothing
+            // at all — rootLayout stayed attached to WindowManager as an
+            // empty full-screen overlay and the edge handle stayed GONE.
+            // Fall back to the immediate cleanup path in that case.
+            updateBlur(false)
+            rootLayout?.takeIf { it.parent != null }?.let { rl ->
+                try { windowManager.removeView(rl) } catch (e: Exception) {}
+            }
+            edgeHandleView?.visibility = View.VISIBLE
+            if (!panelPrefs.serviceEnabled) {
+                stopSelf()
+            }
+            return
+        }
         sidePanelView?.let { panel ->
             val isRight = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
             val panelWidth = panel.width.toFloat()
@@ -2053,8 +2079,8 @@ class FloatingPanelService : Service() {
                     try { windowManager.removeView(rl) } catch (e: Exception) {}
                 }
                 edgeHandleView?.visibility = View.VISIBLE
-                panel.animatePickerToggle(false) 
-                
+                panel.animatePickerToggle(false)
+
                 // If service is NOT enabled in prefs, stop it now (Test mode over)
                 if (!panelPrefs.serviceEnabled) {
                     stopSelf()
@@ -2096,10 +2122,16 @@ class FloatingPanelService : Service() {
     private fun openPicker(enableEditMode: Boolean = false) {
         if (isPickerOpen) return
         isPickerOpen = true
+        // Capture both lists' scroll positions BEFORE forcing single-column
+        // mode: changing the span count reflows rows and the old code then
+        // scrolled the main list to the bottom, destroying its position.
+        // The saved positions are restored in closePicker() after the
+        // original column count returns. setColumns(1) now switches all
+        // three lists (apps, recents, tools) together.
+        sidePanelView?.saveListScrollStates()
         // Flag first so concurrent ACTION_REFRESH cannot re-expand tools to 2-col.
         sidePanelView?.animatePickerToggle(true)
         sidePanelView?.setColumns(1)
-        sidePanelView?.scrollToBottom()
         pickerPanelView?.let { picker ->
             picker.setEditMode(enableEditMode)
             picker.resetSearch()
@@ -2167,6 +2199,14 @@ class FloatingPanelService : Service() {
                 // mirrors apps via currentCols in one setColumns() pass.
                 sidePanelView?.animatePickerToggle(false)
                 sidePanelView?.setColumns(originalCols)
+                // Restore each list to the scroll position it had before
+                // the picker forced single-column mode. This must run after
+                // setColumns(): the span-count change reflows rows, and a
+                // restore issued before layout would be overwritten.
+                // If the picker was re-opened meanwhile, the guard above
+                // skips this whole block and the saved state is kept for
+                // the next close.
+                sidePanelView?.restoreListScrollStates()
             }
         }, PICKER_CLOSE_COLUMNS_DELAY_MS)
         pickerPanelView?.let { picker ->
@@ -2232,9 +2272,16 @@ class FloatingPanelService : Service() {
 
             // "Recent" section: most frequently used apps from launch history.
             // Only at root level; folders show their own content.
+            // Exclude apps already pinned in the sidebar app list (`apps`
+            // above, which also includes the Tools folder button and any
+            // notification-prepended apps) so the two lists never duplicate
+            // each other. Exclusion happens before the recent-count limit
+            // is applied, so the section still fills up with the next
+            // most-used apps.
             val recentApps = if (panelPrefs.recentEnabled && currentFolderId == null) {
                 try {
-                    RecentAppsManager(this@FloatingPanelService).getTopRecentApps()
+                    val excluded = RecentAppsManager.excludedPackagesFor(apps)
+                    RecentAppsManager(this@FloatingPanelService).getTopRecentApps(excluded)
                 } catch (_: Exception) {
                     emptyList()
                 }
@@ -2301,40 +2348,114 @@ class FloatingPanelService : Service() {
     private var indicatorText: android.widget.TextView? = null
     private var indicatorFadeRunnable: Runnable? = null
 
-    fun adjustVolume(delta: Int) {
-        if (delta == 0) return
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        val direction = if (delta > 0) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
+    // 1% step accumulators, shared with the tools drag path (SidePanelView):
+    // a hardware volume step is ~100/max percent (about 6.7% on a 15-step
+    // device) and 1% of brightness is 2.55 of 255, so sub-step percentages
+    // accumulate until they make a whole step/level.
+    private val volumeStepAccumulator = PercentStepAccumulator()
+    private val brightnessStepAccumulator = PercentStepAccumulator()
 
-        try {
-            // Repeat the adjustment for the magnitude of delta to maintain speed
-            repeat(Math.abs(delta)) {
-                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
+    /**
+     * Hides the status and navigation bars for an overlay window. On API 30+
+     * this uses the platform WindowInsetsController directly (the androidx
+     * view-based lookup and its converter are both deprecated in core 1.13,
+     * and on API < 30 they only work for Activity-hosted views anyway, not
+     * service overlays). Transient bars auto-hide again after a swipe, so no
+     * visibility-change listener is needed. On API < 30 no
+     * WindowInsetsController exists, so the legacy systemUiVisibility flags
+     * are the only option there (they are the reason for the scoped
+     * @Suppress below, not a shortcut).
+     */
+    private fun hideSystemBarsForOverlay(view: View) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            view.windowInsetsController?.let { controller ->
+                controller.hide(
+                    android.view.WindowInsets.Type.statusBars() or
+                        android.view.WindowInsets.Type.navigationBars()
+                )
+                controller.systemBarsBehavior =
+                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
-        } catch (e: SecurityException) {
-            // OEM ExtImpl (ColorOS/OxygenOS) may reject adjustStreamVolume for
-            // third-party apps despite MODIFY_AUDIO_SETTINGS. Fall back to the
-            // privileged shell path when available.
-            val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-            if (max > 0) {
-                val target = (current + delta).coerceIn(0, max)
-                if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
+        } else {
+            @Suppress("DEPRECATION")
+            view.systemUiVisibility = (View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
+        }
+    }
+
+    /** Restores the status and navigation bars hidden by [hideSystemBarsForOverlay]. */
+    private fun showSystemBarsForOverlay(view: View) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            view.windowInsetsController?.show(
+                android.view.WindowInsets.Type.statusBars() or
+                    android.view.WindowInsets.Type.navigationBars()
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            view.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        }
+    }
+
+    /**
+     * Change media volume by [deltaPercent] percent points (sign = direction).
+     * One percent point per call; the fractional part accumulates in
+     * [volumeStepAccumulator] and a hardware step is applied as soon as the
+     * accumulated change reaches one step.
+     */
+    fun adjustVolume(deltaPercent: Int) {
+        if (deltaPercent == 0) return
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+        if (max <= 0) return
+
+        // Whole hardware steps contained in the accumulated percent change.
+        val steps = volumeStepAccumulator.add(deltaPercent, max)
+        if (steps != 0) {
+            val direction = if (steps > 0) android.media.AudioManager.ADJUST_RAISE
+                            else android.media.AudioManager.ADJUST_LOWER
+            val before = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            var applied = 0
+            try {
+                repeat(Math.abs(steps)) {
+                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
+                    applied++
+                }
+            } catch (e: SecurityException) {
+                // OEM ExtImpl (ColorOS/OxygenOS) may reject adjustStreamVolume for
+                // third-party apps despite MODIFY_AUDIO_SETTINGS. Fall back to the
+                // privileged shell path with an absolute target, so steps that
+                // already landed are not double-counted.
+                val target = (before + steps).coerceIn(0, max)
+                if (AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
+                    applied = Math.abs(steps)
+                } else {
                     Log.w(TAG, "Privileged volume fallback failed", e)
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "adjustStreamVolume failed", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "adjustStreamVolume failed", e)
+            // Only the steps that actually landed consume accumulated percent.
+            val appliedSigned = if (steps > 0) applied else -applied
+            volumeStepAccumulator.refund(steps - appliedSigned, max)
         }
 
         val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        val percent = if (max > 0) (current * 100) / max else 0
+        val percent = (current * 100) / max
         showIndicator(getString(R.string.indicator_volume_percent, percent))
     }
 
-    fun adjustBrightness(delta: Int) {
-        if (delta == 0) return
+    /**
+     * Change screen brightness by [deltaPercent] percent points (sign =
+     * direction). One percent point per call; 1% = 2.55 levels on the 0..255
+     * scale, so the fractional part accumulates in
+     * [brightnessStepAccumulator] until it makes a whole level.
+     */
+    fun adjustBrightness(deltaPercent: Int) {
+        if (deltaPercent == 0) return
         try {
             if (!android.provider.Settings.System.canWrite(this)) {
                 android.widget.Toast.makeText(this, getString(R.string.toast_write_settings_required), android.widget.Toast.LENGTH_SHORT).show()
@@ -2354,24 +2475,27 @@ class FloatingPanelService : Service() {
 
             // 2. Update standard int brightness (0-255)
             var brightness = android.provider.Settings.System.getInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, 125)
-            brightness = (brightness + delta).coerceIn(0, 255)
-            android.provider.Settings.System.putInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, brightness)
-            
-            // 3. Update modern float brightness for slider sync on Android 10+
-            val floatVal = brightness / 255f
-            try {
-                android.provider.Settings.System.putFloat(cResolver, "screen_brightness_float", floatVal)
-            } catch (e: Exception) {
-                try {
-                    android.provider.Settings.System.putString(cResolver, "screen_brightness_float", floatVal.toString())
-                } catch (e2: Exception) {}
-            }
+            val units = brightnessStepAccumulator.add(deltaPercent, 255)
+            if (units != 0) {
+                brightness = (brightness + units).coerceIn(0, 255)
+                android.provider.Settings.System.putInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, brightness)
 
-            // Force a notification change to refresh system UI slider
-            try {
-                cResolver.notifyChange(android.provider.Settings.System.getUriFor(android.provider.Settings.System.SCREEN_BRIGHTNESS), null)
-                cResolver.notifyChange(android.provider.Settings.System.getUriFor("screen_brightness_float"), null)
-            } catch (e: Exception) {}
+                // 3. Update modern float brightness for slider sync on Android 10+
+                val floatVal = brightness / 255f
+                try {
+                    android.provider.Settings.System.putFloat(cResolver, "screen_brightness_float", floatVal)
+                } catch (e: Exception) {
+                    try {
+                        android.provider.Settings.System.putString(cResolver, "screen_brightness_float", floatVal.toString())
+                    } catch (e2: Exception) {}
+                }
+
+                // Force a notification change to refresh system UI slider
+                try {
+                    cResolver.notifyChange(android.provider.Settings.System.getUriFor(android.provider.Settings.System.SCREEN_BRIGHTNESS), null)
+                    cResolver.notifyChange(android.provider.Settings.System.getUriFor("screen_brightness_float"), null)
+                } catch (e: Exception) {}
+            }
 
             val percent = (brightness * 100) / 255
             showIndicator(getString(R.string.indicator_brightness_percent, percent))
