@@ -225,7 +225,7 @@ class SidePanelView @JvmOverloads constructor(
             onToolDrag = { toolId, direction ->
                 when (toolId) {
                     "smartedge.tool.volume_up" -> {
-                        adjustVolumeByPercent(direction)
+                        adjustVolumeByStep(direction)
                         showVolumeIndicator()
                     }
                     "smartedge.tool.brightness_up" -> {
@@ -423,15 +423,20 @@ class SidePanelView @JvmOverloads constructor(
                 view = v,
                 event = event,
                 dragState = volumeDragState,
-                baseDistanceDp = 25f,   // mirrors EdgeHandleView volume: 25dp/unit
+                // 25dp was the 1% distance; it now scales to one hardware
+                // media step on this phone (see VolumeStepMath), so the
+                // full-range drag distance stays the same.
+                distancePerUnitDp = { VolumeStepMath.dpPerStep(mediaMaxSteps(), 25f) },
                 onTap = {
                     // Tap → show the system volume panel (no value change required).
                     showSystemVolumeBar()
                 },
                 onStep = { direction ->
                     // Enabled only after a 1s long-press (see handleDragTouch).
-                    // Each unit = one volume step (same semantics as edge-slide).
-                    adjustVolumeByPercent(direction)
+                    // Each unit = one hardware volume step (same semantics as
+                    // edge-slide); the drag distance per unit adapts to the
+                    // phone's media step count.
+                    adjustVolumeByStep(direction)
                     showVolumeIndicator()
                 }
             )
@@ -441,7 +446,7 @@ class SidePanelView @JvmOverloads constructor(
                 view = v,
                 event = event,
                 dragState = brightnessDragState,
-                baseDistanceDp = 3f,    // mirrors EdgeHandleView brightness: 3dp/unit
+                distancePerUnitDp = { 3f },    // mirrors EdgeHandleView brightness: 3dp/unit
                 onTap = { toggleAutoBrightness() },
                 onStep = { direction ->
                     // Enabled only after a 1s long-press (see handleDragTouch).
@@ -1281,19 +1286,29 @@ class SidePanelView @JvmOverloads constructor(
         } catch (e: Exception) {}
     }
 
-    // 1% step accumulators, shared with the edge-slide path
-    // (FloatingPanelService): a hardware volume step is ~100/max percent
-    // (about 6.7% on a 15-step device) and 1% of brightness is 2.55 of 255,
-    // so sub-step percentages accumulate until they make a whole step/level.
-    private val volumeStepAccumulator = PercentStepAccumulator()
+    // 1% step accumulator for brightness, shared with the edge-slide path
+    // (FloatingPanelService): 1% of brightness is 2.55 of 255 levels, so
+    // sub-level percentages accumulate until they make a whole level.
+    // Volume no longer accumulates — one drag tick is exactly one hardware
+    // media step (see adjustVolumeByStep and VolumeStepMath).
     private val brightnessStepAccumulator = PercentStepAccumulator()
 
+    /** Live media-volume step count for this phone (e.g. 160, 15, 7). */
+    private fun mediaMaxSteps(): Int {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        return audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+    }
+
     /**
-     * Adjust media volume by `deltaPercent` percent points (sign indicates
-     * direction). One percent point per drag tick; the fractional part
-     * accumulates until it makes a whole hardware step.
+     * Adjust media volume by `steps` whole hardware steps (sign indicates
+     * direction). One drag tick is exactly one hardware step on every phone:
+     * the drag distance per tick is adapted to the phone's own media step
+     * count (see [VolumeStepMath]), so a 160-step phone moves 0.625% per
+     * tick and a 15-step phone moves one 6.67% step per tick. No accumulation
+     * — a step either lands or it doesn't (e.g. already at min/max).
      */
-    private fun adjustVolumeByPercent(deltaPercent: Int) {
+    private fun adjustVolumeByStep(steps: Int) {
+        if (steps == 0) return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         if (max <= 0) return
@@ -1303,32 +1318,23 @@ class SidePanelView @JvmOverloads constructor(
         // that is exactly the "do not have setStreamVolume Permission" log — while
         // adjustStreamVolume is allowed (the edge-slide path works). Using the
         // same relative API keeps the tools gesture working where edge-slide works.
-        val steps = volumeStepAccumulator.add(deltaPercent, max)
-        if (steps == 0) return
         val direction = if (steps > 0) android.media.AudioManager.ADJUST_RAISE
                         else android.media.AudioManager.ADJUST_LOWER
         val before = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        var applied = 0
         try {
             repeat(Math.abs(steps)) {
                 audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
-                applied++
             }
         } catch (e: SecurityException) {
             // adjustStreamVolume rejected too — last resort via privileged shell.
             // Absolute target, so steps that already landed are not double-counted.
             val target = (before + steps).coerceIn(0, max)
-            if (AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
-                applied = Math.abs(steps)
-            } else {
+            if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
                 Log.w(TAG, "Privileged volume fallback failed", e)
             }
         } catch (e: Exception) {
             Log.w(TAG, "adjustStreamVolume failed", e)
         }
-        // Only the steps that actually landed consume accumulated percent.
-        val appliedSigned = if (steps > 0) applied else -applied
-        volumeStepAccumulator.refund(steps - appliedSigned, max)
     }
 
     /**
@@ -1426,16 +1432,18 @@ class SidePanelView @JvmOverloads constructor(
         view: View,
         event: android.view.MotionEvent,
         dragState: FloatArray,
-        baseDistanceDp: Float,
+        distancePerUnitDp: () -> Float,
         onTap: () -> Unit,
         onStep: (direction: Int) -> Unit
     ): Boolean {
         val density = resources.displayMetrics.density
         // Sensitivity multiplier mirrors the edge-slide gesture: pixelsPerUnit =
-        // baseDistanceDp * density * (100 / sensitivity). Higher sensitivity
+        // distancePerUnitDp() * density * (100 / sensitivity). Higher sensitivity
         // (lower slideSensitivity value) → fewer pixels per unit → more steps.
+        // The distance is a lambda so the volume spacing can track the phone's
+        // live media step count (see VolumeStepMath); brightness is a constant.
         val multiplier = 100f / panelPrefs.slideSensitivity.coerceIn(1, 200)
-        val pixelsPerUnit = (baseDistanceDp * density * multiplier).coerceAtLeast(1f)
+        val pixelsPerUnit = (distancePerUnitDp() * density * multiplier).coerceAtLeast(1f)
         val tapSlopPx = 8f * density
         val tagKey = 0x20F15EED // local tag for arm state Runnable / Boolean
 

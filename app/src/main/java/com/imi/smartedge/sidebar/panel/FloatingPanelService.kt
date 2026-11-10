@@ -1560,8 +1560,8 @@ class FloatingPanelService : Service() {
             onAdjustBrightness = { deltaPercent ->
                 adjustBrightness(deltaPercent)
             }
-            onAdjustVolume = { deltaPercent ->
-                adjustVolume(deltaPercent)
+            onAdjustVolume = { steps ->
+                adjustVolume(steps)
             }
             onSideChanged = { _ ->
                 // Pill was dragged to the opposite edge — sync the whole service UI
@@ -2348,11 +2348,11 @@ class FloatingPanelService : Service() {
     private var indicatorText: android.widget.TextView? = null
     private var indicatorFadeRunnable: Runnable? = null
 
-    // 1% step accumulators, shared with the tools drag path (SidePanelView):
-    // a hardware volume step is ~100/max percent (about 6.7% on a 15-step
-    // device) and 1% of brightness is 2.55 of 255, so sub-step percentages
-    // accumulate until they make a whole step/level.
-    private val volumeStepAccumulator = PercentStepAccumulator()
+    // 1% step accumulator for brightness, shared with the tools drag path
+    // (SidePanelView): 1% of brightness is 2.55 of 255 levels, so sub-level
+    // percentages accumulate until they make a whole level. Volume no longer
+    // accumulates — one gesture tick is exactly one hardware media step
+    // (see adjustVolume and VolumeStepMath).
     private val brightnessStepAccumulator = PercentStepAccumulator()
 
     /**
@@ -2401,46 +2401,37 @@ class FloatingPanelService : Service() {
     }
 
     /**
-     * Change media volume by [deltaPercent] percent points (sign = direction).
-     * One percent point per call; the fractional part accumulates in
-     * [volumeStepAccumulator] and a hardware step is applied as soon as the
-     * accumulated change reaches one step.
+     * Change media volume by [steps] whole hardware steps (sign = direction).
+     * One call is one tick of the edge-slide gesture, and one tick is exactly
+     * one hardware step on every phone: the slide distance per step is
+     * adapted to the phone's own media step count (see [VolumeStepMath]),
+     * so a 160-step phone moves 0.625% per tick and a 15-step phone moves
+     * one 6.67% step per tick. No accumulation — a step either lands or it
+     * doesn't (e.g. already at min/max), and there is nothing to carry over.
      */
-    fun adjustVolume(deltaPercent: Int) {
-        if (deltaPercent == 0) return
+    fun adjustVolume(steps: Int) {
+        if (steps == 0) return
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
         if (max <= 0) return
 
-        // Whole hardware steps contained in the accumulated percent change.
-        val steps = volumeStepAccumulator.add(deltaPercent, max)
-        if (steps != 0) {
-            val direction = if (steps > 0) android.media.AudioManager.ADJUST_RAISE
-                            else android.media.AudioManager.ADJUST_LOWER
-            val before = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            var applied = 0
-            try {
-                repeat(Math.abs(steps)) {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
-                    applied++
-                }
-            } catch (e: SecurityException) {
-                // OEM ExtImpl (ColorOS/OxygenOS) may reject adjustStreamVolume for
-                // third-party apps despite MODIFY_AUDIO_SETTINGS. Fall back to the
-                // privileged shell path with an absolute target, so steps that
-                // already landed are not double-counted.
-                val target = (before + steps).coerceIn(0, max)
-                if (AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
-                    applied = Math.abs(steps)
-                } else {
-                    Log.w(TAG, "Privileged volume fallback failed", e)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "adjustStreamVolume failed", e)
+        val direction = if (steps > 0) android.media.AudioManager.ADJUST_RAISE
+                        else android.media.AudioManager.ADJUST_LOWER
+        val before = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+        try {
+            repeat(Math.abs(steps)) {
+                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
             }
-            // Only the steps that actually landed consume accumulated percent.
-            val appliedSigned = if (steps > 0) applied else -applied
-            volumeStepAccumulator.refund(steps - appliedSigned, max)
+        } catch (e: SecurityException) {
+            // OEM ExtImpl (ColorOS/OxygenOS) may reject adjustStreamVolume for
+            // third-party apps despite MODIFY_AUDIO_SETTINGS. Fall back to the
+            // privileged shell path with an absolute target.
+            val target = (before + steps).coerceIn(0, max)
+            if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
+                Log.w(TAG, "Privileged volume fallback failed", e)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "adjustStreamVolume failed", e)
         }
 
         val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)

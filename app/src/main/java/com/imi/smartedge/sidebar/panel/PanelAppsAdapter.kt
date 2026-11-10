@@ -72,6 +72,12 @@ class PanelAppsAdapter(
         notifyDataSetChanged()
     }
 
+    /** Live media-volume step count for this phone (e.g. 160, 15, 7). */
+    private fun mediaMaxSteps(): Int {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        return audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+    }
+
     companion object {
         private const val VIEW_TYPE_APP = 0
         private const val VIEW_TYPE_ADD = 1
@@ -355,7 +361,11 @@ class PanelAppsAdapter(
             if (app.type == AppInfo.Type.TOOL && DRAG_TOOLS.contains(app.packageName) && onToolDrag != null) {
                 val dragState = FloatArray(3)
                 val density = context.resources.displayMetrics.density
-                val tickPx = 14f * density
+                // One tick is exactly one hardware media-volume step: 14dp was
+                // the 1% tick distance, and it now scales to the phone's own
+                // media step count (see VolumeStepMath), so the full-range
+                // drag distance stays the same.
+                val tickPx = VolumeStepMath.dpPerStep(mediaMaxSteps(), 14f) * density
                 val tapSlopPx = 8f * density
                 val longPressMs = LONG_PRESS_DRAG_MS
                 val armTag = 0x20F15EED

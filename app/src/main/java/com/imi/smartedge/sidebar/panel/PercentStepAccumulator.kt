@@ -3,16 +3,18 @@ package com.imi.smartedge.sidebar.panel
 /**
  * Accumulates percent-point adjustments and emits whole hardware steps.
  *
- * Volume and brightness change in 1% steps, but the hardware is coarser:
- * a volume step is ~100/max percent (about 6.7% on a 15-step device) and
- * 1% of brightness is 2.55 of 255 levels. So sub-step percentages have to
- * accumulate until they make a whole step — otherwise a slow 1%-per-tick
- * drag would round to zero every time and nothing would ever change.
+ * Brightness changes in 1% steps, but 1% of brightness is 2.55 of 255
+ * levels, so sub-level percentages have to accumulate until they make a
+ * whole level — otherwise a slow 1%-per-tick drag would round to zero every
+ * time and nothing would ever change. Volume used to share this class, but
+ * one gesture tick is now exactly one hardware media step on every phone,
+ * so volume applies whole steps directly with no accumulation (see
+ * VolumeStepMath).
  *
  * Pure JVM logic with no Android dependency, so it is unit-tested directly
  * (see PercentStepAccumulatorTest). Both the edge-slide path
  * (FloatingPanelService) and the tools long-press-drag path (SidePanelView)
- * share this class, so the 1% behaviour is identical in both.
+ * share this class for brightness, so the 1% behaviour is identical in both.
  *
  * The bookkeeping is exact integer arithmetic, deliberately NOT floating
  * point: accumulating 1% a hundred times in Float or Double lands a

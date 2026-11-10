@@ -5,15 +5,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure-JVM unit tests for [PercentStepAccumulator] — the 1% step logic
- * shared by the edge-slide path (FloatingPanelService) and the tools
- * long-press-drag path (SidePanelView).
+ * Pure-JVM unit tests for [PercentStepAccumulator] — the 1% step logic for
+ * brightness, shared by the edge-slide path (FloatingPanelService) and the
+ * tools long-press-drag path (SidePanelView).
  *
  * The contract: each call adds `deltaPercent` percent points and returns
  * the whole hardware steps/levels that should now be applied, carrying the
- * sub-step remainder forward. A volume step on a 15-step device is
- * 100/15 ≈ 6.67%, so seven +1% ticks make the first step; a brightness
- * level is 100/255 ≈ 0.39%, so one +1% tick makes 2–3 levels.
+ * sub-step remainder forward. A brightness level is 100/255 ≈ 0.39%, so one
+ * +1% tick makes 2–3 levels. (The volume-scale cases below still exercise
+ * the generic math at a 15-step scale, even though volume itself now applies
+ * whole hardware steps directly — see VolumeStepMath.)
  */
 class PercentStepAccumulatorTest {
 

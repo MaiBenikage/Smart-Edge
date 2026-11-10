@@ -24,7 +24,7 @@ class EdgeHandleView @JvmOverloads constructor(
 
     var onTrigger: (() -> Unit)? = null
     var onAdjustBrightness: ((delta: Int) -> Unit)? = null
-    var onAdjustVolume: ((delta: Int) -> Unit)? = null
+    var onAdjustVolume: ((steps: Int) -> Unit)? = null
     var onSideChanged: ((newSide: String) -> Unit)? = null
     
     var isRightSide: Boolean = true
@@ -428,12 +428,16 @@ class EdgeHandleView @JvmOverloads constructor(
                         val sensitivity = panelPrefs.slideSensitivity.coerceIn(1, 200)
                         val multiplier = 100f / sensitivity
 
-                        // One unit = 1 percent point of volume/brightness
-                        // (see FloatingPanelService.adjustVolume /
-                        // adjustBrightness); the fractional part accumulates
-                        // there until it makes a whole hardware step/level.
+                        // One unit = one hardware step for volume, 1 percent
+                        // point for brightness. Volume steps are matched to
+                        // the phone's own media step count (see
+                        // VolumeStepMath): the drag distance per step adapts
+                        // so one unit is always exactly one hardware step,
+                        // while brightness still accumulates its fractional
+                        // part in FloatingPanelService.adjustBrightness.
                         if (isSlidingVolume) {
-                            val pixelsPerUnit = (25f * density * multiplier).coerceAtLeast(1f)
+                            val stepDp = VolumeStepMath.dpPerStep(mediaMaxSteps(), 25f)
+                            val pixelsPerUnit = (stepDp * density * multiplier).coerceAtLeast(1f)
                             if (Math.abs(accumulatedDy) >= pixelsPerUnit) {
                                 val units = (accumulatedDy / pixelsPerUnit).toInt()
                                 onAdjustVolume?.invoke(-units)
@@ -584,6 +588,12 @@ class EdgeHandleView @JvmOverloads constructor(
         // the pre-O Vibrator.vibrate(long) overload (deprecated in API 26) is
         // unreachable under our minSdk.
         v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+    }
+
+    /** Live media-volume step count for this phone (e.g. 160, 15, 7). */
+    private fun mediaMaxSteps(): Int {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        return audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
