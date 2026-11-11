@@ -1,0 +1,41 @@
+name: Unit tests (reusable)
+
+# Shared by ci.yml (every push/PR to master) and release.yml (which gates
+# its release build on this job), so the test steps live in exactly one
+# place instead of being duplicated across both workflows.
+on:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      # No setup-android step: ubuntu-latest runners ship a preinstalled
+      # Android SDK, and android-actions/setup-android@v3 fails because it
+      # tries to install the obsolete 'tools' package (sdkmanager reports
+      # "Failed to find package 'tools'"). The build job already builds
+      # against the preinstalled SDK.
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests/testDebugUnitTest
