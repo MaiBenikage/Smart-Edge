@@ -2406,36 +2406,19 @@ class FloatingPanelService : Service() {
      * one hardware step on every phone: the slide distance per step is
      * adapted to the phone's own media step count (see [VolumeStepMath]),
      * so a 160-step phone moves 0.625% per tick and a 15-step phone moves
-     * one 6.67% step per tick. No accumulation — a step either lands or it
-     * doesn't (e.g. already at min/max), and there is nothing to carry over.
+     * one 6.67% step per tick. The step is applied by absolute index (see
+     * [MediaVolumeApplier]) because a relative adjust moves more than one
+     * index on some phones — on this OnePlus 13 one adjust call jumps ~10
+     * indices (6%). No accumulation — a step either lands or it doesn't
+     * (e.g. already at min/max), and there is nothing to carry over.
      */
     fun adjustVolume(steps: Int) {
         if (steps == 0) return
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        MediaVolumeApplier.apply(audioManager, steps)
         val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        if (max <= 0) return
-
-        val direction = if (steps > 0) android.media.AudioManager.ADJUST_RAISE
-                        else android.media.AudioManager.ADJUST_LOWER
-        val before = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        try {
-            repeat(Math.abs(steps)) {
-                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
-            }
-        } catch (e: SecurityException) {
-            // OEM ExtImpl (ColorOS/OxygenOS) may reject adjustStreamVolume for
-            // third-party apps despite MODIFY_AUDIO_SETTINGS. Fall back to the
-            // privileged shell path with an absolute target.
-            val target = (before + steps).coerceIn(0, max)
-            if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
-                Log.w(TAG, "Privileged volume fallback failed", e)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "adjustStreamVolume failed", e)
-        }
-
         val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        val percent = (current * 100) / max
+        val percent = if (max > 0) (current * 100) / max else 0
         showIndicator(getString(R.string.indicator_volume_percent, percent))
     }
 

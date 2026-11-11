@@ -1304,37 +1304,16 @@ class SidePanelView @JvmOverloads constructor(
      * direction). One drag tick is exactly one hardware step on every phone:
      * the drag distance per tick is adapted to the phone's own media step
      * count (see [VolumeStepMath]), so a 160-step phone moves 0.625% per
-     * tick and a 15-step phone moves one 6.67% step per tick. No accumulation
+     * tick and a 15-step phone moves one 6.67% step per tick. The step is
+     * applied by absolute index (see [MediaVolumeApplier]) because a
+     * relative adjust moves more than one index on some phones — on this
+     * OnePlus 13 one adjust call jumps ~10 indices (6%). No accumulation
      * — a step either lands or it doesn't (e.g. already at min/max).
      */
     private fun adjustVolumeByStep(steps: Int) {
         if (steps == 0) return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        if (max <= 0) return
-        // Use adjustStreamVolume (relative) instead of setStreamVolume (absolute).
-        // On some OEM forks (ColorOS/OxygenOS) AudioManagerExtImpl rejects
-        // setStreamVolume for third-party apps despite MODIFY_AUDIO_SETTINGS —
-        // that is exactly the "do not have setStreamVolume Permission" log — while
-        // adjustStreamVolume is allowed (the edge-slide path works). Using the
-        // same relative API keeps the tools gesture working where edge-slide works.
-        val direction = if (steps > 0) android.media.AudioManager.ADJUST_RAISE
-                        else android.media.AudioManager.ADJUST_LOWER
-        val before = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        try {
-            repeat(Math.abs(steps)) {
-                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, 0)
-            }
-        } catch (e: SecurityException) {
-            // adjustStreamVolume rejected too — last resort via privileged shell.
-            // Absolute target, so steps that already landed are not double-counted.
-            val target = (before + steps).coerceIn(0, max)
-            if (!AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
-                Log.w(TAG, "Privileged volume fallback failed", e)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "adjustStreamVolume failed", e)
-        }
+        MediaVolumeApplier.apply(audioManager, steps)
     }
 
     /**
