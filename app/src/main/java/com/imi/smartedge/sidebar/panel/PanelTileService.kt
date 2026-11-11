@@ -1,5 +1,6 @@
 package com.imi.smartedge.sidebar.panel
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
@@ -137,7 +138,16 @@ class PanelTileService : TileService() {
      * not yet expose it in this toolchain. The single-arg form below
      * preserves the proven shipping path while keeping this reasoning
      * documented for the next maintenance pass.
+     *
+     * Lint (StartActivityAndCollapseDeprecated) flags the Intent overload
+     * below: it is deprecated at compileSdk 34, but it is the only overload
+     * that exists below API 34, and this branch only runs there — on those
+     * versions the call is the documented path, not deprecated, and the
+     * Android 14 background-start restriction lint warns about does not
+     * apply. Suppressed on this function (not in lint.xml) so the reason
+     * travels with the call.
      */
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     private fun startAction(intent: Intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
