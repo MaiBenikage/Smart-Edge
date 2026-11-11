@@ -3,6 +3,7 @@ package com.imi.smartedge.sidebar.panel
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import org.xmlpull.v1.XmlPullParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -162,6 +163,8 @@ class AppRepository(context: Context) {
     }
 
     companion object {
+        private const val TAG = "AppRepository"
+
         // Round-12 audit L-High: original cache used item-COUNT sizing
         // (`LruCache<String, Drawable>(300)`), which means "300 entries
         // regardless of how big each icon is". A 256×256 ARGB_8888 BitmapDrawable
@@ -831,6 +834,7 @@ class AppRepository(context: Context) {
         owningPackage: String
     ): List<AppInfo> {
         val items = mutableListOf<AppInfo>()
+        val appearanceKey = panelPrefs.appearanceKey
         val ANDROID_NS = "http://schemas.android.com/apk/res/android"
         try {
             val parser = resources.getXml(xmlResId)

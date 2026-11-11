@@ -194,7 +194,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
             } else {
                 ctx.startService(intent)
             }
-            setFragmentResult(REQUEST_KEY, android.os.Bundle.EMPTY)
+            parentFragmentManager.setFragmentResult(REQUEST_KEY, android.os.Bundle.EMPTY)
             dismiss()
         }
         rv.adapter = adapter

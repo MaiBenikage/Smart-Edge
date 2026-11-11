@@ -508,7 +508,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             // dismissed, so after a successful grant the user had to
             // notice the status change and tap Close themselves.
             if (lastAutomationPossible == false) {
-                setFragmentResult(REQUEST_KEY, android.os.Bundle.EMPTY)
+                parentFragmentManager.setFragmentResult(REQUEST_KEY, android.os.Bundle.EMPTY)
                 dismiss()
             }
         }
