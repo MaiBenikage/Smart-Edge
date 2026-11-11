@@ -5,6 +5,15 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.5.4)'
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # Unit tests run FIRST (shared reusable job from test.yml). The release
@@ -20,45 +29,68 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
 
-      - name: Decode Keystore
+      - name: Resolve tag name
+        id: tag
         run: |
-          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 --decode > app/release.keystore
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Decode Keystore
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+        run: |
+          printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > app/release.keystore
 
       - name: Create keystore.properties
+        env:
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
         run: |
-          echo "KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}" > keystore.properties
-          echo "KEY_PASSWORD=<redacted>"
-          echo "STORE_FILE=release.keystore" >> keystore.properties
-          echo "STORE_PASSWORD=<redacted>"
+          {
+            echo "KEY_ALIAS=$KEY_ALIAS"
+            echo "KEY_PASSWORD=$KEY_PASSWORD"
+            echo "STORE_FILE=release.keystore"
+            echo "STORE_PASSWORD=$STORE_PASSWORD"
+          } > keystore.properties
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease -PversionName="${{ steps.tag.outputs.version }}"
 
       - name: Extract Changelog
         id: changelog
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          # Extract the section under a header line, up to the next '---'
-          # separator. Matches the header exactly, or the header followed
-          # by " (" (for the " (Latest)" suffix) — index() does literal
-          # matching, so the dots in the version are not regex wildcards
-          # (v1.3.8 must not match v1x3y8, nor v1.3.80).
+          TAG_NAME="${{ steps.tag.outputs.tag }}"
+          # Extract the section under a header line, up to the next '###'
+          # header or '---' separator. Matches the header exactly, or the
+          # header followed by " (" (for a " (Latest)" suffix) — index()
+          # does literal matching, so the dots in the version are not
+          # regex wildcards (v1.3.8 must not match v1x3y8, nor v1.3.80).
+          # The '/^### / { flag = 0 }' rule comes first so a later header
+          # ends the section, but the matched header still sets flag = 1
+          # in the rule below it.
           extract_section() {
             awk -v header="$1" '
+              /^### / { flag = 0 }
               $0 == header || index($0, header " (") == 1 { flag = 1; next }
               /^---/ { flag = 0 }
               flag
@@ -73,17 +105,26 @@ jobs:
             echo "::error::No changelog section for '$TAG_NAME' or 'Unreleased' in CHANGELOG.md — refusing to publish an empty release body."
             exit 1
           fi
+          delim=$(openssl rand -hex 16)
           {
-            echo 'body<<EOF'
+            echo "body<<$delim"
             echo "$BODY"
-            echo 'EOF'
+            echo "$delim"
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload APK to Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
+          tag_name: ${{ steps.tag.outputs.tag }}
           files: app/build/outputs/apk/release/app-release.apk
           body: ${{ steps.changelog.outputs.body }}
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The signing key and its passwords must not survive the job: the
+      # runner is ephemeral, but the files are on disk while the job runs.
+      - name: Remove signing material
+        if: always()
+        run: rm -f app/release.keystore keystore.properties
