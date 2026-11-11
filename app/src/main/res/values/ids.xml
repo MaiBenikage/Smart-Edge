@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- View tag keys. Declared here (aapt-assigned) instead of hand-made
+         hex literals, which are not guaranteed unique across the app. -->
+    <!-- IconShapeHelper: marks a pending outline-refresh layout listener. -->
+    <item name="tag_pending_outline_listener" type="id" />
+    <!-- Drag-to-adjust arm state (Boolean) and its arm Runnable, shared by
+         the Tools-folder drag cells (PanelAppsAdapter) and the dashboard
+         drag buttons (SidePanelView.handleDragTouch). -->
+    <item name="tag_drag_armed" type="id" />
+    <item name="tag_drag_arm_runnable" type="id" />
+</resources>

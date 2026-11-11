@@ -2,7 +2,6 @@ package com.imi.smartedge.sidebar.panel
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Rect
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -10,15 +9,13 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 
 class PanelAppsAdapter(
     private val context: Context,
-    private val onRemove: (AppInfo) -> Unit,
-    private val onAddClick: (Boolean) -> Unit,
+    private val onAddClick: () -> Unit,
     private val onAppLaunched: () -> Unit,
     private val onFolderClick: (String) -> Unit,
     private val onToolClick: (String) -> Unit,
@@ -34,13 +31,26 @@ class PanelAppsAdapter(
     val currentList: List<AppInfo> get() = mutableApps
 
     fun submitList(list: List<AppInfo>?) {
-        mutableApps = list?.toMutableList() ?: mutableListOf()
-        notifyDataSetChanged()
+        submitList(list, null)
     }
 
     fun submitList(list: List<AppInfo>?, commitCallback: Runnable?) {
-        mutableApps = list?.toMutableList() ?: mutableListOf()
-        notifyDataSetChanged()
+        // DiffUtil on identifier: only changed/moved rows rebind and
+        // reload their icons, instead of every row on every refresh, and
+        // change animations actually work. The commit is synchronous —
+        // dispatchUpdatesTo applies the updates before returning — so the
+        // callback runs with the new list already in place.
+        val newList = list?.toList() ?: emptyList()
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize(): Int = mutableApps.size
+            override fun getNewListSize(): Int = newList.size
+            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+                mutableApps[oldItemPosition].identifier == newList[newItemPosition].identifier
+            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+                mutableApps[oldItemPosition] == newList[newItemPosition]
+        })
+        mutableApps = newList.toMutableList()
+        diff.dispatchUpdatesTo(this)
         commitCallback?.run()
     }
 
@@ -178,12 +188,14 @@ class PanelAppsAdapter(
             // Restore original sizes + scaling
             var baseIconSize = if (isRich) 44 else 40
             if (currentColumns == 2) baseIconSize = (baseIconSize * 1.1).toInt() // 10% larger in 2-col
-            
+            // The Glide override below must match this size in px: a fixed
+            // 120px bitmap is upscaled (blurry) on high-density screens.
+            val iconPx = (context.dpToPx(baseIconSize) * scale).toInt()
             val baseTextSize = if (isRich) 9f else 8f
 
             holder.ivIcon.layoutParams.let { lp ->
-                lp.width = (context.dpToPx(baseIconSize) * scale).toInt()
-                lp.height = (context.dpToPx(baseIconSize) * scale).toInt()
+                lp.width = iconPx
+                lp.height = iconPx
                 holder.ivIcon.layoutParams = lp
             }
             holder.tvName.textSize = baseTextSize * scale
@@ -204,7 +216,8 @@ class PanelAppsAdapter(
             if (app.type == AppInfo.Type.FOLDER || app.type == AppInfo.Type.TOOL || app.packageName.startsWith("smartedge.shortcut.")) {
                 Glide.with(context.applicationContext).clear(holder.ivIcon)
 
-                // SVG / vector tool icons (assets first, drawable fallback).
+                // Vector tool icons from drawables (ToolIconHelper maps ids
+                // to drawable resources; no assets/SVG loading).
                 val toolIcon = if (app.type == AppInfo.Type.TOOL || app.packageName == "smartedge.shortcut.reboot") {
                     ToolIconHelper.forToolId(context, app.packageName)
                 } else null
@@ -234,6 +247,14 @@ class PanelAppsAdapter(
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                     holder.ivIcon.clipToOutline = true
                 }
+                // Reset what the app branch sets on every bind: a holder
+                // recycled from a real app keeps that app's circle/squircle
+                // outline provider and CENTER_CROP, which would clip the
+                // tool icon to the wrong shape. Tool cells use the rounded
+                // GradientDrawable background as their outline, with the
+                // vector fitted inside the padding.
+                holder.ivIcon.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+                holder.ivIcon.scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
             } else {
                 Glide.with(context.applicationContext).clear(holder.ivIcon)
                 holder.ivIcon.imageTintList = null
@@ -245,7 +266,7 @@ class PanelAppsAdapter(
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .placeholder(android.R.drawable.sym_def_app_icon)
                     .error(android.R.drawable.sym_def_app_icon)
-                    .override((120 * scale).toInt(), (120 * scale).toInt())
+                    .override(iconPx, iconPx)
                     .into(holder.ivIcon)
 
                 IconShapeHelper.applyShape(holder.ivIcon, panelPrefs.iconShape)
@@ -339,6 +360,9 @@ class PanelAppsAdapter(
                             (app.packageName == "smartedge.shortcut.one_hand" ||
                              app.packageName == "smartedge.shortcut.reboot")) {
                             context.startService(launchIntent)
+                        } else if (app.type == AppInfo.Type.SHORTCUT &&
+                            context.tryLaunchShortcut(app.packageName, app.activityName)) {
+                            // Launched via LauncherApps — nothing more to do.
                         } else {
                             context.startActivity(launchIntent)
                         }
@@ -364,53 +388,73 @@ class PanelAppsAdapter(
                 }
             }
 
-            // Long-press (1s) then drag to adjust volume/brightness in Tools folder.
+            // Long-press (600ms, LONG_PRESS_DRAG_MS) then drag to adjust volume/brightness in Tools folder.
             // Tap without long-press triggers the shared tool click (system volume UI /
             // auto-brightness toggle). Matches dashboard gesture semantics.
             if (app.type == AppInfo.Type.TOOL && DRAG_TOOLS.contains(app.packageName) && onToolDrag != null) {
                 val dragState = FloatArray(3)
                 val density = context.resources.displayMetrics.density
-                // One tick is exactly one hardware media-volume step: 14dp was
-                // the 1% tick distance, and it now scales to the phone's own
-                // media step count (see VolumeStepMath), so the full-range
-                // drag distance stays the same. Clamp to ≥1px like the other
-                // callers: a sub-pixel tick distance would make one pixel of
-                // movement fire hundreds of ticks.
-                val tickPx = (VolumeStepMath.dpPerStep(mediaMaxSteps(), 14f) * density).coerceAtLeast(1f)
+                // Distance per tick depends on the tool: volume ticks are
+                // one hardware media step (14dp was the 1% tick distance,
+                // and it now scales to the phone's own media step count,
+                // see VolumeStepMath, so the full-range drag distance stays
+                // the same), but brightness ticks are 1% each, so they use
+                // the dashboard's fixed 3dp — using the volume distance for
+                // brightness made one percent cost 93dp on a 15-step phone.
+                // Both are scaled by slideSensitivity, like the dashboard
+                // and edge-handle gestures (see handleDragTouch).
+                val isBrightnessTool = app.packageName == "smartedge.tool.brightness_up"
+                val baseDp = if (isBrightnessTool) 3f
+                    else VolumeStepMath.dpPerStep(mediaMaxSteps(), 14f)
+                val sensitivityMultiplier = 100f / panelPrefs.slideSensitivity.coerceIn(1, 200)
+                // Clamp to ≥1px like the other callers: a sub-pixel tick
+                // distance would make one pixel of movement fire hundreds
+                // of ticks.
+                val tickPx = (baseDp * density * sensitivityMultiplier).coerceAtLeast(1f)
                 val tapSlopPx = 8f * density
                 val longPressMs = LONG_PRESS_DRAG_MS
-                val armTag = 0x20F15EED
                 holder.itemView.setOnTouchListener { v, event ->
                     when (event.actionMasked) {
                         android.view.MotionEvent.ACTION_DOWN -> {
+                            // In edit mode the row is a reorder handle for
+                            // ItemTouchHelper: don't consume the gesture or
+                            // arm the drag-to-adjust, or ITH can never start
+                            // a drag on these rows.
+                            if (isEditMode) return@setOnTouchListener false
                             dragState[0] = event.rawY
                             dragState[1] = event.rawY
                             dragState[2] = event.rawY
-                            v.setTag(armTag, false)
-                            (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
+                            v.setTag(R.id.tag_drag_armed, false)
+                            (v.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { v.removeCallbacks(it) }
                             val arm = Runnable {
-                                v.setTag(armTag, true)
+                                v.setTag(R.id.tag_drag_armed, true)
                                 dragState[1] = dragState[0]
+                                // Only now, once the long-press has fired
+                                // and the drag-to-adjust is actually
+                                // starting, stop the parent RecyclerView
+                                // from intercepting the gesture. Doing it
+                                // on DOWN blocked list scrolling and ITH
+                                // reorder for the whole gesture.
+                                v.parent?.requestDisallowInterceptTouchEvent(true)
                                 if (panelPrefs.hapticEnabled) {
                                     v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
                                 }
                             }
-                            v.setTag(armTag + 1, arm)
+                            v.setTag(R.id.tag_drag_arm_runnable, arm)
                             v.postDelayed(arm, longPressMs)
                             if (panelPrefs.hapticEnabled) {
                                 v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
                             }
                             SpringAnimator.scalePulse(v)
-                            v.parent?.requestDisallowInterceptTouchEvent(true)
                             true
                         }
                         android.view.MotionEvent.ACTION_MOVE -> {
                             dragState[0] = event.rawY
-                            val armed = v.getTag(armTag) as? Boolean ?: false
+                            val armed = v.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                             if (!armed) {
                                 val travel = Math.abs(event.rawY - dragState[2])
                                 if (travel > tapSlopPx * 2f) {
-                                    (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
+                                    (v.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { v.removeCallbacks(it) }
                                 }
                                 return@setOnTouchListener true
                             }
@@ -431,19 +475,19 @@ class PanelAppsAdapter(
                         }
                         android.view.MotionEvent.ACTION_UP -> {
                             v.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
-                            (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
-                            val armed = v.getTag(armTag) as? Boolean ?: false
+                            (v.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { v.removeCallbacks(it) }
+                            val armed = v.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                             val totalTravel = Math.abs(event.rawY - dragState[2])
                             if (!armed && totalTravel < tapSlopPx) {
                                 onToolClick(app.packageName)
                             }
-                            v.setTag(armTag, false)
+                            v.setTag(R.id.tag_drag_armed, false)
                             true
                         }
                         android.view.MotionEvent.ACTION_CANCEL -> {
                             v.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
-                            (v.getTag(armTag + 1) as? Runnable)?.let { v.removeCallbacks(it) }
-                            v.setTag(armTag, false)
+                            (v.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { v.removeCallbacks(it) }
+                            v.setTag(R.id.tag_drag_armed, false)
                             true
                         }
                         else -> false
@@ -487,7 +531,7 @@ class PanelAppsAdapter(
                     holder.itemView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                 }
                 SpringAnimator.scalePulse(holder.itemView)
-                onAddClick(true)
+                onAddClick()
             }
         }
     }

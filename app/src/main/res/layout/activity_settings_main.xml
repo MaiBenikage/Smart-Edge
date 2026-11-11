@@ -24,6 +24,7 @@
 
             <ImageView
                 android:id="@+id/btnGithubTop"
+                android:contentDescription="@string/view_repo_title"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:layout_alignParentEnd="true"
@@ -158,10 +159,10 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:background="@drawable/bg_close_btn"
-                        android:backgroundTint="#F0F4F8"
+                        android:backgroundTint="?attr/colorSecondaryContainer"
                         android:padding="10dp"
                         android:src="@drawable/ic_section_appearance"
-                        app:tint="?attr/colorOnSurface" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                         
                     <LinearLayout
                         android:layout_width="0dp"
@@ -215,10 +216,10 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:background="@drawable/bg_close_btn"
-                        android:backgroundTint="#F8F0F4"
+                        android:backgroundTint="?attr/colorSecondaryContainer"
                         android:padding="10dp"
                         android:src="@drawable/ic_section_interaction"
-                        app:tint="?attr/colorOnSurface" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                         
                     <LinearLayout
                         android:layout_width="0dp"
@@ -272,10 +273,10 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:background="@drawable/bg_close_btn"
-                        android:backgroundTint="#F4F8F0"
+                        android:backgroundTint="?attr/colorSecondaryContainer"
                         android:padding="10dp"
                         android:src="@drawable/ic_section_handle"
-                        app:tint="?attr/colorOnSurface" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                         
                     <LinearLayout
                         android:layout_width="0dp"
@@ -329,10 +330,10 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:background="@drawable/bg_close_btn"
-                        android:backgroundTint="#FFF4F4"
+                        android:backgroundTint="?attr/colorSecondaryContainer"
                         android:padding="10dp"
                         android:src="@drawable/ic_section_tools"
-                        app:tint="?attr/colorOnSurface" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                         
                     <LinearLayout
                         android:layout_width="0dp"
@@ -387,10 +388,10 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:background="@drawable/bg_close_btn"
-                        android:backgroundTint="#F0F4F8"
+                        android:backgroundTint="?attr/colorSecondaryContainer"
                         android:padding="10dp"
                         android:src="@drawable/ic_section_interaction"
-                        app:tint="?attr/colorOnSurface" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -444,10 +445,10 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:background="@drawable/bg_close_btn"
-                        android:backgroundTint="#F4F0F8"
+                        android:backgroundTint="?attr/colorSecondaryContainer"
                         android:padding="10dp"
                         android:src="@drawable/ic_settings_advanced"
-                        app:tint="?attr/colorOnSurface" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -468,6 +469,63 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/main_menu_misc_desc"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Category: Manage Apps -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/btnManageApps"
+                style="@style/Widget.Material3.CardView.Elevated"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                app:cardCornerRadius="24dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="20dp">
+
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="@drawable/bg_close_btn"
+                        android:backgroundTint="?attr/colorSecondaryContainer"
+                        android:padding="10dp"
+                        android:src="@drawable/ic_section_apps"
+                        app:tint="?attr/colorOnSecondaryContainer" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/add_apps"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/manage_apps_desc"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="14sp" />
                     </LinearLayout>

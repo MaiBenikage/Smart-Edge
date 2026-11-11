@@ -210,8 +210,10 @@ class ToolsVisibilityMappingTest {
     }
 
     @Test
-    fun `inFolder — base height only`() {
-        assertEquals(60f, height(inFolder = true, t = tools(screenshot = true, blackScreen = true)))
+    fun `inFolder — base height plus back-button extra`() {
+        // In a folder btnBack (40dp + 8 + 8 margins = 56dp) replaces
+        // btnClose (32 + 4 + 4 = 40dp): 60 + 16 = 76dp.
+        assertEquals(76f, height(inFolder = true, t = tools(screenshot = true, blackScreen = true)))
     }
 
     @Test

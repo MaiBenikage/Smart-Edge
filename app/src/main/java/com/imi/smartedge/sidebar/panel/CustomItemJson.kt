@@ -12,9 +12,12 @@ package com.imi.smartedge.sidebar.panel
  * Schema: a JSON array of objects with `id` (UUID), `isUrl`, `title`,
  * `content`. The decode path is defensive: it trims content (so legacy
  * rows with surrounding whitespace still match `startsWith("intent:")`),
- * rejects non-UUID ids, and dedupes by id (first wins) — so an
- * imported/corrupt row can neither render an unsaveable item nor
- * produce duplicate rows sharing one stableId.
+ * rejects non-UUID ids, dedupes by id (first wins), and drops rows that
+ * fail [CustomItemValidation.isValidCustom] — so an imported backup
+ * cannot smuggle in a `file:` / `javascript:` / `content:` payload (or
+ * an over-long row) that the picker's save-time validation would refuse.
+ * A dropped row can neither render an unsaveable item nor produce
+ * duplicate rows sharing one stableId.
  */
 object CustomItemJson {
 
@@ -37,11 +40,17 @@ object CustomItemJson {
                 val id = o.optString("id").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 if (!UUID_PATTERN.matches(id)) return@mapNotNull null
                 if (!seen.add(id)) return@mapNotNull null
+                val title = o.optString("title", "").trim()
+                val content = o.optString("content", "").trim()
+                // Same allowlist the picker's save path enforces: an
+                // imported row with a disallowed scheme (file:, javascript:,
+                // content:) or an over-long field is dropped, not stored.
+                if (!CustomItemValidation.isValidCustom(title, content)) return@mapNotNull null
                 CustomItem(
                     id = id,
                     isUrl = o.optBoolean("isUrl", false),
-                    title = o.optString("title", "").trim(),
-                    content = o.optString("content", "").trim()
+                    title = title,
+                    content = content
                 )
             }
         } catch (e: Exception) {

@@ -8,7 +8,14 @@ import android.service.quicksettings.TileService
 import android.util.Log
 
 class PanelTileService : TileService() {
-    
+
+    override fun attachBaseContext(base: android.content.Context) {
+        // See FloatingPanelService: services are outside AppCompat's
+        // per-app locales, so wrap the base context with the chosen
+        // language here.
+        super.attachBaseContext(LocaleHelper.onAttach(base))
+    }
+
     companion object {
         // @Volatile: this flag is checked/written by onClick (main thread) and
         // cleared from the background Thread + postDelayed in onClick below.
@@ -41,21 +48,21 @@ class PanelTileService : TileService() {
         val tile = qsTile ?: return
         if (isEnabled && isAccessibilityEnabled) {
             tile.state = Tile.STATE_ACTIVE
-            tile.label = "Sidebar"
+            tile.label = getString(R.string.tile_sidebar)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                tile.subtitle = "Service Active"
+                tile.subtitle = getString(R.string.tile_service_active)
             }
         } else if (isEnabled && !isAccessibilityEnabled) {
             tile.state = Tile.STATE_INACTIVE
-            tile.label = "Sidebar"
+            tile.label = getString(R.string.tile_sidebar)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                tile.subtitle = "Accessibility Missing"
+                tile.subtitle = getString(R.string.tile_accessibility_missing)
             }
         } else {
             tile.state = Tile.STATE_INACTIVE
-            tile.label = "Sidebar"
+            tile.label = getString(R.string.tile_sidebar)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                tile.subtitle = "Service Stopped"
+                tile.subtitle = getString(R.string.tile_service_stopped)
             }
         }
         tile.updateTile()
@@ -78,7 +85,7 @@ class PanelTileService : TileService() {
         triggerHapticFeedback()
 
         // 3. Permission Check (Instant)
-        if (!hasOverlayPermission() || !isAccessibilityServiceEnabled()) {
+        if (!hasOverlayPermission() || !isEngineAvailable()) {
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -91,25 +98,21 @@ class PanelTileService : TileService() {
         val targetState = !isEnabled
         updateTileOptimistic(targetState)
 
-        // 5. Centralized Toggle Logic — must run on the MAIN thread because
-        //    startForegroundService throws ForegroundServiceStartNotAllowedException
-        //    on Android 12+ when invoked from a non-main Thread. We previously
-        //    ran this inside a raw Thread { ... }.start() which crashed.
+        // 5. Centralized Toggle Logic — posted to the MAIN thread so the
+        //    toggle and the delayed tile refresh stay ordered on one
+        //    thread. (Foreground-service background-start rules depend on
+        //    the app's process state and exemptions, not on the calling
+        //    thread; the raw Thread { ... }.start() we used before crashed
+        //    for other reasons.)
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        // toggleService catches its own start failures internally, so no
+        // try/catch here: there is nothing left for this block to catch.
         mainHandler.post {
-            try {
-                prefs.toggleService(this@PanelTileService, forcedState = targetState)
-                mainHandler.postDelayed({
-                    updateTile()
-                    isProcessingToggle = false
-                }, 800)
-            } catch (e: Exception) {
-                // background-foreground policy violations, etc. — fall back to
-                // plain toggle without animating optimistic UI back.
-                Log.e("PanelTileService", "toggle failed", e)
+            prefs.toggleService(this@PanelTileService, forcedState = targetState)
+            mainHandler.postDelayed({
                 updateTile()
                 isProcessingToggle = false
-            }
+            }, 800)
         }
 
         // No shade collapse here, making the toggle seamless for the user!
@@ -118,12 +121,11 @@ class PanelTileService : TileService() {
     /**
      * Collapse the Quick Settings shade and launch an activity, in one call.
      *
-     * Uses the modern [TileService.startActivityAndCollapse] PendingIntent overload
-     * (available since API 26). This replaces two deprecated paths that were
-     * previously forked by API level:
-     *   - [TileService.startActivityAndCollapse] taking an [Intent] (deprecated API 26)
-     *   - `sendBroadcast(ACTION_CLOSE_SYSTEM_DIALOGS)` to collapse the shade
-     *     (deprecated since Android N; the system no longer honors it for non-system apps)
+     * The [TileService.startActivityAndCollapse] PendingIntent overload is
+     * only available since API 34 (UPSIDE_DOWN_CAKE); calling it below 34
+     * throws NoSuchMethodError. The Intent overload exists since API 24
+     * and is safe below 34 (it only throws UnsupportedOperationException
+     * for apps targeting 34 while running on 34+), so it is used there.
      * [PendingIntent.FLAG_IMMUTABLE] is required by API 31+ for any PIs we create.
      *
      * Audit L-Low: on Android 14+ the strict background-activity-start policy
@@ -137,9 +139,14 @@ class PanelTileService : TileService() {
      * documented for the next maintenance pass.
      */
     private fun startAction(intent: Intent) {
-        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        val pending = PendingIntent.getActivity(this, 0, intent, flags)
-        startActivityAndCollapse(pending)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            val pending = PendingIntent.getActivity(this, 0, intent, flags)
+            startActivityAndCollapse(pending)
+        } else {
+            @Suppress("DEPRECATION")
+            startActivityAndCollapse(intent)
+        }
     }
 
     private fun triggerHapticFeedback() {

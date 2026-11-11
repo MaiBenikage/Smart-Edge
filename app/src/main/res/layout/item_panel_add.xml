@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_horizontal"
@@ -8,7 +8,7 @@
     android:paddingVertical="12dp">
 
     <!-- Edit Icon (Pencil) - Subtle Circular Background -->
-    <ImageView
+    <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/ivAddIcon"
         android:layout_width="40dp"
         android:layout_height="40dp"
@@ -17,7 +17,7 @@
         android:contentDescription="@string/xml_cd_edit_apps"
         android:padding="12dp"
         android:src="@android:drawable/ic_menu_edit"
-        android:tint="#FFFFFF" />
+        app:tint="#FFFFFF" />
 
     <!-- Edit Label -->
     <TextView

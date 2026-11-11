@@ -13,6 +13,10 @@ class ToolsSettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsToolsBinding
     private lateinit var panelPrefs: PanelPreferences
 
+    // Suppresses the device-admin switch listener while the switch is
+    // set programmatically (revert + onResume sync) — see setupListeners.
+    private var suppressDeviceAdminListener = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsToolsBinding.inflate(layoutInflater)
@@ -160,13 +164,20 @@ class ToolsSettingsActivity : AppCompatActivity() {
             applyOnly()
         }
 
+        // Guard: setting isChecked inside its own listener (the revert
+        // below, and the onResume sync) re-fires the listener — without
+        // this the revert would run the disable branch (removeActiveAdmin)
+        // even though nothing was ever enabled.
         binding.featureDeviceAdmin.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressDeviceAdminListener) return@setOnCheckedChangeListener
             if (isChecked) {
                 // Enabling requires the user to accept the Device Admin prompt.
                 if (!isDeviceAdminActive()) {
                     // Revert the switch to actual state; activation happens via the
                     // system admin screen. onResume re-syncs the checkbox.
+                    suppressDeviceAdminListener = true
                     binding.featureDeviceAdmin.isChecked = false
+                    suppressDeviceAdminListener = false
                     requestDeviceAdmin()
                 }
             } else {
@@ -184,12 +195,19 @@ class ToolsSettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // After returning from the Device Admin activation screen, sync the switch
-        // with the real admin state.
+        // with the real admin state (guarded: setting isChecked re-fires
+        // the listener, which would run the disable branch).
+        suppressDeviceAdminListener = true
         binding.featureDeviceAdmin.isChecked = isDeviceAdminActive()
+        suppressDeviceAdminListener = false
         if (isDeviceAdminActive()) panelPrefs.enableDeviceAdmin = true
     }
 
     private fun applyOnly() {
+        // The service is off: starting it just to refresh would flash
+        // its foreground notification and stop again. The prefs are
+        // already saved; the service reads them when re-enabled.
+        if (!panelPrefs.serviceEnabled) return
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_REFRESH
         }

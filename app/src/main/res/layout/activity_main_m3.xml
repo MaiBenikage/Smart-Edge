@@ -115,6 +115,7 @@
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnStartStop"
+                            android:contentDescription="@string/desc_start_stop_service"
                             android:layout_width="72dp"
                             android:layout_height="72dp"
                             android:layout_alignParentEnd="true"

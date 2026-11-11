@@ -147,7 +147,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnReboot"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -157,7 +157,7 @@
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_tool_power_menu"
                 android:contentDescription="@string/tool_name_power"
-                android:tint="#D9FFFFFF" />
+                app:tint="#D9FFFFFF" />
         </LinearLayout>
 
         <!-- Volume -->
@@ -169,7 +169,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnVolumeDrag"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -179,7 +179,7 @@
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_tool_volume"
                 android:contentDescription="@string/xml_cd_volume_drag"
-                android:tint="#D9FFFFFF" />
+                app:tint="#D9FFFFFF" />
         </LinearLayout>
 
         <!-- Brightness -->
@@ -191,7 +191,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnBrightnessDrag"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -201,7 +201,7 @@
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_tool_brightness"
                 android:contentDescription="@string/xml_cd_brightness_drag"
-                android:tint="#D9FFFFFF" />
+                app:tint="#D9FFFFFF" />
         </LinearLayout>
 
         <!-- Screenshot -->
@@ -213,7 +213,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnScreenshot"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -223,7 +223,7 @@
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_tool_screenshot"
                 android:contentDescription="@string/tool_name_screenshot"
-                android:tint="#D9FFFFFF" />
+                app:tint="#D9FFFFFF" />
         </LinearLayout>
 
         <!-- Black Screen -->
@@ -235,7 +235,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnBlackScreen"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -245,7 +245,7 @@
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_tool_black_screen"
                 android:contentDescription="@string/tool_name_blackscreen"
-                android:tint="#D9FFFFFF" />
+                app:tint="#D9FFFFFF" />
         </LinearLayout>
 
         <!-- Lock Screen -->
@@ -257,7 +257,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnLockScreen"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -267,7 +267,7 @@
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_tool_lock_screen"
                 android:contentDescription="@string/tool_name_lock"
-                android:tint="#D9FFFFFF" />
+                app:tint="#D9FFFFFF" />
         </LinearLayout>
 
         <!-- Content Picker -->
@@ -279,7 +279,7 @@
             android:orientation="vertical"
             android:gravity="center_horizontal"
             android:visibility="gone">
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnContentPicker"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -289,7 +289,7 @@
                 android:scaleType="centerInside"
                 android:src="@drawable/ic_tool_content_picker"
                 android:contentDescription="@string/tool_name_content_picker"
-                android:tint="#D9FFFFFF" />
+                app:tint="#D9FFFFFF" />
         </LinearLayout>
 
     </android.widget.GridLayout>
@@ -325,7 +325,7 @@
 
 
             <!-- Back button for folder navigation -->
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnBack"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -337,7 +337,7 @@
                 android:padding="4dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_arrow_back"
-                android:tint="#D9FFFFFF"
+                app:tint="#D9FFFFFF"
                 android:visibility="gone"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
@@ -345,7 +345,7 @@
             app:layout_constraintBottom_toBottomOf="parent" />
 
             <!-- Chevron at bottom of pill (now handles picker toggle) -->
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnClose"
                 android:layout_width="40dp"
                 android:layout_height="32dp"
@@ -358,7 +358,7 @@
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_chevron_right"
                 android:rotation="180"
-                android:tint="#D9FFFFFF"
+                app:tint="#D9FFFFFF"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"

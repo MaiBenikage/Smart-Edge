@@ -27,7 +27,7 @@
 - **fix(core)**: `AutomationManager` process execution now has a 10s timeout with stream cleanup, and `refresh()` is throttled (5s) and single-flight; Content Picker tree walks are coalesced and the callback is re-checked at post time; notification-listener disconnect/destroy clears stale packages and listeners are posted to the main thread; EdgeHandle IME animators are now a single cancellable animator; confirm-overlay delayed removal captures its own label.
 - **test**: Added `AppsRecentSplitAndRecentsTest` covering the 50/50 split defaults/limits, split-height math, and recent-exclusion by package.
 
-### v1.3.7 (Latest)
+### v1.3.7
 - **fix(ui)**: Prevented custom URL text from being silently discarded when the row scrolls offscreen in the app picker.
 - **fix(core)**: Added `RECEIVER_EXPORTED` flag to package receiver for Android 14+ compatibility.
 - **fix(core)**: Avoided `ForegroundServiceStartNotAllowedException` on Android 12+ by dispatching toggle on main thread.

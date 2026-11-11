@@ -72,15 +72,20 @@ data class TextAction(
     companion object {
         fun fromJson(o: org.json.JSONObject): TextAction? {
             return try {
-                val id = o.optString("id").trim().takeIf { it.isNotBlank() } ?: return null
-                val name = o.optString("name", "").trim().takeIf { it.isNotBlank() } ?: return null
+                // Android org.json's optString returns the literal "null"
+                // for a JSON null value, so an imported "urlTemplate": null
+                // would become the URL "null". Treat JSON null as absent.
+                fun optStr(key: String, fallback: String = ""): String =
+                    if (o.isNull(key)) fallback else o.optString(key, fallback)
+                val id = optStr("id").trim().takeIf { it.isNotBlank() } ?: return null
+                val name = optStr("name").trim().takeIf { it.isNotBlank() } ?: return null
                 val type = try {
-                    ActionType.valueOf(o.optString("type", ActionType.OPEN_URL.name))
+                    ActionType.valueOf(optStr("type", ActionType.OPEN_URL.name))
                 } catch (_: Exception) {
                     ActionType.OPEN_URL
                 }
                 val transform = try {
-                    ReplaceTransform.valueOf(o.optString("replaceTransform", ReplaceTransform.UPPERCASE.name))
+                    ReplaceTransform.valueOf(optStr("replaceTransform", ReplaceTransform.UPPERCASE.name))
                 } catch (_: Exception) {
                     ReplaceTransform.UPPERCASE
                 }
@@ -89,10 +94,10 @@ data class TextAction(
                     name = name,
                     type = type,
                     enabled = o.optBoolean("enabled", true),
-                    urlTemplate = o.optString("urlTemplate", ""),
-                    targetPackage = o.optString("targetPackage", ""),
-                    customIntentAction = o.optString("customIntentAction", ""),
-                    customIntentData = o.optString("customIntentData", ""),
+                    urlTemplate = optStr("urlTemplate"),
+                    targetPackage = optStr("targetPackage"),
+                    customIntentAction = optStr("customIntentAction"),
+                    customIntentData = optStr("customIntentData"),
                     replaceTransform = transform,
                     editableOnly = o.optBoolean("editableOnly", false)
                 )
@@ -104,7 +109,11 @@ data class TextAction(
 }
 
 /** Built-in presets seeded on first launch. Users can edit, disable, reorder or delete them. */
-fun defaultTextActions(): List<TextAction> = listOf(
+fun defaultTextActions(): List<TextAction> {
+    // Translate target: the current app locale, not a hardcoded "en" —
+    // the app ships a Spanish UI, so a Spanish user gets tl=es.
+    val targetLang = java.util.Locale.getDefault().language.takeIf { it.isNotBlank() } ?: "en"
+    return listOf(
     TextAction(
         name = "Search web",
         type = ActionType.OPEN_URL,
@@ -113,7 +122,7 @@ fun defaultTextActions(): List<TextAction> = listOf(
     TextAction(
         name = "Translate",
         type = ActionType.OPEN_URL,
-        urlTemplate = "https://translate.google.com/?sl=auto&tl=en&text={encoded}&op=translate"
+        urlTemplate = "https://translate.google.com/?sl=auto&tl=$targetLang&text={encoded}&op=translate"
     ),
     TextAction(
         name = "Copy",
@@ -130,4 +139,5 @@ fun defaultTextActions(): List<TextAction> = listOf(
         replaceTransform = ReplaceTransform.UPPERCASE,
         editableOnly = true
     )
-)
+    )
+}

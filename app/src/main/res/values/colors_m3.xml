@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_foreground">#FFFFFF</color>
     
     <!-- MODERN PROFESSIONAL PALETTE: SLATE & VIOLET (LIGHT MODE) -->
     <color name="md_theme_primary">#4F46E5</color> <!-- Indigo 600 -->
@@ -35,13 +34,17 @@
     <color name="md_theme_errorContainer">#FEE2E2</color>
     <color name="md_theme_onErrorContainer">#7F1D1D</color>
 
+    <!-- Success state (one green everywhere: dialogs, setup cards,
+         MainActivity status). The old #00FF00 "electric green" was
+         unreadable on a light surface. -->
+    <color name="md_theme_success">#2ECC71</color>
+
     <!-- Tertiary -->
     <color name="md_theme_tertiary">#DB2777</color>
     <color name="md_theme_onTertiary">#FFFFFF</color>
     <color name="md_theme_tertiaryContainer">#FCE7F3</color>
     <color name="md_theme_onTertiaryContainer">#500724</color>
 
-    <color name="md_theme_scrim">#000000</color>
     <color name="md_theme_inverseSurface">#1E293B</color>
     <color name="md_theme_inverseOnSurface">#F8FAFC</color>
     <color name="md_theme_inversePrimary">#AAC7FF</color>

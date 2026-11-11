@@ -20,9 +20,31 @@ class IconPackManager(private val context: Context) {
 
     private val packageManager: PackageManager = context.packageManager
 
-    // Using a simple cache to avoid repeated XML parsing during a session
+    // Using a simple cache to avoid repeated XML parsing during a session.
+    // Keyed by pack + versionCode, so a pack update re-parses instead of
+    // serving the pre-update mapping until process death. Uninstall /
+    // reinstall with the same versionCode is handled by invalidateCache(),
+    // called from the service's package receiver.
     companion object {
         private val iconMapCache = ConcurrentHashMap<String, Map<String, String>>()
+
+        /** Drop all cached mappings for a pack (install / update / remove). */
+        fun invalidateCache(iconPackPackage: String) {
+            val prefix = "$iconPackPackage|"
+            iconMapCache.keys.removeIf { it == iconPackPackage || it.startsWith(prefix) }
+        }
+    }
+
+    private fun cacheKey(iconPackPackage: String): String {
+        if (iconPackPackage == "none") return "none"
+        val version = try {
+            androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(
+                packageManager.getPackageInfo(iconPackPackage, 0)
+            )
+        } catch (_: Exception) {
+            0L
+        }
+        return "$iconPackPackage|$version"
     }
 
     fun getInstalledIconPacks(): List<IconPackInfo> {
@@ -42,49 +64,53 @@ class IconPackManager(private val context: Context) {
     }
 
     private fun loadAppFilter(iconPackPackage: String): Map<String, String> {
-        val cached = iconMapCache[iconPackPackage]
+        val key = cacheKey(iconPackPackage)
+        val cached = iconMapCache[key]
         if (cached != null) return cached
 
         val newMap = mutableMapOf<String, String>()
         if (iconPackPackage == "none") {
-            iconMapCache[iconPackPackage] = newMap
+            iconMapCache[key] = newMap
             return newMap
         }
 
         try {
             val iconPackRes = packageManager.getResourcesForApplication(iconPackPackage)
-            val inputStream = try {
+            // Assets first: assets/appfilter.xml is plain text XML and the
+            // text pull parser handles it.
+            val assetStream = try {
                 iconPackRes.assets.open("appfilter.xml")
-            } catch (e: Exception) {
+            } catch (_: Exception) {
+                null
+            }
+            if (assetStream != null) {
+                // use{} closes the stream even when the parser throws
+                // mid-loop (previously close() ran only on the success path,
+                // leaking the stream on a malformed appfilter.xml).
+                assetStream.use { stream ->
+                    val factory = XmlPullParserFactory.newInstance()
+                    val parser = factory.newPullParser()
+                    parser.setInput(InputStreamReader(stream))
+                    parseAppFilter(parser, newMap)
+                }
+            } else {
+                // Fallback: res/xml/appfilter.xml is COMPILED binary XML —
+                // openRawResource + a text parser throws on it. getXml
+                // returns an XmlResourceParser, which already IS a pull
+                // parser, so the same loop parses it directly.
                 val resId = iconPackRes.getIdentifier("appfilter", "xml", iconPackPackage)
-                if (resId != 0) iconPackRes.openRawResource(resId) else null
-            }
-            if (inputStream == null) {
-                // No appfilter at all: cache the empty map so we don't
-                // re-probe the pack on every icon load.
-                iconMapCache[iconPackPackage] = newMap
-                return newMap
-            }
-
-            // use{} closes the stream even when the parser throws
-            // mid-loop (previously close() ran only on the success path,
-            // leaking the stream on a malformed appfilter.xml).
-            inputStream.use { stream ->
-                val factory = XmlPullParserFactory.newInstance()
-                val parser = factory.newPullParser()
-                parser.setInput(InputStreamReader(stream))
-
-                var eventType = parser.eventType
-                while (eventType != XmlPullParser.END_DOCUMENT) {
-                    if (eventType == XmlPullParser.START_TAG && parser.name == "item") {
-                        val component = parser.getAttributeValue(null, "component")
-                        val drawable = parser.getAttributeValue(null, "drawable")
-                        if (component != null && drawable != null) {
-                            val pkg = extractPackage(component)
-                            if (pkg.isNotEmpty()) newMap[pkg] = drawable
-                        }
+                if (resId != 0) {
+                    val parser = iconPackRes.getXml(resId)
+                    try {
+                        parseAppFilter(parser, newMap)
+                    } finally {
+                        parser.close()
                     }
-                    eventType = parser.next()
+                } else {
+                    // No appfilter at all: cache the empty map so we don't
+                    // re-probe the pack on every icon load.
+                    iconMapCache[key] = newMap
+                    return newMap
                 }
             }
         } catch (e: Exception) {
@@ -93,8 +119,31 @@ class IconPackManager(private val context: Context) {
         // Cache even on failure (possibly partial/empty): a broken
         // appfilter was re-parsed on every getThemedIcon() call (once per
         // icon) because the empty map was never cached.
-        iconMapCache[iconPackPackage] = newMap
+        iconMapCache[key] = newMap
         return newMap
+    }
+
+    /**
+     * Shared <item component drawable> loop for both appfilter sources.
+     * Both the package key and the full component key are stored: the
+     * package key is the fallback getThemedIcon() looks up, and the
+     * component key keeps per-activity entries from collapsing to
+     * "last wins" for callers that resolve by component.
+     */
+    private fun parseAppFilter(parser: XmlPullParser, out: MutableMap<String, String>) {
+        var eventType = parser.eventType
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            if (eventType == XmlPullParser.START_TAG && parser.name == "item") {
+                val component = parser.getAttributeValue(null, "component")
+                val drawable = parser.getAttributeValue(null, "drawable")
+                if (component != null && drawable != null) {
+                    out[component] = drawable
+                    val pkg = extractPackage(component)
+                    if (pkg.isNotEmpty()) out[pkg] = drawable
+                }
+            }
+            eventType = parser.next()
+        }
     }
 
     private fun extractPackage(component: String): String {

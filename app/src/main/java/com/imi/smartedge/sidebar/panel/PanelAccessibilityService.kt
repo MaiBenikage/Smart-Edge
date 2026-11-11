@@ -17,8 +17,14 @@ data class ContentInfo(
 
 class PanelAccessibilityService : AccessibilityService() {
 
+    override fun attachBaseContext(base: android.content.Context) {
+        // See FloatingPanelService: services are outside AppCompat's
+        // per-app locales, so wrap the base context with the chosen
+        // language here.
+        super.attachBaseContext(LocaleHelper.onAttach(base))
+    }
+
     private lateinit var panelPrefs: PanelPreferences
-    private var lastImmersiveState = false
     private var lastPackageName: String? = null
     // Round-12 audit L-Medium: pre-allocate a single main-looper Handler
     // for the few postDelayed sites in this class. Previously each call to
@@ -45,36 +51,6 @@ class PanelAccessibilityService : AccessibilityService() {
     override fun onCreate() {
         super.onCreate()
         panelPrefs = PanelPreferences(this)
-    }
-
-    private fun checkImmersiveMode() {
-        if (!panelPrefs.serviceEnabled) return
-        val root = rootInActiveWindow ?: return
-        
-        // Strategy: Check if the main window covers the whole screen area
-        // and doesn't have system bars visible. Since we can't directly check system bar visibility
-        // easily from here, we look at the window bounds vs screen bounds.
-        
-        val displayMetrics = resources.displayMetrics
-        val screenRect = android.graphics.Rect(0, 0, displayMetrics.widthPixels, displayMetrics.heightPixels)
-        
-        val windowRect = android.graphics.Rect()
-        root.getBoundsInScreen(windowRect)
-        
-        // Many immersive apps (videos/games) have bounds that match screen closely.
-        // We use a small tolerance (5%) to account for notches, display cutouts, 
-        // or system-level padding that might report a slightly smaller root window.
-        val isImmersive = windowRect.width() >= screenRect.width() * 0.95 && 
-                         windowRect.height() >= screenRect.height() * 0.95
-        
-        if (isImmersive != lastImmersiveState) {
-            lastImmersiveState = isImmersive
-            val intent = Intent(this, FloatingPanelService::class.java).apply {
-                action = FloatingPanelService.ACTION_UPDATE_IMMERSIVE
-                putExtra("is_immersive", isImmersive)
-            }
-            startService(intent)
-        }
     }
 
     companion object {
@@ -147,6 +123,14 @@ class PanelAccessibilityService : AccessibilityService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!isRunning) {
+            // Started via startService while Accessibility is disabled: this
+            // is a plain, non-connected instance — performGlobalAction would
+            // return false and nothing would happen, and the instance would
+            // linger started. Ignore the command and stop immediately.
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_TAKE_SCREENSHOT -> {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
@@ -300,12 +284,18 @@ class PanelAccessibilityService : AccessibilityService() {
                     // reclaimed by GC.
                 }
                 walk(root)
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {
+                // A StackOverflowError on a very deep tree, or a nested node
+                // IPC failure, must not wedge the picker: the in-flight flag
+                // is reset in finally below, so the next refresh can run.
+                // The partial snapshot is still delivered.
+            } finally {
+                collectInFlight.set(false)
+            }
             // Audit fix: re-check the callback at post time. The old code
             // captured `cb` once and fired it even if the callback had been
             // replaced/nulled or the service destroyed while the walk ran.
             // Clearing in-flight first lets a pending re-run start promptly.
-            collectInFlight.set(false)
             accessibilityHandler.post {
                 if (contentPickerCallback === cb && isRunning) {
                     cb(out)
@@ -325,21 +315,27 @@ class PanelAccessibilityService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
             if (packageName == lastPackageName) return
-            lastPackageName = packageName
 
-            // Store current foreground package for Context/Game mode
-            panelPrefs.currentForegroundPackage = packageName
-            
             // Get the current active keyboard package
             val defaultIme = android.provider.Settings.Secure.getString(
                 contentResolver,
                 android.provider.Settings.Secure.DEFAULT_INPUT_METHOD
             )
             val imePackage = defaultIme?.substringBefore("/") ?: ""
-            
+
             val isSystemPkg = packageName == "android" || packageName == "com.android.systemui"
-            
-            if (packageName != "com.imi.smartedge.sidebar.panel" && packageName != imePackage && !isSystemPkg) {
+
+            // Record the foreground package only for real user apps. The IME,
+            // SystemUI and our own package must not become "foreground": with
+            // the keyboard up the launcher check, game detection and
+            // onlyOnHome all misread, and returning to the same app would
+            // count as a new launch for Recents.
+            if (packageName != this.packageName && packageName != imePackage && !isSystemPkg) {
+                lastPackageName = packageName
+
+                // Store current foreground package for Context/Game mode
+                panelPrefs.currentForegroundPackage = packageName
+
                 // Feed the sidebar "Recent" section: every user-app foreground
                 // switch counts as one use (debounced inside the manager).
                 try {
@@ -352,26 +348,15 @@ class PanelAccessibilityService : AccessibilityService() {
                     }
                     startService(closeIntent)
 
-                    // Notify service to update game mode state based on new foreground package
+                    // Notify service to update game mode state based on new foreground package.
+                    // Light signal: only handle visibility + game mode. The
+                    // full ACTION_REFRESH is for settings changes.
                     val refreshIntent = Intent(this, FloatingPanelService::class.java).apply {
-                        action = FloatingPanelService.ACTION_REFRESH
+                        action = FloatingPanelService.ACTION_FOREGROUND_CHANGED
                     }
                     startService(refreshIntent)
                 }
             }
-        }
-        
-        // Audit U-High: only re-evaluate immersive state on full window
-        // STATE changes. The previous logic also fired on every
-        // TYPE_WINDOW_CONTENT_CHANGED event, which arrives frequently during
-        // progress bar / animation / video playback frames — each invocation
-        // makes a synchronous `rootInActiveWindow` IPC + bounds calculation on
-        // the AccessibilityService main thread. Limiting to STATE_CHANGED
-        // drops the per-frame cost without changing visible behavior, since
-        // immersive/fullscreen state only flips at app-change boundaries in
-        // practice (entering/leaving fullscreen video re-issues a STATE event).
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            checkImmersiveMode()
         }
     }
 
@@ -379,10 +364,18 @@ class PanelAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         isRunning = false
-        val stopIntent = Intent(this, FloatingPanelService::class.java).apply {
-            action = FloatingPanelService.ACTION_STOP_RUNTIME
+        // Only stop the panel service when it is actually running AND no
+        // engine is left to drive it: if the user has usable automation,
+        // the panel keeps working without Accessibility (see
+        // isEngineAvailable), so an a11y unbind must not kill it.
+        if (FloatingPanelService.isRunning && !isEngineAvailable()) {
+            try {
+                val stopIntent = Intent(this, FloatingPanelService::class.java).apply {
+                    action = FloatingPanelService.ACTION_STOP_RUNTIME
+                }
+                startService(stopIntent)
+            } catch (_: Exception) {}
         }
-        startService(stopIntent)
         // Return true so onRebind is called if the system rebinds us: a
         // transient unbind (e.g. an accessibility-service restart) then
         // restarts the panel via ensurePanelRunning() instead of leaving
@@ -399,10 +392,14 @@ class PanelAccessibilityService : AccessibilityService() {
         // alive until it naturally runs, even though the service is gone.
         accessibilityHandler.removeCallbacksAndMessages(null)
         // Audit fix: shutdown() alone lets queued walks still run and post
-        // to a dead service. shutdownNow() drops queued walks, and clearing
-        // the callback (re-checked at post time in collectControlsAndNotify)
-        // makes an already-running walk a no-op when it finishes.
-        contentPickerCallback = null
+        // to a dead service. shutdownNow() drops queued walks. The callback
+        // itself is owned by FloatingPanelService — it is NOT cleared here:
+        // if Accessibility restarts while the picker is open, clearing it
+        // would leave the picker with no snapshots at all (its 3-empty-
+        // snapshot auto-exit never fires). Delivery is already gated by the
+        // isRunning check at post time in collectControlsAndNotify, and
+        // onUnbind sets isRunning = false.
+        isRunning = false
         collectPending.set(false)
         collectExecutor.shutdownNow()
     }

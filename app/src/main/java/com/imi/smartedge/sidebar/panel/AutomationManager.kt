@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -71,6 +72,18 @@ object AutomationManager {
     // and leaks the Listener if the Activity is destroyed mid-flight.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * The onResult waiting for a Shizuku permission grant/deny, set when
+     * checkRootAndRequestPermission asks Shizuku for permission and
+     * delivered by [permissionListener]. Without this, the grant result
+     * went nowhere and the settings switch that triggered the flow stayed
+     * checked while the pref was never saved.
+     */
+    @Volatile
+    private var pendingShizukuResult: ((Boolean) -> Unit)? = null
+
     // Serializes [_engineState]/[isAutomationCached] writes so the binder-death
     // path cannot lose a race to a mid-flight [refresh] and overwrite NONE with
     // a stale SHIZUKU_READY.
@@ -98,17 +111,43 @@ object AutomationManager {
         scope.launch {
             refreshMutex.withLock {
                 Log.w(TAG, "Shizuku binder died — invalidating engine cache")
-                isAutomationCached = false
-                _engineState.value = EngineState.NONE
+                // Downgrade, don't drop: if the previous state was
+                // SHIZUKU_AND_ROOT, root is still available — only the
+                // Shizuku half is gone. Dropping to NONE would make root
+                // actions fall back to a per-call sync re-probe (two su
+                // forks per action) and fire a false "engine lost" banner.
+                val was = _engineState.value
+                if (was == EngineState.SHIZUKU_AND_ROOT) {
+                    _engineState.value = EngineState.ROOT_READY
+                    // Cache stays true: root is still usable.
+                } else {
+                    isAutomationCached = false
+                    _engineState.value = EngineState.NONE
+                    Handler(Looper.getMainLooper()).post { onEngineLost?.invoke() }
+                }
             }
-            Handler(Looper.getMainLooper()).post { onEngineLost?.invoke() }
         }
     }
 
+    private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
+        // Shizuku started after the app: re-probe now instead of waiting
+        // for some activity's onResume (the service path never re-probes).
+        refresh(force = true)
+    }
+
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
-        if (grantResult == PackageManager.PERMISSION_GRANTED) {
-            // A permission grant is a real state change — bypass the throttle.
-            refresh(force = true)
+        val granted = grantResult == PackageManager.PERMISSION_GRANTED
+        // A permission grant is a real state change — bypass the throttle.
+        val refreshJob = if (granted) refresh(force = true) else null
+        // Deliver the pending checkRootAndRequestPermission callback (if
+        // any) on the main thread, after the refresh has completed, so
+        // the caller's UI reads the fresh engine state.
+        pendingShizukuResult?.let { pending ->
+            pendingShizukuResult = null
+            scope.launch {
+                refreshJob?.join()
+                mainHandler.post { pending(granted) }
+            }
         }
     }
 
@@ -121,8 +160,8 @@ object AutomationManager {
      * [force] is true, and single-flight: a probe already running makes
      * this call a no-op instead of forking a parallel `su` probe.
      */
-    fun refresh(force: Boolean = false) {
-        scope.launch {
+    fun refresh(force: Boolean = false): Job {
+        return scope.launch {
             if (!force) {
                 val now = android.os.SystemClock.uptimeMillis()
                 if (now - lastRefreshAtMs < REFRESH_THROTTLE_MS &&
@@ -138,6 +177,7 @@ object AutomationManager {
             if (listenerRegistered.compareAndSet(false, true)) {
                 try {
                     Shizuku.addBinderDeadListener(binderDeadListener)
+                    Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
                     Shizuku.addRequestPermissionResultListener(permissionListener)
                 } catch (e: Exception) {
                     // Shizuku not installed — roll back so a later refresh() can
@@ -279,9 +319,19 @@ object AutomationManager {
             val thread = Thread {
                 try {
                     // Bounded wait (was an unbounded waitFor() on a raw thread).
-                    onResult(waitForProcess(process))
+                    val granted = waitForProcess(process)
+                    if (granted) {
+                        // A grant is a real state change: refresh the engine
+                        // cache now, so isAutomationPossible() is true when
+                        // the caller's callback runs.
+                        refresh(force = true)
+                    }
+                    // The callback is documented as running on the main
+                    // thread (SecureSettingsDialog touches UI in it): post
+                    // it there instead of invoking it on this raw thread.
+                    mainHandler.post { onResult(granted) }
                 } catch (e: Exception) {
-                    onResult(false)
+                    mainHandler.post { onResult(false) }
                 }
             }
             thread.start()
@@ -291,45 +341,101 @@ object AutomationManager {
     }
 
     fun checkRootAndRequestPermission(context: Context, onResult: (Boolean) -> Unit) {
-        if (isShizukuAvailableInternal()) {
-            onResult(true)
+        // Probes fork processes and do binder IPC: never on the calling
+        // (UI) thread — the old code ran `which su` with a 10 s waitFor()
+        // inline from click listeners, freezing the UI for up to 10 s.
+        scope.launch {
+            if (isShizukuAvailableInternal()) {
+                mainHandler.post { onResult(true) }
+                return@launch
+            }
+            val suExists = suBinaryExists() || try {
+                val process = Runtime.getRuntime().exec("which su")
+                waitForProcess(process)
+            } catch (e: Exception) {
+                false
+            }
+            val shizukuAlive = isShizukuBinderAlive()
+            mainHandler.post {
+                showPermissionDialog(context, suExists, shizukuAlive, onResult)
+            }
+        }
+    }
+
+    /**
+     * su detection without forking: `which` is absent on some ROMs (false
+     * "no root"). Check the usual install paths first, including Magisk's.
+     */
+    private fun suBinaryExists(): Boolean =
+        java.io.File("/system/bin/su").exists() ||
+            java.io.File("/system/xbin/su").exists() ||
+            java.io.File("/sbin/su").exists()
+
+    /**
+     * Show the root / Shizuku grant dialog. Runs on the main thread (called
+     * after the background probes finish). The [onResult] callback is
+     * delivered on the main thread in every path — including when the
+     * dialog is dismissed without a button press, which previously never
+     * called back at all.
+     */
+    private fun showPermissionDialog(context: Context, suExists: Boolean, shizukuAlive: Boolean, onResult: (Boolean) -> Unit) {
+        // The activity may have gone away while the probes ran.
+        val activity = context as? android.app.Activity
+        if (activity != null && (activity.isFinishing || activity.isDestroyed)) {
+            onResult(false)
             return
         }
-
-        val suExists = try {
-            val process = Runtime.getRuntime().exec("which su")
-            waitForProcess(process)
-        } catch (e: Exception) {
-            false
-        }
-
+        var buttonPressed = false
         if (suExists) {
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
                 .setTitle(R.string.dialog_root_detected_title)
                 .setIcon(android.R.drawable.ic_dialog_info)
                 .setMessage(R.string.dialog_root_detected_msg)
-                .setPositiveButton(R.string.dialog_grant_permission) { _, _ -> requestRootPermission(onResult) }
-                .setNegativeButton(R.string.dialog_not_now) { _, _ -> onResult(false) }
+                .setPositiveButton(R.string.dialog_grant_permission) { _, _ ->
+                    buttonPressed = true
+                    requestRootPermission(onResult)
+                }
+                .setNegativeButton(R.string.dialog_not_now) { _, _ ->
+                    buttonPressed = true
+                    onResult(false)
+                }
                 .show()
-        } else if (isShizukuBinderAlive()) {
+            dialog.setOnDismissListener {
+                if (!buttonPressed) onResult(false)
+            }
+        } else if (shizukuAlive) {
             // The user has Shizuku installed but hasn't granted us access yet —
             // surface the ADB / dialog route so they can grant via Shizuku app.
             // (Was `isShizukuAvailableInternal()` here, which also requires
             // the grant — but the top of this function already returned when
             // that was true, so the branch could never be reached.)
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
                 .setTitle(R.string.dialog_shizuku_detected_title)
                 .setIcon(android.R.drawable.ic_dialog_info)
                 .setMessage(R.string.dialog_shizuku_detected_msg)
                 .setPositiveButton(R.string.dialog_ok) { _, _ ->
+                    buttonPressed = true
                     try {
+                        // The grant/deny result arrives via permissionListener,
+                        // which delivers this callback on the main thread.
+                        pendingShizukuResult = onResult
                         Shizuku.requestPermission(0)
                     } catch (e: Exception) {
+                        pendingShizukuResult = null
                         onResult(false)
                     }
                 }
-                .setNegativeButton(R.string.dialog_not_now) { _, _ -> onResult(false) }
+                .setNegativeButton(R.string.dialog_not_now) { _, _ ->
+                    buttonPressed = true
+                    onResult(false)
+                }
                 .show()
+            dialog.setOnDismissListener {
+                if (!buttonPressed) {
+                    pendingShizukuResult = null
+                    onResult(false)
+                }
+            }
         } else {
             onResult(false)
         }
@@ -338,6 +444,16 @@ object AutomationManager {
     // Audit L4: when the user just granted Shizuku permission but [refresh] is
     // still in-flight, the cache may not yet reflect READY — and execute() would
     // silently drop the call. The synchronous-fallback re-probes via the internal
+    // Sync-fallback throttle (see execute()): while the cache is cold,
+    // every execute() call would otherwise re-probe `su -c id` — on a
+    // device where Magisk denies us, each probe forks su (deny toast) and
+    // can stall up to 10 s. At most one sync probe per throttle window;
+    // inside the window the last outcome is reused, including negatives.
+    @Volatile
+    private var lastSyncProbeAtMs: Long = 0L
+    @Volatile
+    private var lastSyncProbeState: EngineState = EngineState.UNKNOWN
+
     // helpers on the calling thread (these are confined ping/exec calls, not
     // coroutines) so a single input event still gets through to the engine.
     fun execute(command: String): Boolean {
@@ -347,10 +463,27 @@ object AutomationManager {
             return runRoot(command)
         }
         // Audit L4 fallback: cache cold, re-probe synchronously before giving up.
+        // Rate-limited to one sync probe per refresh-throttle window: the
+        // fallback path runs per volume tick (MediaVolumeApplier), so an
+        // unthrottled probe forks `su -c id` on every tick.
+        val now = android.os.SystemClock.uptimeMillis()
+        val cached = lastSyncProbeState
+        val engine = if (cached != EngineState.UNKNOWN && now - lastSyncProbeAtMs < REFRESH_THROTTLE_MS) {
+            cached
+        } else {
+            val probed = when {
+                isShizukuAvailableInternal() -> EngineState.SHIZUKU_READY
+                isRootAvailableInternal() -> EngineState.ROOT_READY
+                else -> EngineState.NONE
+            }
+            lastSyncProbeState = probed
+            lastSyncProbeAtMs = now
+            probed
+        }
         return try {
-            when {
-                isShizukuAvailableInternal() -> runShizuku(command)
-                isRootAvailableInternal() -> runRoot(command)
+            when (engine) {
+                EngineState.SHIZUKU_READY -> runShizuku(command)
+                EngineState.ROOT_READY -> runRoot(command)
                 else -> false
             }
         } catch (e: Exception) {
@@ -388,9 +521,15 @@ object AutomationManager {
     fun performNotifications() = execute("cmd statusbar expand-notifications")
     fun performQuickSettings() = execute("cmd statusbar expand-settings")
 
-    fun performPowerMenu() = execute("input keyevent 26 --longpress") // Long press power for menu
+    // NOTE: --longpress must come BEFORE the keycode: AOSP's
+    // InputShellCommand only reads it as the first arg; after the keycode
+    // it is parsed as a second keycode (KEYCODE_UNKNOWN) and the press is
+    // a normal short POWER press (screen off) instead of the power menu.
+    fun performPowerMenu() = execute("input keyevent --longpress 26") // Long press power for menu
 
-    fun performLockScreen(): Boolean = execute("input keyevent 26")
+    // KEYCODE_SLEEP (223) turns the screen off without toggling: keyevent
+    // 26 (POWER) would wake the screen if it is already off.
+    fun performLockScreen(): Boolean = execute("input keyevent 223")
 
     fun performPreviousApp(): Boolean {
         performRecents()

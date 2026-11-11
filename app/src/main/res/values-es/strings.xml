@@ -2,7 +2,6 @@
 <resources>
     <string name="app_name">Smart Edge</string>
     <string name="app_picker_title">Elegir Aplicaciones</string>
-    <string name="settings_title">Ajustes de SidePanel</string>
     <string name="shortcut_toggle_short">Barra lateral</string>
     <string name="panel_running">Smart Edge está activo</string>
     <string name="panel_notification_channel">Servicio Smart Edge</string>
@@ -19,6 +18,27 @@
 
     <string name="section_appearance">Apariencia</string>
     <string name="section_interaction">Interacción</string>
+    <string name="section_handle_pill">Asa y píldora</string>
+    <string name="section_dashboard_tools">Herramientas del panel</string>
+    <string name="section_miscellaneous">Varios</string>
+    <string name="label_process_text">Smart Edge…</string>
+    <string name="label_notification_access">Acceso a notificaciones de Smart Edge</string>
+    <string name="engine_root_active">Motor: Root activo</string>
+    <string name="engine_shizuku_active">Motor: Shizuku activo</string>
+    <string name="engine_active">Motor: Activo</string>
+    <string name="engine_not_running">Motor: Servicio no en ejecución</string>
+    <string name="automation_shizuku_title">Shizuku</string>
+    <string name="automation_shizuku_desc">Automatización por ADB inalámbrico</string>
+    <string name="automation_root_title">Acceso Root</string>
+    <string name="automation_root_desc">Concesión directa del sistema</string>
+    <string name="status_suffix_root"> (Root)</string>
+    <string name="status_suffix_shizuku"> (Shizuku)</string>
+    <string name="status_suffix_stopped"> (Servicio detenido)</string>
+    <string name="desc_reset_to_default">Restablecer valor predeterminado</string>
+    <string name="desc_pick_color">Elegir color</string>
+    <string name="desc_start_stop_service">Iniciar o detener el servicio de la barra lateral</string>
+    <string name="desc_automation_settings">Ajustes de automatización</string>
+    <string name="toast_apps_load_failed">No se pudo cargar la lista de apps</string>
     <string name="section_handle">Tirador y Píldora</string>
     <string name="section_icons_colors">Iconos y Colores</string>
     <string name="section_home_screen">Pantalla de Inicio</string>
@@ -104,7 +124,6 @@
 
     <string name="only_on_home">Mostrar solo en el inicio</string>
     <string name="only_on_home_desc">Ocultar el tirador y los gestos cuando no estés en la pantalla de inicio/lanzador</string>
-    <string name="notch_gestures">Gestos en el Notch</string>
     <string name="enable_notch_gestures">Activar Gestos en el Notch</string>
     <string name="notch_gestures_desc">Añadir gestos táctiles al área del notch/agujero de la cámara</string>
     <string name="notch_tap_gestures">Gestos Táctiles en el Notch</string>
@@ -237,6 +256,10 @@
     <string name="toast_launcher_no_shortcut">El lanzador no admite accesos directos</string>
     <string name="toast_shortcut_added">Acceso directo añadido</string>
     <string name="label_toggle_sidebar">Alternar Barra Lateral</string>
+    <string name="tile_sidebar">Barra lateral</string>
+    <string name="tile_service_active">Servicio activo</string>
+    <string name="tile_accessibility_missing">Falta accesibilidad</string>
+    <string name="tile_service_stopped">Servicio detenido</string>
 
     <string name="label_native_gesture">Gesto Nativo</string>
 
@@ -265,8 +288,6 @@
     <string name="picker_custom_title">Intents y URLs personalizados</string>
     <string name="picker_edit">Editar</string>
     <string name="picker_add">Añadir</string>
-    <string name="picker_scanning_activities">Escaneando actividades…</string>
-    <string name="picker_scanning_shortcuts">Escaneando accesos directos…</string>
     <string name="picker_no_apps_found">No se encontraron apps</string>
     <string name="picker_no_matches_for">No hay resultados para “%1$s”</string>
     <string name="picker_no_activities_available">No hay actividades disponibles</string>
@@ -294,12 +315,28 @@
     <string name="toast_ui_colors_restored">Colores de UI restaurados</string>
     <string name="toast_accent_locked_origin">El color de acento está bloqueado en el tema OriginOS</string>
     <string name="toast_bg_locked_origin">El color de fondo está bloqueado en el tema OriginOS</string>
-    <string name="toast_export_saved">Guardado en Downloads/%1$s/%2$s</string>
+    <string name="toast_bg_locked_hyperos">El color de fondo es fijo en el tema HyperOS</string>
+    <string name="toast_export_saved_file">Copia de seguridad guardada</string>
     <string name="toast_export_failed">Error al exportar – no se pudo crear el archivo</string>
     <string name="toast_export_error">Error al exportar: %1$s</string>
     <string name="toast_overlay_required">Se requiere permiso de superposición</string>
     <string name="toast_accessibility_required">Se requiere el servicio de accesibilidad</string>
     <string name="toast_opening_sidebar">Abriendo barra lateral…</string>
+    <string name="toast_service_stopped_start_first">El servicio está detenido — inícialo primero</string>
+    <string name="log_session_started">Sesión de registro iniciada</string>
+    <string name="log_device">Dispositivo: %1$s (%2$s)</string>
+    <string name="log_overlay">Superposición: %1$s</string>
+    <string name="log_accessibility">Accesibilidad: %1$s</string>
+    <string name="log_service">Servicio: %1$s</string>
+    <string name="log_theme">Tema: %1$s</string>
+    <string name="log_status">Estado: VERSIÓN COMPLETA (código abierto)</string>
+    <string name="log_end">--- Fin del resumen ---</string>
+    <string name="log_granted">CONCEDIDO</string>
+    <string name="log_missing">FALTA</string>
+    <string name="log_active">ACTIVO</string>
+    <string name="log_inactive">INACTIVO</string>
+    <string name="log_running">EN EJECUCIÓN</string>
+    <string name="log_stopped">DETENIDO</string>
     <string name="toast_black_screen_failed">Pantalla negra falló</string>
     <string name="indicator_volume_percent">Volumen: %1$d%%</string>
     <string name="indicator_brightness_percent">Brillo: %1$d%%</string>
@@ -317,6 +354,8 @@
 
     <string name="xml_black_screen">Pantalla negra</string>
     <string name="xml_black_screen_desc">Muestra un overlay negro con brillo minimizado, retrocede para restaurar</string>
+    <string name="accessibility_action_decrease">Disminuir</string>
+    <string name="accessibility_action_increase">Aumentar</string>
     <string name="xml_brightness_controls">Control de brillo</string>
     <string name="xml_brightness_controls_desc">Añade el botón de control deslizante de brillo al panel</string>
     <string name="xml_cd_app_icon">Icono de app</string>
@@ -332,8 +371,8 @@
     <string name="xml_dedicated_tools_folder">Carpeta de herramientas dedicada</string>
     <string name="xml_dedicated_tools_folder_desc">Añade un botón de carpeta a la lista de apps</string>
     <string name="xml_enable_device_admin">Activar administrador de dispositivo</string>
-    <string name="xml_enable_device_admin_desc">Apagar pantalla sin bloqueo para Pantalla Negra</string>
-    <string name="xml_device_admin_desc">Permite a Pantalla Negra apagar la pantalla sin mostrar el bloqueo</string>
+    <string name="xml_enable_device_admin_desc">Bloqueo instantáneo para Bloqueo de pantalla, y apagado para Pantalla Negra</string>
+    <string name="xml_device_admin_desc">Permite a la herramienta Bloqueo de pantalla bloquear al instante; permite a Pantalla Negra apagar la pantalla</string>
 
     <string name="xml_edit_upper">EDITAR</string>
     <string name="xml_enable_dashboard_tools">Activar herramientas del panel</string>
@@ -342,14 +381,12 @@
     <string name="xml_grant_all">Conceder todo</string>
     <string name="xml_hint_title">Título</string>
     <string name="xml_lang_english">English</string>
-    <string name="xml_link_shizuku">Vincular Shizuku</string>
     <string name="xml_lock_screen_desc">Añade el botón de bloqueo de pantalla al panel</string>
     <string name="xml_content_picker_item">Selector de contenido</string>
     <string name="xml_content_picker_item_desc">Añade el botón de selector de contenido al panel</string>
     <string name="xml_main_trigger_gestures">Activador principal y gestos</string>
     <string name="xml_native_gesture_desc">Root/Shizuku: alto rendimiento</string>
     <string name="xml_no_items">Sin elementos</string>
-    <string name="xml_not_connected">No conectado</string>
     <string name="xml_notification_access">Acceso a notificaciones</string>
     <string name="xml_notification_required_desc">Necesario para el hub de productividad</string>
     <string name="xml_one_column">1 columna</string>
@@ -362,21 +399,18 @@
     <string name="xml_screenshot_button">Captura</string>
     <string name="xml_screenshot_button_desc">Añade el botón de captura al panel</string>
     <string name="xml_search_smart_edge">Buscar Smart Edge…</string>
-    <string name="xml_service_integration">Integración de servicios</string>
     <string name="xml_shape_circle">Círculo</string>
     <string name="xml_shape_square">Cuadrado</string>
     <string name="xml_shape_squircle">Squircle</string>
-    <string name="xml_shizuku">Shizuku</string>
-    <string name="xml_shizuku_service">Servicio Shizuku</string>
     <string name="xml_shortcuts_automation">Accesos directos y automatización</string>
     <string name="xml_specialized_interaction">Interacción especializada</string>
 
     <string name="xml_sys_info_overlay">Superposición de info del sistema</string>
     <string name="xml_sys_info_overlay_desc">Muestra RAM y batería en tiempo real</string>
-    <string name="xml_tab_activities">ACTIVITIES</string>
+    <string name="xml_tab_activities">ACTIVIDADES</string>
     <string name="xml_tab_apps">APPS</string>
-    <string name="xml_tab_shortcuts">SHORTCUTS</string>
-    <string name="xml_tab_custom">CUSTOM</string>
+    <string name="xml_tab_shortcuts">ACCESOS</string>
+    <string name="xml_tab_custom">PERSONALIZADO</string>
 
     <string name="xml_vertical_position">Posición vertical</string>
     <string name="xml_volume_controls">Control de volumen</string>
@@ -405,7 +439,6 @@
     <string name="dialog_choose_color">Elegir color</string>
     <string name="dialog_hex_color_hint">Color hex (#AARRGGBB)</string>
     <string name="dialog_system_activity_logs">Registros de actividad del sistema</string>
-    <string name="dialog_tap_to_open">Tocar para abrir</string>
     <string name="fmt_percent">%1$d%%</string>
     <string name="fmt_dp">%1$ddp</string>
     <string name="fmt_scale_x">%1$.1fx</string>
@@ -442,9 +475,6 @@
     <string name="xml_shape_rounded">Redondeado</string>
     <string name="theme_light">Claro</string>
     <string name="theme_dark">Oscuro</string>
-    <string name="tap_single">Un toque</string>
-    <string name="tap_double">Doble toque</string>
-    <string name="tap_triple">Triple toque</string>
     <string name="oem_miui_title">MIUI / HyperOS</string>
     <string name="oem_miui_subtitle">Xiaomi · POCO · Redmi</string>
     <string name="oem_samsung_title">One UI</string>

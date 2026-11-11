@@ -41,13 +41,6 @@ class EdgeHandleView @JvmOverloads constructor(
                 updatePill()
             }
         }
-    var isImmersiveMode: Boolean = false
-        set(value) {
-            if (field != value) {
-                field = value
-                updatePill()
-            }
-        }
     var isGameActive: Boolean = false
 
     private val panelPrefs = PanelPreferences(context)
@@ -79,14 +72,13 @@ class EdgeHandleView @JvmOverloads constructor(
     private var isDragMode = false
     private var dragStartRawY = 0f
     private var dragStartWindowY = 0f    // WindowManager params.y at drag start
-    private var dragStartRawX = 0f
     private var lastMoveRawY = 0f
     private var lastMoveRawX = 0f
 
     /** Long-press runnable: performs action */
     private val longPressRunnable = Runnable {
         if (panelPrefs.longPressAction != PanelPreferences.ACTION_NONE) {
-            performAction(panelPrefs.longPressAction)
+            performAction(panelPrefs.longPressAction, PanelPreferences.KEY_LONG_PRESS_ACTION)
             isTriggered = true
             // If we didn't enter drag mode, vibrate and reset scale
             if (!isDragMode) {
@@ -110,12 +102,28 @@ class EdgeHandleView @JvmOverloads constructor(
     private var tapCount = 0
     private val tapTimeoutMs = ViewConfiguration.getDoubleTapTimeout().toLong()
     private val tapRunnable = Runnable {
-        when (tapCount) {
-            1 -> performAction(panelPrefs.tapAction)
-            2 -> performAction(panelPrefs.doubleTapAction)
-            else -> if (tapCount >= 3) performAction(panelPrefs.tripleTapAction)
-        }
+        val currentCount = tapCount
         tapCount = 0
+        when (currentCount) {
+            1 -> performAction(panelPrefs.tapAction, PanelPreferences.KEY_TAP_ACTION)
+            2 -> {
+                // No double-tap action set: fall back to the single-tap
+                // action instead of doing nothing.
+                val action = panelPrefs.doubleTapAction
+                if (action != PanelPreferences.ACTION_NONE) performAction(action, PanelPreferences.KEY_DOUBLE_TAP_ACTION)
+                else performAction(panelPrefs.tapAction, PanelPreferences.KEY_TAP_ACTION)
+            }
+            else -> if (currentCount >= 3) {
+                val action = panelPrefs.tripleTapAction
+                if (action != PanelPreferences.ACTION_NONE) {
+                    performAction(action, PanelPreferences.KEY_TRIPLE_TAP_ACTION)
+                } else {
+                    val doubleAction = panelPrefs.doubleTapAction
+                    if (doubleAction != PanelPreferences.ACTION_NONE) performAction(doubleAction, PanelPreferences.KEY_DOUBLE_TAP_ACTION)
+                    else performAction(panelPrefs.tapAction, PanelPreferences.KEY_TAP_ACTION)
+                }
+            }
+        }
     }
 
     private val resetAlphaRunnable = Runnable {
@@ -131,13 +139,14 @@ class EdgeHandleView @JvmOverloads constructor(
         handler.postDelayed(resetAlphaRunnable, TEMP_ALPHA_RESET_DELAY_MS)
     }
 
-    private fun performAction(actionId: Int) {
+    private fun performAction(actionId: Int, slotKey: String) {
         ActionDispatcher.performAction(
             context = context,
             actionId = actionId,
             panelPrefs = panelPrefs,
             onTriggerPanel = { triggerPanel() },
-            onDragHandle = { enterDragMode() }
+            onDragHandle = { enterDragMode() },
+            slotKey = slotKey
         )
     }
 
@@ -153,7 +162,6 @@ class EdgeHandleView @JvmOverloads constructor(
         if (params != null) {
             dragStartWindowY = params.y.toFloat()
             dragStartRawY = lastMoveRawY
-            dragStartRawX = lastMoveRawX
         }
 
         // Grow the pill slightly to signal drag mode
@@ -165,13 +173,23 @@ class EdgeHandleView @JvmOverloads constructor(
         onTrigger?.invoke()
     }
 
-    private fun handleTap() {        tapCount++
+    private fun handleTap() {
+        // If no double/triple-tap actions are set, there is nothing to
+        // disambiguate: fire the single-tap action at once instead of
+        // waiting out the double-tap timeout on every tap (Notch logic).
+        if (panelPrefs.doubleTapAction == PanelPreferences.ACTION_NONE &&
+            panelPrefs.tripleTapAction == PanelPreferences.ACTION_NONE) {
+            performAction(panelPrefs.tapAction, PanelPreferences.KEY_TAP_ACTION)
+            tapCount = 0
+            return
+        }
+        tapCount++
         handler.removeCallbacks(tapRunnable)
 
         // If user reached triple tap, trigger immediately if configured
         if (tapCount >= 3) {
             if (panelPrefs.tripleTapAction != PanelPreferences.ACTION_NONE) {
-                performAction(panelPrefs.tripleTapAction)
+                performAction(panelPrefs.tripleTapAction, PanelPreferences.KEY_TRIPLE_TAP_ACTION)
                 tapCount = 0
                 return
             }
@@ -181,6 +199,10 @@ class EdgeHandleView @JvmOverloads constructor(
     }
 
     init {
+        // Same LTR pin as SidePanelView: the handle swipe direction and
+        // the pill corner radii use absolute left/right, so the overlay
+        // root must not mirror under an RTL locale.
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
         setLayerType(LAYER_TYPE_HARDWARE, null)
         setWillNotDraw(false)
         post { 
@@ -212,7 +234,7 @@ class EdgeHandleView @JvmOverloads constructor(
                         // a keyboard covering most of the screen pushes the
                         // handle past -maxOffset and off the top of the screen.
                         val safeMargin = (10 * density).toInt()
-                        val maxOffset = (screenHeight / 2) - (h / 2) - safeMargin
+                        val maxOffset = maxHandleOffsetPx(screenHeight, h, safeMargin)
                         val newY = (params.y - overlap - margin).coerceIn(-maxOffset, maxOffset)
 
                         imeAnimator?.cancel()
@@ -229,7 +251,7 @@ class EdgeHandleView @JvmOverloads constructor(
                     val h = if (showPill) (panelPrefs.handleHeight * density).toInt()
                             else (panelPrefs.handleHeight * 1.5f * density).toInt()
                     val safeMargin = (10 * density).toInt()
-                    val maxOffset = (screenHeight / 2) - (h / 2) - safeMargin
+                    val maxOffset = maxHandleOffsetPx(screenHeight, h, safeMargin)
                     val targetY = (panelPrefs.handleVerticalOffset * density).toInt().coerceIn(-maxOffset, maxOffset)
                     
                     if (params.y != targetY) {
@@ -258,10 +280,9 @@ class EdgeHandleView @JvmOverloads constructor(
         }
     }
 
-    fun updateState(isRight: Boolean, isPill: Boolean, immersive: Boolean, opacity: Int) {
+    fun updateState(isRight: Boolean, isPill: Boolean, opacity: Int) {
         isRightSide = isRight
         showPill = isPill
-        isImmersiveMode = immersive
         if (!isTempHighAlpha) {
             alpha = opacity / 100f
         }
@@ -273,7 +294,7 @@ class EdgeHandleView @JvmOverloads constructor(
         val hidePillInCurrentApp = panelPrefs.autoHideInFullscreen && panelPrefs.isWhitelistedFromAutoHide(currentPkg)
         
         // Build a unique key for the current visual state to prevent redundant updates
-        val stateKey = "${isRightSide}_${showPill}_${hidePillInCurrentApp}_${panelPrefs.pillColor}_${panelPrefs.handleWidth}_${panelPrefs.pillWidth}_${panelPrefs.panelOpacity}_${isImmersiveMode}"
+        val stateKey = "${isRightSide}_${showPill}_${hidePillInCurrentApp}_${panelPrefs.pillColor}_${panelPrefs.handleWidth}_${panelPrefs.pillWidth}_${panelPrefs.panelOpacity}"
         if (stateKey == lastPillState) return
         lastPillState = stateKey
 
@@ -315,23 +336,91 @@ class EdgeHandleView @JvmOverloads constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 post { systemGestureExclusionRects = listOf(Rect(0, 0, width, height)) }
             }
+            // Re-enable touch if the pill was hidden (and untouchable) in
+            // the previous app.
+            setWindowTouchable(true)
         } else {
             background = null
             alpha = 0f
+            // Hidden in this app: the pill must not block anything. Clear
+            // the gesture exclusion rects (they would swallow the system
+            // Back gesture on this strip) and make the window untouchable
+            // so touches reach the app underneath instead of dying on an
+            // invisible overlay.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                systemGestureExclusionRects = listOf(Rect(0, 0, width, height))
+                systemGestureExclusionRects = emptyList()
             }
+            setWindowTouchable(false)
         }
         invalidate()
     }
 
+    /**
+     * Toggle FLAG_NOT_TOUCHABLE on this view's window params. The params
+     * object is mutated first so the flag sticks even if the view is not
+     * attached yet; [updateLayoutSafely] applies it live when attached.
+     */
+    private fun setWindowTouchable(touchable: Boolean) {
+        val params = layoutParams as? WindowManager.LayoutParams ?: return
+        val newFlags = if (touchable) {
+            params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        } else {
+            params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        }
+        if (newFlags != params.flags) {
+            params.flags = newFlags
+            updateLayoutSafely(params)
+        }
+    }
+
     private var downTime = 0L
+
+    // Per-gesture snapshot of the prefs / device values the MOVE path
+    // needs, read once on ACTION_DOWN. Re-reading them on every MOVE
+    // re-splits and decodes the whole fullscreen-hide-list string
+    // (isWhitelistedFromAutoHide) and re-issues a binder call
+    // (getStreamMaxVolume via mediaMaxSteps) per event. A gesture lasts
+    // well under a second; these values cannot meaningfully change
+    // mid-gesture.
+    private var gestureHidePill = false
+    private var gestureGesturesEnabled = false
+    private var gestureSlideVolume = false
+    private var gestureSlideBrightness = false
+    private var gesturePixelsPerVolumeUnit = 1f
+    private var gesturePixelsPerBrightnessUnit = 1f
+    private var gestureSwipeThreshold = 0f
+    private var gestureHoldTime = HOLD_DURATION_MS
+
+    private fun snapshotGesturePrefs() {
+        gestureHidePill = panelPrefs.autoHideInFullscreen &&
+            panelPrefs.isWhitelistedFromAutoHide(panelPrefs.currentForegroundPackage)
+        gestureGesturesEnabled = panelPrefs.gesturesEnabled
+        gestureSlideVolume = panelPrefs.slideVolumeEnabled
+        gestureSlideBrightness = panelPrefs.slideBrightnessEnabled
+        val slideMultiplier = 100f / panelPrefs.slideSensitivity.coerceIn(1, 200)
+        // One unit = one hardware step for volume, 1 percent point for
+        // brightness. Volume steps match the phone's own media step count
+        // (see VolumeStepMath): the drag distance per step adapts so one
+        // unit is always exactly one hardware step, while brightness still
+        // accumulates its fractional part in FloatingPanelService.
+        gesturePixelsPerVolumeUnit =
+            (VolumeStepMath.dpPerStep(mediaMaxSteps(), 25f) * density * slideMultiplier).coerceAtLeast(1f)
+        gesturePixelsPerBrightnessUnit = (3f * density * slideMultiplier).coerceAtLeast(1f)
+        // Sensitivity scaling: 100% = base (16dp), 200% = 8dp, 50% = 32dp.
+        val swipeSensitivity = panelPrefs.swipeSensitivity.coerceIn(10, 300)
+        val scaledThreshold = triggerThreshold * (100f / swipeSensitivity)
+        val deliberate = isGameActive && panelPrefs.deliberateGestureInGames
+        gestureSwipeThreshold = if (deliberate) scaledThreshold * 2.5f else scaledThreshold
+        gestureHoldTime = if (deliberate) HOLD_DURATION_MS * 2 else HOLD_DURATION_MS
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (onTrigger == null) return false
-        
-        val hidePillInCurrentApp = panelPrefs.autoHideInFullscreen && panelPrefs.isWhitelistedFromAutoHide(panelPrefs.currentForegroundPackage)
-        if (hidePillInCurrentApp && !isDragMode) return false
+
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            snapshotGesturePrefs()
+        }
+        if (gestureHidePill && !isDragMode) return false
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
@@ -353,7 +442,7 @@ class EdgeHandleView @JvmOverloads constructor(
                 // Schedule long-press → perform action
                 handler.postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
 
-                if (showPill && panelPrefs.gesturesEnabled) {
+                if (showPill && gestureGesturesEnabled) {
                     animate().scaleX(0.85f).scaleY(0.95f).setDuration(SCALE_PRESS_SMALL_DURATION_MS).start()
                 }
 
@@ -381,10 +470,10 @@ class EdgeHandleView @JvmOverloads constructor(
                         
                         // Relative movement: NewPos = StartPos + (CurrentFinger - StartFinger)
                         val dy = event.rawY - dragStartRawY
-                        val maxOffset = (screenH / 2f) - (height / 2f) - safeMargin
+                        val maxOffset = maxHandleOffsetPx(screenH, height, safeMargin)
                         
                         val newY = (dragStartWindowY + dy).toInt()
-                            .coerceIn(-maxOffset.toInt(), maxOffset.toInt())
+                            .coerceIn(-maxOffset, maxOffset)
                         
                         if (params.y != newY) {
                             params.y = newY
@@ -397,27 +486,27 @@ class EdgeHandleView @JvmOverloads constructor(
                     val leftThreshold = screenW * 0.35f
                     val rightThreshold = screenW * 0.65f
                     
+                    // The 35%/65% thresholds are the hysteresis: after a
+                    // flip the opposite threshold applies, so the side
+                    // cannot immediately flip back.
                     if (isRightSide && event.rawX < leftThreshold) {
                         flipSide(PanelPreferences.SIDE_LEFT)
-                        // Reset drag start X when flipping to prevent immediate flip back
-                        dragStartRawX = event.rawX 
                     } else if (!isRightSide && event.rawX > rightThreshold) {
                         flipSide(PanelPreferences.SIDE_RIGHT)
-                        dragStartRawX = event.rawX
                     }
                     return true
                 }
 
                 // ── Slide Seek Gesture (Volume/Brightness) ────────────────────
-                val slideEnabled = panelPrefs.slideBrightnessEnabled || panelPrefs.slideVolumeEnabled
+                val slideEnabled = gestureSlideVolume || gestureSlideBrightness
                 if (slideEnabled && !hasPassedThreshold && !isTriggered) {
                     val absDx = Math.abs(event.rawX - startX)
                     val absDyFromStart = Math.abs(currentY - startY)
 
                     if (!isSlidingSeek && absDyFromStart > triggerThreshold / 2 && absDyFromStart > absDx * 2) {
                         // Volume/Brightness takes priority OVER the open-panel gesture
-                        val volumeOn = panelPrefs.slideVolumeEnabled
-                        val brightnessOn = panelPrefs.slideBrightnessEnabled
+                        val volumeOn = gestureSlideVolume
+                        val brightnessOn = gestureSlideBrightness
                         
                         isSlidingVolume = when {
                             volumeOn && brightnessOn -> isTopHalf 
@@ -434,26 +523,18 @@ class EdgeHandleView @JvmOverloads constructor(
 
                     if (isSlidingSeek) {
                         accumulatedDy += dySinceLast
-                        val sensitivity = panelPrefs.slideSensitivity.coerceIn(1, 200)
-                        val multiplier = 100f / sensitivity
-
-                        // One unit = one hardware step for volume, 1 percent
-                        // point for brightness. Volume steps are matched to
-                        // the phone's own media step count (see
-                        // VolumeStepMath): the drag distance per step adapts
-                        // so one unit is always exactly one hardware step,
-                        // while brightness still accumulates its fractional
-                        // part in FloatingPanelService.adjustBrightness.
+                        // Distances per unit come from the ACTION_DOWN
+                        // snapshot (see snapshotGesturePrefs), not from
+                        // fresh pref reads / binder calls per MOVE.
                         if (isSlidingVolume) {
-                            val stepDp = VolumeStepMath.dpPerStep(mediaMaxSteps(), 25f)
-                            val pixelsPerUnit = (stepDp * density * multiplier).coerceAtLeast(1f)
+                            val pixelsPerUnit = gesturePixelsPerVolumeUnit
                             if (Math.abs(accumulatedDy) >= pixelsPerUnit) {
                                 val units = (accumulatedDy / pixelsPerUnit).toInt()
                                 onAdjustVolume?.invoke(-units)
                                 accumulatedDy -= units * pixelsPerUnit
                             }
                         } else {
-                            val pixelsPerUnit = (3f * density * multiplier).coerceAtLeast(1f)
+                            val pixelsPerUnit = gesturePixelsPerBrightnessUnit
                             if (Math.abs(accumulatedDy) >= pixelsPerUnit) {
                                 val units = (accumulatedDy / pixelsPerUnit).toInt()
                                 onAdjustBrightness?.invoke(-units)
@@ -465,19 +546,10 @@ class EdgeHandleView @JvmOverloads constructor(
                 }
 
                 // ── Normal panel-open gesture ─────────────────────────────────
-                if (!panelPrefs.gesturesEnabled || isTriggered) return true
+                if (!gestureGesturesEnabled || isTriggered) return true
                 val dx = if (isRightSide) (startX - event.rawX) else (event.rawX - startX)
-                
-                // Sensitivity scaling: 100% = base (16dp), 200% = 8dp, 50% = 32dp
-                val sensitivity = panelPrefs.swipeSensitivity.coerceIn(10, 300)
-                val baseThreshold = 16 * density
-                val scaledThreshold = baseThreshold * (100f / sensitivity)
-                
-                val effectiveThreshold = if (isGameActive && panelPrefs.deliberateGestureInGames) {
-                    scaledThreshold * 2.5f 
-                } else {
-                    scaledThreshold
-                }
+
+                val effectiveThreshold = gestureSwipeThreshold
 
                 // Tolerance for horizontal movement before cancelling long-press
                 // We double it to allow for more natural finger roll/wobble when trying to move handle
@@ -494,16 +566,12 @@ class EdgeHandleView @JvmOverloads constructor(
                 if (!hasPassedThreshold && dx > effectiveThreshold) {
                     hasPassedThreshold = true
                     handler.removeCallbacks(longPressRunnable)
-                    
-                    val effectiveHoldTime = if (isGameActive && panelPrefs.deliberateGestureInGames) {
-                        HOLD_DURATION_MS * 2 
-                    } else {
-                        HOLD_DURATION_MS
-                    }
-                    
-                    handler.postDelayed(holdRunnable, effectiveHoldTime)
+
+                    // Hold time comes from the ACTION_DOWN snapshot (games
+                    // double it when deliberate gestures are on).
+                    handler.postDelayed(holdRunnable, gestureHoldTime)
                     if (showPill) {
-                        animate().scaleX(0.7f).scaleY(0.9f).setDuration(effectiveHoldTime).start()
+                        animate().scaleX(0.7f).scaleY(0.9f).setDuration(gestureHoldTime).start()
                     }
                 }
 
@@ -528,7 +596,7 @@ class EdgeHandleView @JvmOverloads constructor(
                     return true
                 }
 
-                if (showPill && !isTriggered && panelPrefs.gesturesEnabled) {
+                if (showPill && !isTriggered && gestureGesturesEnabled) {
                     animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 }
 
@@ -570,7 +638,6 @@ class EdgeHandleView @JvmOverloads constructor(
         if (isDragMode) {
             dragStartWindowY = params.y.toFloat()
             dragStartRawY = lastMoveRawY
-            dragStartRawX = lastMoveRawX
         }
 
         updatePill()
@@ -626,6 +693,10 @@ class EdgeHandleView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         handler.removeCallbacksAndMessages(null)
+        // A running IME-avoidance animator keeps the view and its params
+        // alive and keeps calling updateLayoutSafely after detach.
+        imeAnimator?.cancel()
+        imeAnimator = null
     }
 
     fun updateFromPrefs() {
@@ -642,10 +713,14 @@ class EdgeHandleView @JvmOverloads constructor(
             val screenH = resources.displayMetrics.heightPixels
             val safeMargin = (10 * density).toInt()
 
-            val h = if (showPill) (prefs.handleHeight * density).toInt()
-                    else (prefs.handleHeight * 1.5f * density).toInt()
+            val h = cappedHandleHeightPx(
+                if (showPill) (prefs.handleHeight * density).toInt()
+                else (prefs.handleHeight * 1.5f * density).toInt(),
+                screenH,
+                safeMargin
+            )
 
-            val maxOffset = (screenH / 2) - (h / 2) - safeMargin
+            val maxOffset = maxHandleOffsetPx(screenH, h, safeMargin)
             val requestedOffset = (prefs.handleVerticalOffset * density).toInt()
 
             params.y = requestedOffset.coerceIn(-maxOffset, maxOffset)

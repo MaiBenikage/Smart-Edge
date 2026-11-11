@@ -34,7 +34,9 @@ import java.util.concurrent.Executors
  *    each sets an absolute target, so out-of-order completion would move
  *    the volume backwards. The target is re-derived from the live volume
  *    when the task runs, so queued ticks compose instead of overwriting
- *    each other.
+ *    each other. Ticks are coalesced: a fast drag accumulates its steps
+ *    and one task drains them, instead of one shell call per tick (which
+ *    kept the volume changing for seconds after the finger lifted).
  * 3. Relative `adjustStreamVolume` as a last resort (coarse on phones whose
  *    adjust step is more than one index). It reads back after every call
  *    and stops as soon as the target is reached or crossed, or when an
@@ -58,6 +60,17 @@ object MediaVolumeApplier {
         Thread(r, "MediaVolumeApplier-shell").apply { isDaemon = true }
     }
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Coalescing state for the shell path: a fast drag queues many ticks,
+    // each of which used to run its own shell call (hundreds of ms each),
+    // so the volume kept changing for seconds after the finger lifted.
+    // Steps now accumulate in pendingShellSteps and a single task drains
+    // them; callbacks accumulate alongside and all fire with the drain's
+    // result (callers only refresh the indicator from the live volume).
+    private val pendingShellSteps = java.util.concurrent.atomic.AtomicInteger(0)
+    private val shellTaskActive = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val pendingShellCallbacks =
+        java.util.Collections.synchronizedList(mutableListOf<(Boolean) -> Unit>())
 
     fun apply(
         audioManager: AudioManager,
@@ -98,7 +111,37 @@ object MediaVolumeApplier {
         }
 
         // 2. Exact absolute set via the privileged shell, off the main thread.
-        shellExecutor.execute {
+        // Coalesced: the steps accumulate and a single task drains them (see
+        // drainShellSteps), instead of one shell call per tick.
+        onApplied?.let { pendingShellCallbacks.add(it) }
+        pendingShellSteps.addAndGet(steps)
+        if (shellTaskActive.compareAndSet(false, true)) {
+            shellExecutor.execute { drainShellSteps(audioManager, max) }
+        }
+        // Pending: the callback fires when the background work completes.
+        return false
+    }
+
+    /**
+     * Drains the accumulated shell steps in batches. Each batch re-derives
+     * its target from the live volume and applies the accumulated steps as
+     * one absolute set (shell, then the relative-adjust fallback), then
+     * fires the callbacks that arrived with those steps. Loops while new
+     * ticks arrive mid-drain; the active flag is only cleared when a drain
+     * finds nothing pending, with a re-check so a tick that lands between
+     * the last take and the clear is never stranded.
+     */
+    private fun drainShellSteps(audioManager: AudioManager, max: Int) {
+        while (true) {
+            val steps = pendingShellSteps.getAndSet(0)
+            if (steps == 0) {
+                shellTaskActive.set(false)
+                if (pendingShellSteps.get() != 0 && shellTaskActive.compareAndSet(false, true)) {
+                    continue
+                }
+                invokePendingCallbacks(true)
+                return
+            }
             var applied = false
             try {
                 // Re-derive the target from the live volume: queued ticks
@@ -122,11 +165,18 @@ object MediaVolumeApplier {
                 val liveTarget = MediaVolumeMath.target(live, steps, max)
                 applied = applyByAdjust(audioManager, steps, liveTarget)
             }
-            val result = applied
-            mainHandler.post { onApplied?.invoke(result) }
+            invokePendingCallbacks(applied)
         }
-        // Pending: the callback fires when the background work completes.
-        return false
+    }
+
+    private fun invokePendingCallbacks(applied: Boolean) {
+        val callbacks: List<(Boolean) -> Unit> = synchronized(pendingShellCallbacks) {
+            val copy = pendingShellCallbacks.toList()
+            pendingShellCallbacks.clear()
+            copy
+        }
+        if (callbacks.isEmpty()) return
+        mainHandler.post { callbacks.forEach { it(applied) } }
     }
 
     /**

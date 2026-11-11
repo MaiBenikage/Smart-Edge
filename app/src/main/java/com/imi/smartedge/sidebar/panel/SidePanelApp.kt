@@ -12,7 +12,11 @@ class SidePanelApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        
+
+        // Apply the explicitly-chosen language to AppCompat's per-app
+        // locales so every activity gets it from process start.
+        LocaleHelper.applyPersistedLocale(this)
+
         // Apply the saved theme mode
         applyAppTheme(this)
         

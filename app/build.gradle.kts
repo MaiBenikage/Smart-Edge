@@ -1,5 +1,4 @@
 import java.util.Properties
-import java.io.FileInputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -15,9 +14,10 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "1"
+        // Release tags pass -PversionName=<tag without the leading v>
+        // (release.yml); local and CI builds fall back to "1".
+        versionName = providers.gradleProperty("versionName").getOrElse("1")
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Audit/M: AGP 8.x deprecated `resConfigs("en", "es")` in favour of
         // the underlying DSL property `resourceConfigurations`. Same effect —
         // strip all non en/es resource locales from the APK so we ship the
@@ -28,14 +28,21 @@ android {
     val keystorePropertiesFile = rootProject.file("keystore.properties")
     if (keystorePropertiesFile.exists()) {
         val keystoreProperties = Properties()
-        keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+        keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+
+        // Fail with a clear message instead of a bare `as String` cast
+        // (which throws "null cannot be cast to non-null type String")
+        // when the workflow writes an incomplete keystore.properties.
+        fun key(name: String): String =
+            keystoreProperties.getProperty(name)
+                ?: error("keystore.properties is missing $name")
 
         signingConfigs {
             create("release") {
-                keyAlias = keystoreProperties["KEY_ALIAS"] as String
-                keyPassword = keystoreProperties["KEY_PASSWORD"] as String
-                storeFile = file(keystoreProperties["STORE_FILE"] as String)
-                storePassword = keystoreProperties["STORE_PASSWORD"] as String
+                keyAlias = key("KEY_ALIAS")
+                keyPassword = key("KEY_PASSWORD")
+                storeFile = file(key("STORE_FILE"))
+                storePassword = key("STORE_PASSWORD")
             }
         }
     }
@@ -107,5 +114,12 @@ dependencies {
     // Provide a real org.json on the JVM unit-test classpath to replace the
     // Android-stub `org.json` (which throws `RuntimeException("Stub!")` on use).
     // android.jar is on the unit-test compileClasspath but not at runtime.
+    //
+    // NB: this is Douglas Crockford's org.json:json (20231013), NOT the older
+    // fork of org.json that Android bundles on device — the two differ in
+    // edge cases (optString / null handling, number parsing), so a test can
+    // pass on the JVM and behave differently on the phone. Keep fixtures to
+    // behaviour both implementations share. The version itself is current
+    // and contains the CVE-2023-5072 fix; it is test-only.
     testImplementation("org.json:json:20231013")
 }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 29+ overlay of Theme.SidePanel.M3: android:forceDarkAllowed was
+         added in API 29, so it cannot live in values/themes_m3.xml (lint
+         NewApi fails the release build). This file must keep the FULL style
+         — a values-v29 style replaces the base one outright on API 29+,
+         so omitting an item here would drop it. The app's DayNight theme
+         handles dark mode itself, so force-dark stays off. -->
+    <style name="Theme.SidePanel.M3" parent="Base.Theme.SidePanel.M3">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="toolbarStyle">@style/SidePanel.ToolbarStyle</item>
+        <item name="materialCardViewStyle">@style/SidePanel.CardViewStyle</item>
+        <item name="materialButtonStyle">@style/SidePanel.ButtonStyle</item>
+        <item name="materialSwitchStyle">@style/SidePanel.MaterialSwitchStyle</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

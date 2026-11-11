@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.util.Log
 import android.view.View
 import android.view.View.GONE
 import android.widget.TextView
@@ -55,37 +54,6 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
         }
 
         setupListeners()
-        registerPinnedShortcut()
-    }
-
-    private fun registerPinnedShortcut() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val shortcutManager = getSystemService(android.content.pm.ShortcutManager::class.java)
-
-            val toggleIntent = Intent(this, ToggleActivity::class.java).apply {
-                action = ToggleActivity.ACTION_TOGGLE
-            }
-
-            val shortcut = android.content.pm.ShortcutInfo.Builder(this, "toggle_sidebar")
-                .setShortLabel("Toggle Sidebar")
-                .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
-                .setIntent(toggleIntent)
-                .build()
-
-            try {
-                // Preserve any other dynamic shortcuts instead of
-                // replacing the whole list: the old code wiped every
-                // other dynamic shortcut on every launch.
-                val existing = try {
-                    shortcutManager.dynamicShortcuts
-                } catch (_: Exception) {
-                    emptyList()
-                }.filter { it.id != "toggle_sidebar" }
-                shortcutManager.dynamicShortcuts = existing + shortcut
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Failed to set dynamic shortcuts", e)
-            }
-        }
     }
 
     private fun setupListeners() {
@@ -160,6 +128,10 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
 
     private fun updateServiceStatus() {
         val isEnabled = panelPrefs.serviceEnabled
+        // "Open Sidebar" does nothing while the service is off (the
+        // service ignores ACTION_OPEN then), so disable it here; the
+        // start/stop button above is how the service gets turned on.
+        binding.btnTogglePanel.isEnabled = isEnabled
         val isAccessibilityEnabled = isAccessibilityServiceEnabled()
         val automationActive = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
 
@@ -167,23 +139,23 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
 
         if (isEnabled && (isAccessibilityEnabled || automationActive)) {
             // Service is fully ACTIVE (Green)
-            binding.btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
+            binding.btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(androidx.core.content.ContextCompat.getColor(this, R.color.md_theme_success))
             binding.btnStartStop.setIconTintResource(android.R.color.white)
 
             binding.btnStartStopClassic.text = getString(R.string.btn_stop)
-            binding.btnStartStopClassic.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
+            binding.btnStartStopClassic.backgroundTintList = android.content.res.ColorStateList.valueOf(androidx.core.content.ContextCompat.getColor(this, R.color.md_theme_success))
             binding.btnStartStopClassic.setTextColor(Color.WHITE)
 
             val statusSuffix = when {
-                automationActive && AutomationManager.isRootAvailable() -> " (Root)"
-                automationActive && AutomationManager.isShizukuAvailable() -> " (Shizuku)"
-                panelPrefs.useAutomationForGestures -> " (Service Stopped)"
+                automationActive && AutomationManager.isRootAvailable() -> getString(R.string.status_suffix_root)
+                automationActive && AutomationManager.isShizukuAvailable() -> getString(R.string.status_suffix_shizuku)
+                panelPrefs.useAutomationForGestures -> getString(R.string.status_suffix_stopped)
                 else -> ""
             }
             binding.tvStatus.text = if (automationActive) getString(R.string.status_active_prefix, statusSuffix) else if (panelPrefs.useAutomationForGestures) getString(R.string.status_automation_stopped) else getString(R.string.status_service_active)
             theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, typedValue, true)
             binding.tvStatus.setTextColor(typedValue.data)
-            binding.statusDot.imageTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
+            binding.statusDot.imageTintList = android.content.res.ColorStateList.valueOf(androidx.core.content.ContextCompat.getColor(this, R.color.md_theme_success))
         } else if (isEnabled && !isAccessibilityEnabled) {
             // Preference is ON, but Accessibility is MISSING (Yellow warning)
             binding.btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#F1C40F"))
@@ -221,21 +193,25 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
         val time = sdf.format(java.util.Date())
 
         val logBuilder = StringBuilder()
-        logBuilder.append("[$time] Log Session Started\n")
-        logBuilder.append("[$time] Device: ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE})\n")
-        logBuilder.append("[$time] Overlay: ${if (hasOverlayPermission()) "GRANTED" else "MISSING"}\n")
-        logBuilder.append("[$time] Accessibility: ${if (isAccessibilityServiceEnabled()) "ACTIVE" else "INACTIVE"}\n")
-        logBuilder.append("[$time] Service: ${if (FloatingPanelService.isRunning) "RUNNING" else "STOPPED"}\n")
-        logBuilder.append("[$time] Theme: ${panelPrefs.uiTheme.uppercase()}\n")
-        logBuilder.append("[$time] Status: FULL VERSION (Open Source)\n")
-        logBuilder.append("[$time] --- End of Summary ---")
+        logBuilder.append("[$time] ${getString(R.string.log_session_started)}\n")
+        logBuilder.append("[$time] ${getString(R.string.log_device, android.os.Build.MODEL, android.os.Build.VERSION.RELEASE)}\n")
+        logBuilder.append("[$time] ${getString(R.string.log_overlay, getString(if (hasOverlayPermission()) R.string.log_granted else R.string.log_missing))}\n")
+        logBuilder.append("[$time] ${getString(R.string.log_accessibility, getString(if (isAccessibilityServiceEnabled()) R.string.log_active else R.string.log_inactive))}\n")
+        logBuilder.append("[$time] ${getString(R.string.log_service, getString(if (FloatingPanelService.isRunning) R.string.log_running else R.string.log_stopped))}\n")
+        logBuilder.append("[$time] ${getString(R.string.log_theme, panelPrefs.uiTheme.uppercase())}\n")
+        logBuilder.append("[$time] ${getString(R.string.log_status)}\n")
+        logBuilder.append("[$time] ${getString(R.string.log_end)}")
 
         val tv = TextView(this).apply {
             text = logBuilder.toString()
-            setPadding(64, 32, 64, 32)
+            // dp, not raw px: 64px is 24dp on an xxhdpi screen but 64dp
+            // on an mdpi one.
+            setPadding(dpToPx(24), dpToPx(12), dpToPx(24), dpToPx(12))
             typeface = android.graphics.Typeface.MONOSPACE
             textSize = 12f // 12f is the float for sp
-            setTextColor(Color.parseColor("#B3FFFFFF"))
+            // Theme-aware text: the old 70%-white was unreadable on the
+            // dialog's white surface in light mode.
+            setTextColor(resolveThemeColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
             layoutParams = android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -389,6 +365,12 @@ private fun requestOverlayPermission() {
     }
 
     private fun triggerPanelToggle() {
+        // The service ignores ACTION_OPEN while disabled: don't show the
+        // "Opening sidebar" toast for a panel that will never open.
+        if (!panelPrefs.serviceEnabled) {
+            binding.root.showModernToast(getString(R.string.toast_service_stopped_start_first))
+            return
+        }
         if (!ensureEngineReady()) return
 
         binding.root.showModernToast(getString(R.string.toast_opening_sidebar))

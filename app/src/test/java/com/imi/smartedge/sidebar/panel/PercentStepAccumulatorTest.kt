@@ -6,8 +6,9 @@ import org.junit.Test
 
 /**
  * Pure-JVM unit tests for [PercentStepAccumulator] — the 1% step logic for
- * brightness, shared by the edge-slide path (FloatingPanelService) and the
- * tools long-press-drag path (SidePanelView).
+ * brightness, used by the edge-slide path (FloatingPanelService) and the
+ * tools long-press-drag path (SidePanelView), each with its own instance
+ * (the remainder does not carry between the two paths).
  *
  * The contract: each call adds `deltaPercent` percent points and returns
  * the whole hardware steps/levels that should now be applied, carrying the
@@ -165,6 +166,21 @@ class PercentStepAccumulatorTest {
         acc.refund(0, 15)
         acc.refund(1, 0)
         assertEquals(5.0, acc.pendingPercent(), 0.001)
+    }
+
+    @Test
+    fun `reversal after accumulating past the stop is immediate`() {
+        // Regression: the callers used to refund() the steps the 0/255 clamp
+        // swallowed, which made the first tick in the opposite direction
+        // re-emit the refunded steps instead of moving the brightness (a
+        // dead zone at both ends). Clamp-swallowed steps are now dropped,
+        // so the accumulator stays consistent and reversal moves at once.
+        val acc = PercentStepAccumulator()
+        repeat(10) { acc.add(1, 255) } // dragged against the top stop
+        assertTrue(acc.add(-1, 255) < 0)
+        val acc2 = PercentStepAccumulator()
+        repeat(10) { acc2.add(-1, 255) } // dragged against the bottom stop
+        assertTrue(acc2.add(1, 255) > 0)
     }
 
     @Test

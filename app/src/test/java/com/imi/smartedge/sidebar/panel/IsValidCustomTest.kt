@@ -1,5 +1,6 @@
 package com.imi.smartedge.sidebar.panel
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -65,9 +66,22 @@ class IsValidCustomTest {
         assertFalse(isValid(longTitle, "https://example.com"))
     }
 
+    @Test fun `title of exactly 64 chars is accepted`() {
+        // Boundary: the cap is `length > 64`, so exactly 64 must pass —
+        // a `>=` off-by-one would fail this while passing the 65-char test.
+        assertTrue(isValid("x".repeat(64), "https://example.com"))
+    }
+
     @Test fun `content above 2048 chars is rejected`() {
         val padded = "https://example.com/" + "a".repeat(2048)
         assertFalse(isValid("Padded", padded))
+    }
+
+    @Test fun `content of exactly 2048 chars is accepted`() {
+        // "https://example.com/" is 20 chars; pad to exactly 2048 total.
+        val padded = "https://example.com/" + "a".repeat(2028)
+        assertEquals(2048, padded.length)
+        assertTrue(isValid("Padded", padded))
     }
 
     @Test fun `leading whitespace before scheme is tolerated`() {

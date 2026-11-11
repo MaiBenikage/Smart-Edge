@@ -30,6 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -52,6 +53,16 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOutline)
     private val surfaceContainerColor: Int
         get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorSurfaceContainer)
+    private val primaryColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorPrimary)
+    private val onPrimaryColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnPrimary)
+    /** One success green (light + night variants in colors_m3.xml). */
+    private val successColor: Int
+        get() = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.md_theme_success)
+    /** Primary at 10% alpha, for tinted icon backgrounds. */
+    private val primaryTintColor: Int
+        get() = androidx.core.graphics.ColorUtils.setAlphaComponent(primaryColor, 26)
 
     /** Last automation state seen by refreshUI: the grant result + dismiss fire only on a false -> true transition. */
     private var lastAutomationPossible: Boolean? = null
@@ -67,7 +78,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
                     val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null)
                     process.waitFor()
                 } catch (e: Exception) {}
-                withContext(Dispatchers.Main) { refreshUI() }
+                withContext(Dispatchers.Main) { refreshAfterGrant() }
             }
         }
     }
@@ -168,12 +179,12 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 14 * density
-                setColor(Color.parseColor("#1A4A9EFF"))
+                setColor(primaryTintColor)
             }
         }
         val iconView = ImageView(ctx).apply {
             setImageResource(android.R.drawable.ic_menu_manage)
-            imageTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#4A9EFF"))
+            imageTintList = android.content.res.ColorStateList.valueOf(primaryColor)
             val pad = (12 * density).toInt()
             setPadding(pad, pad, pad, pad)
         }
@@ -195,7 +206,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         tvStatus = TextView(ctx).apply {
             text = if (isGranted) getString(R.string.permission_granted_status) else getString(R.string.permission_missing_status)
             textSize = 12f
-            setTextColor(if (isGranted) Color.parseColor("#00FF00") else onSurfaceVariantColor)
+            setTextColor(if (isGranted) successColor else onSurfaceVariantColor)
             if (isGranted) typeface = Typeface.DEFAULT_BOLD
         }
         titleCol.addView(tvTitle)
@@ -204,14 +215,14 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         // Add Automation Status
         tvAutoStatus = TextView(ctx).apply {
             val autoStatus = when {
-                AutomationManager.isRootAvailable() -> "Engine: Root Active"
-                AutomationManager.isShizukuAvailable() -> "Engine: Shizuku Active"
-                else -> "Engine: Service Not Running"
+                AutomationManager.isRootAvailable() -> getString(R.string.engine_root_active)
+                AutomationManager.isShizukuAvailable() -> getString(R.string.engine_shizuku_active)
+                else -> getString(R.string.engine_not_running)
             }
             text = autoStatus
             textSize = 11f
             val isAutoActive = AutomationManager.isAutomationPossible()
-            setTextColor(if (isAutoActive) Color.parseColor("#00FF00") else onSurfaceVariantColor)
+            setTextColor(if (isAutoActive) successColor else onSurfaceVariantColor)
             if (isAutoActive) typeface = Typeface.DEFAULT_BOLD
             setPadding(0, (2 * density).toInt(), 0, 0)
         }
@@ -256,7 +267,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         root.addView(tvExplainer)
 
         // Shizuku Row
-        root.addView(createAutomationRow(ctx, density, "Shizuku", "Wireless ADB automation",
+        root.addView(createAutomationRow(ctx, density, getString(R.string.automation_shizuku_title), getString(R.string.automation_shizuku_desc),
             onGrant = {
                 // Blocking `pm grant` runs on Dispatchers.IO: this is a
                 // button callback (main thread) and waitFor() froze the sheet.
@@ -275,7 +286,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
                             }
                         }
                     } catch (e: Exception) {}
-                    withContext(Dispatchers.Main) { refreshUI() }
+                    withContext(Dispatchers.Main) { refreshAfterGrant() }
                 }
             },
             onRevoke = {
@@ -289,13 +300,13 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
                             }
                         }
                     } catch (e: Exception) {}
-                    withContext(Dispatchers.Main) { refreshUI() }
+                    withContext(Dispatchers.Main) { refreshAfterGrant() }
                 }
             }
         ))
 
         // Root Row
-        root.addView(createAutomationRow(ctx, density, "Root Access", "Direct system grant",
+        root.addView(createAutomationRow(ctx, density, getString(R.string.automation_root_title), getString(R.string.automation_root_desc),
             onGrant = {
                 AutomationManager.requestRootPermission { success ->
                     if (success) {
@@ -306,7 +317,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
                                 val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"))
                                 p.waitFor()
                             } catch (e: Exception) {}
-                            withContext(Dispatchers.Main) { refreshUI() }
+                            withContext(Dispatchers.Main) { refreshAfterGrant() }
                         }
                     }
                 }
@@ -317,7 +328,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
                         val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"))
                         p.waitFor()
                     } catch (e: Exception) {}
-                    withContext(Dispatchers.Main) { refreshUI() }
+                    withContext(Dispatchers.Main) { refreshAfterGrant() }
                 }
             }
         ))
@@ -344,14 +355,14 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
 
         val btnCopy = TextView(ctx).apply {
             text = getString(R.string.xml_copy)
-            setTextColor(Color.parseColor("#4A9EFF"))
+            setTextColor(primaryColor)
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
             setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 4 * density
-                setColor(Color.parseColor("#1A4A9EFF"))
+                setColor(primaryTintColor)
             }
             setOnClickListener {
                 val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -388,13 +399,13 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         // Close Button
         val btnClose = Button(ctx).apply {
             text = ctx.getString(android.R.string.ok)
-            setTextColor(onSurfaceColor)
+            setTextColor(onPrimaryColor)
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 14 * density
-                setColor(Color.parseColor("#4A9EFF"))
+                setColor(primaryColor)
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -404,7 +415,47 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         }
         root.addView(btnClose)
 
-        return root
+        // Tall content with no ScrollView: on a small screen (or with a
+        // large font) the bottom buttons were unreachable. Wrap in a
+        // NestedScrollView so the sheet scrolls instead of clipping.
+        return androidx.core.widget.NestedScrollView(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            root.layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            addView(root)
+        }
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        // Baseline: the grant result fires only on a false -> true
+        // transition, so the opening state must be recorded when the sheet
+        // opens — previously nothing called refreshUI() here, so the first
+        // post-grant refresh saw a null baseline and only recorded it.
+        refreshUI()
+        // Live updates: refreshUI reads the cached isAutomationPossible(),
+        // which refresh() updates asynchronously (5 s throttle). Observe
+        // the engine StateFlow so every state change re-runs refreshUI
+        // instead of relying on a single stale cache read after a grant.
+        viewLifecycleOwner.lifecycleScope.launch {
+            AutomationManager.engineState.collect { refreshUI() }
+        }
+    }
+
+    /**
+     * Re-run after a grant/revoke: force a fresh engine probe (the cache
+     * is throttled and stale otherwise) and refresh the UI now for the
+     * permission status; the engineState collection above re-runs
+     * refreshUI again when the probe lands.
+     */
+    private fun refreshAfterGrant() {
+        AutomationManager.refresh(force = true)
+        refreshUI()
     }
 
     private fun createAutomationRow(
@@ -461,13 +512,13 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
 
         val btnGrant = Button(ctx).apply {
             text = getString(R.string.xml_grant)
-            setTextColor(Color.parseColor("#4A9EFF"))
+            setTextColor(primaryColor)
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 19 * density
-                setStroke((1 * density).toInt(), Color.parseColor("#4A9EFF"))
+                setStroke((1 * density).toInt(), primaryColor)
                 setColor(Color.TRANSPARENT)
             }
             layoutParams = LinearLayout.LayoutParams((80 * density).toInt(), (38 * density).toInt())
@@ -483,20 +534,20 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         val ctx = requireContext()
         val isGranted = ctx.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
         tvStatus.text = if (isGranted) getString(R.string.permission_granted_status) else getString(R.string.permission_missing_status)
-        tvStatus.setTextColor(if (isGranted) Color.parseColor("#00FF00") else onSurfaceVariantColor)
+        tvStatus.setTextColor(if (isGranted) successColor else onSurfaceVariantColor)
         tvStatus.typeface = if (isGranted) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
 
         val isAutomationPossible = AutomationManager.isAutomationPossible()
         tvAutoStatus.text = if (isAutomationPossible) {
             when {
-                AutomationManager.isRootAvailable() -> "Engine: Root Active"
-                AutomationManager.isShizukuAvailable() -> "Engine: Shizuku Active"
-                else -> "Engine: Active"
+                AutomationManager.isRootAvailable() -> getString(R.string.engine_root_active)
+                AutomationManager.isShizukuAvailable() -> getString(R.string.engine_shizuku_active)
+                else -> getString(R.string.engine_active)
             }
         } else {
-            "Engine: Service Not Running"
+            getString(R.string.engine_not_running)
         }
-        tvAutoStatus.setTextColor(if (isAutomationPossible) Color.parseColor("#00FF00") else onSurfaceVariantColor)
+        tvAutoStatus.setTextColor(if (isAutomationPossible) successColor else onSurfaceVariantColor)
         tvAutoStatus.typeface = if (isAutomationPossible) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
 
         if (isAutomationPossible) {

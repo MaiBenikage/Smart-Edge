@@ -17,6 +17,11 @@ class InteractionSettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsInteractionBinding
     private lateinit var panelPrefs: PanelPreferences
 
+    // Suppresses the automation switch's own listener while the switch is
+    // set programmatically (revert-until-granted / grant result); without
+    // this, setChecked re-fires the listener and re-enters the flow.
+    private var suppressAutomationSwitchListener = false
+
     override fun attachBaseContext(newBase: android.content.Context) {
         super.attachBaseContext(LocaleHelper.onAttach(newBase))
     }
@@ -40,10 +45,39 @@ class InteractionSettingsActivity : AppCompatActivity() {
         SecureSettingsDialog.registerResultListener(this) {
             updateSecureSettingsUI()
             if (AutomationManager.isAutomationPossible()) {
+                // A grant through the dialog must also opt the user in
+                // (same as SetupActivity): the switch is set
+                // programmatically here, so its listener is suppressed
+                // and cannot set the pref itself.
+                panelPrefs.useAutomationForGestures = true
+                suppressAutomationSwitchListener = true
                 binding.featureAutomationGestures.isChecked = true
+                suppressAutomationSwitchListener = false
             }
         }
+        // Favourite-app picker result: the pick carries the slot key,
+        // so the right slot gets the app (see AppSinglePickerDialog).
+        AppSinglePickerDialog.registerResultListener(this) { slotKey, pkg ->
+            panelPrefs.setFavoriteAppPackage(slotKey, pkg)
+            setSlotAction(slotKey, PanelPreferences.ACTION_OPEN_FAVORITE_APP)
+            loadCurrentSettings()
+            applyOnly()
+        }
         handleDeepLink()
+    }
+
+    /** Set the gesture action for one slot, by its action pref key. */
+    private fun setSlotAction(slotKey: String, action: Int) {
+        when (slotKey) {
+            PanelPreferences.KEY_TAP_ACTION -> panelPrefs.tapAction = action
+            PanelPreferences.KEY_DOUBLE_TAP_ACTION -> panelPrefs.doubleTapAction = action
+            PanelPreferences.KEY_TRIPLE_TAP_ACTION -> panelPrefs.tripleTapAction = action
+            PanelPreferences.KEY_LONG_PRESS_ACTION -> panelPrefs.longPressAction = action
+            PanelPreferences.KEY_NOTCH_TAP_ACTION -> panelPrefs.notchTapAction = action
+            PanelPreferences.KEY_NOTCH_DOUBLE_TAP_ACTION -> panelPrefs.notchDoubleTapAction = action
+            PanelPreferences.KEY_NOTCH_TRIPLE_TAP_ACTION -> panelPrefs.notchTripleTapAction = action
+            PanelPreferences.KEY_NOTCH_LONG_PRESS_ACTION -> panelPrefs.notchLongPressAction = action
+        }
     }
 
     override fun onResume() {
@@ -82,7 +116,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.tvSwipeSensitivityValue.text = getString(R.string.fmt_percent, panelPrefs.swipeSensitivity)
         binding.layoutSwipeSensitivity.visibility = if (panelPrefs.gesturesEnabled) View.VISIBLE else View.GONE
 
-        binding.tvTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.tapAction), actionLabel(panelPrefs.doubleTapAction), actionLabel(panelPrefs.tripleTapAction), actionLabel(panelPrefs.longPressAction))
+        binding.tvTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.tapAction, PanelPreferences.KEY_TAP_ACTION), actionLabel(panelPrefs.doubleTapAction, PanelPreferences.KEY_DOUBLE_TAP_ACTION), actionLabel(panelPrefs.tripleTapAction, PanelPreferences.KEY_TRIPLE_TAP_ACTION), actionLabel(panelPrefs.longPressAction, PanelPreferences.KEY_LONG_PRESS_ACTION))
         binding.featureHaptic.isChecked = panelPrefs.hapticEnabled
 
         // 2. SPECIALIZED INTERACTION
@@ -93,7 +127,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
         updateSlideSeekUI()
 
         binding.featureNotchGestures.isChecked = panelPrefs.notchGesturesEnabled
-        binding.tvNotchTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.notchTapAction), actionLabel(panelPrefs.notchDoubleTapAction), actionLabel(panelPrefs.notchTripleTapAction), actionLabel(panelPrefs.notchLongPressAction))
+        binding.tvNotchTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.notchTapAction, PanelPreferences.KEY_NOTCH_TAP_ACTION), actionLabel(panelPrefs.notchDoubleTapAction, PanelPreferences.KEY_NOTCH_DOUBLE_TAP_ACTION), actionLabel(panelPrefs.notchTripleTapAction, PanelPreferences.KEY_NOTCH_TRIPLE_TAP_ACTION), actionLabel(panelPrefs.notchLongPressAction, PanelPreferences.KEY_NOTCH_LONG_PRESS_ACTION))
         binding.layoutNotchTapGestures.visibility = if (panelPrefs.notchGesturesEnabled) View.VISIBLE else View.GONE
 
         // 3. PANEL EXPERIENCE
@@ -126,7 +160,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
             700 -> getString(R.string.anim_feel_snappy)
             1000 -> getString(R.string.anim_feel_instant)
             0 -> getString(R.string.anim_feel_disabled)
-            else -> "Balanced (Default)"
+            else -> getString(R.string.anim_feel_balanced)
         }
 
         binding.sbPickerGap.value = panelPrefs.pickerGap.toFloat()
@@ -177,9 +211,20 @@ class InteractionSettingsActivity : AppCompatActivity() {
         }
 
         binding.featureAutomationGestures.setOnCheckedChangeListener { buttonView, isChecked ->
+            // Guard: programmatic isChecked sets below (revert / grant
+            // result) re-fire this listener; ignore those.
+            if (suppressAutomationSwitchListener) return@setOnCheckedChangeListener
             if (isChecked && !AutomationManager.isAutomationPossible()) {
+                // Revert the switch until the result arrives: the tap
+                // already flipped it to checked, but the pref stays false
+                // until the grant succeeds — leaving it showing ON with
+                // the pref OFF. The callback below re-checks it on success.
+                suppressAutomationSwitchListener = true
+                buttonView.isChecked = panelPrefs.useAutomationForGestures
+                suppressAutomationSwitchListener = false
                 AutomationManager.checkRootAndRequestPermission(this) { success ->
                     runOnUiThread {
+                        suppressAutomationSwitchListener = true
                         if (success) {
                             panelPrefs.useAutomationForGestures = true
                             buttonView.isChecked = true
@@ -188,6 +233,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
                             buttonView.isChecked = false
                             showAutomationSetupDialog()
                         }
+                        suppressAutomationSwitchListener = false
                     }
                 }
                 return@setOnCheckedChangeListener
@@ -220,10 +266,10 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 .setTitle(R.string.tap_gestures)
                 .setItems(mainOptions) { _, which ->
                     when (which) {
-                        0 -> showActionPicker(getString(R.string.action_single_tap), panelPrefs.tapAction) { panelPrefs.tapAction = it }
-                        1 -> showActionPicker(getString(R.string.action_double_tap), panelPrefs.doubleTapAction) { panelPrefs.doubleTapAction = it }
-                        2 -> showActionPicker(getString(R.string.action_triple_tap), panelPrefs.tripleTapAction) { panelPrefs.tripleTapAction = it }
-                        3 -> showActionPicker(getString(R.string.action_long_press), panelPrefs.longPressAction) { panelPrefs.longPressAction = it }
+                        0 -> showActionPicker(getString(R.string.action_single_tap), panelPrefs.tapAction, PanelPreferences.KEY_TAP_ACTION) { panelPrefs.tapAction = it }
+                        1 -> showActionPicker(getString(R.string.action_double_tap), panelPrefs.doubleTapAction, PanelPreferences.KEY_DOUBLE_TAP_ACTION) { panelPrefs.doubleTapAction = it }
+                        2 -> showActionPicker(getString(R.string.action_triple_tap), panelPrefs.tripleTapAction, PanelPreferences.KEY_TRIPLE_TAP_ACTION) { panelPrefs.tripleTapAction = it }
+                        3 -> showActionPicker(getString(R.string.action_long_press), panelPrefs.longPressAction, PanelPreferences.KEY_LONG_PRESS_ACTION) { panelPrefs.longPressAction = it }
                     }
                 }
                 .setNegativeButton(android.R.string.cancel, null)
@@ -242,10 +288,10 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 .setTitle(R.string.notch_tap_gestures)
                 .setItems(mainOptions) { _, which ->
                     when (which) {
-                        0 -> showActionPicker(getString(R.string.notch_single_tap), panelPrefs.notchTapAction) { panelPrefs.notchTapAction = it }
-                        1 -> showActionPicker(getString(R.string.notch_double_tap), panelPrefs.notchDoubleTapAction) { panelPrefs.notchDoubleTapAction = it }
-                        2 -> showActionPicker(getString(R.string.notch_triple_tap), panelPrefs.notchTripleTapAction) { panelPrefs.notchTripleTapAction = it }
-                        3 -> showActionPicker(getString(R.string.notch_long_press), panelPrefs.notchLongPressAction) { panelPrefs.notchLongPressAction = it }
+                        0 -> showActionPicker(getString(R.string.notch_single_tap), panelPrefs.notchTapAction, PanelPreferences.KEY_NOTCH_TAP_ACTION) { panelPrefs.notchTapAction = it }
+                        1 -> showActionPicker(getString(R.string.notch_double_tap), panelPrefs.notchDoubleTapAction, PanelPreferences.KEY_NOTCH_DOUBLE_TAP_ACTION) { panelPrefs.notchDoubleTapAction = it }
+                        2 -> showActionPicker(getString(R.string.notch_triple_tap), panelPrefs.notchTripleTapAction, PanelPreferences.KEY_NOTCH_TRIPLE_TAP_ACTION) { panelPrefs.notchTripleTapAction = it }
+                        3 -> showActionPicker(getString(R.string.notch_long_press), panelPrefs.notchLongPressAction, PanelPreferences.KEY_NOTCH_LONG_PRESS_ACTION) { panelPrefs.notchLongPressAction = it }
                     }
                 }
                 .setNegativeButton(android.R.string.cancel, null)
@@ -446,10 +492,18 @@ class InteractionSettingsActivity : AppCompatActivity() {
             // Dismiss in finally: if the activity is destroyed mid-load,
             // lifecycleScope is cancelled at the withContext point and the
             // dismiss below never runs, leaking the window.
+            // A PackageManager throw must not crash the screen: fall back
+            // to an empty list and tell the user the list could not load.
             val allApps = try {
-                withContext(Dispatchers.IO) { AppRepository(this@InteractionSettingsActivity).getAllApps() }
+                withContext(Dispatchers.IO) {
+                    runCatching { AppRepository.shared(this@InteractionSettingsActivity).getAllApps(preloadIcons = false) }.getOrDefault(emptyList())
+                }
             } finally {
                 loadingDialog.dismiss()
+            }
+            if (allApps.isEmpty()) {
+                binding.root.showModernToast(getString(R.string.toast_apps_load_failed))
+                return@launch
             }
 
             val sortedApps = allApps.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) }
@@ -520,77 +574,11 @@ class InteractionSettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAppSinglePicker(title: String, onSelect: (String) -> Unit) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            val loadingDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this@InteractionSettingsActivity)
-                .setTitle(R.string.loading_apps)
-                .setMessage(R.string.please_wait_apps)
-                .setCancelable(false)
-                .show()
-
-            // Dismiss in finally: if the activity is destroyed mid-load,
-            // lifecycleScope is cancelled at the withContext point and the
-            // dismiss below never runs, leaking the window.
-            val allApps = try {
-                withContext(Dispatchers.IO) { AppRepository(this@InteractionSettingsActivity).getAllApps() }
-            } finally {
-                loadingDialog.dismiss()
-            }
-
-            val sortedApps = allApps.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) }
-            val density = resources.displayMetrics.density
-            val container = android.widget.LinearLayout(this@InteractionSettingsActivity).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                setPadding((20 * density).toInt(), (10 * density).toInt(), (20 * density).toInt(), 0)
-            }
-
-            val searchBar = com.google.android.material.textfield.TextInputEditText(this@InteractionSettingsActivity).apply {
-                hint = getString(R.string.hint_search_apps)
-                setSingleLine()
-            }
-            container.addView(com.google.android.material.textfield.TextInputLayout(this@InteractionSettingsActivity).apply {
-                boxBackgroundMode = com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE
-                setBoxCornerRadii(12 * density, 12 * density, 12 * density, 12 * density)
-                addView(searchBar)
-            })
-
-            val listView = android.widget.ListView(this@InteractionSettingsActivity).apply {
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    (400 * density).toInt()
-                )
-            }
-            container.addView(listView)
-
-            var displayApps = sortedApps
-            fun updateList(query: String) {
-                displayApps = if (query.isEmpty()) sortedApps
-                else sortedApps.filter { it.appName.contains(query, ignoreCase = true) }
-                listView.adapter = android.widget.ArrayAdapter(this@InteractionSettingsActivity, android.R.layout.simple_list_item_1, displayApps.map { it.appName }.toTypedArray())
-            }
-
-            updateList("")
-
-            val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this@InteractionSettingsActivity)
-                .setTitle(title)
-                .setView(container)
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-
-            listView.setOnItemClickListener { _, _, position, _ ->
-                onSelect(displayApps[position].packageName)
-                dialog.dismiss()
-            }
-
-            searchBar.addTextChangedListener(object : android.text.TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { updateList(s.toString()) }
-                override fun afterTextChanged(s: android.text.Editable?) {}
-            })
-        }
-    }
-
     private fun applyOnly() {
+        // The service is off: starting it just to refresh would flash
+        // its foreground notification and stop again. The prefs are
+        // already saved; the service reads them when re-enabled.
+        if (!panelPrefs.serviceEnabled) return
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_REFRESH
         }
@@ -611,6 +599,10 @@ class InteractionSettingsActivity : AppCompatActivity() {
             if (shortcutManager.isRequestPinShortcutSupported) {
                 val pinIntent = Intent(this, ToggleActivity::class.java).apply {
                     action = ToggleActivity.ACTION_TOGGLE
+                    // Stamp the per-install shortcut token so ToggleActivity
+                    // can tell our own shortcut from a spoofed intent (see
+                    // PanelPreferences.shortcutToken).
+                    putExtra("smartedge.shortcut_token", panelPrefs.shortcutToken)
                 }
                 val pinShortcutInfo = android.content.pm.ShortcutInfo.Builder(this, "toggle_sidebar_pinned")
                     .setShortLabel(getString(R.string.label_toggle_sidebar))
@@ -640,7 +632,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun showActionPicker(title: String, current: Int, onSelect: (Int) -> Unit) {
+    private fun showActionPicker(title: String, current: Int, slotKey: String, onSelect: (Int) -> Unit) {
         val options = arrayOf(
             getString(R.string.action_none),
             getString(R.string.action_launcher),
@@ -685,12 +677,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 val selectedAction = values[which]
                 if (selectedAction == PanelPreferences.ACTION_OPEN_FAVORITE_APP) {
                     dialog.dismiss()
-                    showAppSinglePicker(getString(R.string.picker_title_favorite)) { pkg ->
-                        panelPrefs.favoriteAppPackage = pkg
-                        onSelect(selectedAction)
-                        loadCurrentSettings()
-                        applyOnly()
-                    }
+                    AppSinglePickerDialog.show(this@InteractionSettingsActivity, getString(R.string.picker_title_favorite), slotKey)
                 } else {
                     onSelect(selectedAction)
                     loadCurrentSettings()
@@ -702,7 +689,8 @@ class InteractionSettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun actionLabel(action: Int): String = when (action) {
+
+    private fun actionLabel(action: Int, slotKey: String): String = when (action) {
         PanelPreferences.ACTION_OPEN_LAUNCHER -> getString(R.string.action_launcher)
         PanelPreferences.ACTION_SCREENSHOT -> getString(R.string.action_screenshot)
         PanelPreferences.ACTION_PREVIOUS_APP -> getString(R.string.action_last_app)
@@ -719,7 +707,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
         PanelPreferences.ACTION_OPEN_FAVORITE_APP -> {
             // Resolve the app name (not a truncated package fragment):
             // "Fav: com.example" tells the user nothing.
-            val pkg = panelPrefs.favoriteAppPackage
+            val pkg = panelPrefs.favoriteAppPackageFor(slotKey)
             val label = try {
                 val ai = packageManager.getApplicationInfo(pkg, 0)
                 packageManager.getApplicationLabel(ai).toString()

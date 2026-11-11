@@ -58,7 +58,8 @@
         <item name="materialCardViewStyle">@style/SidePanel.CardViewStyle</item>
         <item name="materialButtonStyle">@style/SidePanel.ButtonStyle</item>
         <item name="materialSwitchStyle">@style/SidePanel.MaterialSwitchStyle</item>
-        <item name="android:forceDarkAllowed">false</item>
+        <!-- android:forceDarkAllowed lives in values-v29/themes_m3.xml:
+             it needs API 29 (lint NewApi) and is ignored below that. -->
     </style>
 
     <style name="SidePanel.ToolbarStyle" parent="Widget.Material3.Toolbar">
@@ -66,11 +67,6 @@
     </style>
 
     <style name="SidePanel.ButtonStyle" parent="Widget.Material3.Button">
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="fontFamily">sans-serif-medium</item>
-    </style>
-
-    <style name="SidePanel.TextButtonStyle" parent="Widget.Material3.Button.TextButton">
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="fontFamily">sans-serif-medium</item>
     </style>

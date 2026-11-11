@@ -1,6 +1,8 @@
 package com.imi.smartedge.sidebar.panel
 
 import android.content.Context
+import android.content.res.Configuration
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import java.util.Locale
 
@@ -27,9 +29,34 @@ object LocaleHelper {
 
     fun setLocale(context: Context, language: String?): Context {
         persist(context, language)
+        // AppCompat per-app locales: this is what actually reaches every
+        // AppCompatActivity (they all apply it in attachBaseContext) and
+        // the app's resources. The context wrap below is for the caller's
+        // immediate use and for services, which AppCompat does not cover.
+        if (!language.isNullOrBlank()) {
+            AppCompatDelegate.setApplicationLocales(
+                LocaleListCompat.forLanguageTags(language)
+            )
+        }
         // minSdk = 26 (Build.VERSION_CODES.N), so the old < N legacy branch has
         // been removed — `updateResources` is always the supported path.
         return updateResources(context, language)
+    }
+
+    /**
+     * Apply the explicitly-chosen language to AppCompat's per-app locales
+     * at process start, so activities get it without each needing an
+     * onAttach wrap. Does nothing when the user never chose a language —
+     * pinning the locale to the system language at first run would stop
+     * the app following later system-language changes.
+     */
+    fun applyPersistedLocale(context: Context) {
+        val preferences = context.getSharedPreferences(PanelPreferences.PREFS_NAME, Context.MODE_PRIVATE)
+        if (!preferences.contains(PanelPreferences.KEY_APP_LANGUAGE)) return
+        val lang = preferences.getString(PanelPreferences.KEY_APP_LANGUAGE, null)
+        if (!lang.isNullOrBlank()) {
+            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(lang))
+        }
     }
 
     private fun getPersistedData(context: Context, defaultLanguage: String): String? {
@@ -54,7 +81,10 @@ object LocaleHelper {
     private fun updateResources(context: Context, language: String?): Context {
         val locale = Locale(language ?: "en")
         Locale.setDefault(locale)
-        val configuration = context.resources.configuration
+        // Copy the Configuration first: mutating the live object owned by
+        // the base context's Resources is undefined behaviour and can leak
+        // the locale into other contexts.
+        val configuration = Configuration(context.resources.configuration)
         configuration.setLocale(locale)
         configuration.setLayoutDirection(locale)
 

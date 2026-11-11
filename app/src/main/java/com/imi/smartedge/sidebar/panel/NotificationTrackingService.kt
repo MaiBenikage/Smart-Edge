@@ -9,8 +9,13 @@ class NotificationTrackingService : NotificationListenerService() {
     companion object {
         private const val TAG = "NotificationTracker"
 
-        // Concurrent set of packages that currently have active notifications.
-        private val notificationPackages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        // Packages that currently have active notifications. A single
+        // @Volatile snapshot swapped whole: the old clear() + addAll() on a
+        // concurrent set let a reader on another thread (AppRepository
+        // .getPanelApps on IO) see an empty or partial set, so notification
+        // apps briefly dropped out of the sidebar.
+        @Volatile
+        private var notificationPackages: Set<String> = emptySet()
 
         fun getActiveNotificationPackages(): List<String> {
             return notificationPackages.toList()
@@ -34,9 +39,9 @@ class NotificationTrackingService : NotificationListenerService() {
         private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
         private fun notifyListeners() {
-            // Snapshot the set: a listener may add/remove listeners while
-            // being notified, and CopyOnWriteArraySet iteration is safe but
-            // posting each invocation separately keeps ordering predictable.
+            // Snapshot the listener set: a listener may add/remove listeners
+            // while being notified. One batched runnable posts all
+            // invocations to the main looper, in registration order.
             val snapshot = listeners.toList()
             mainHandler.post {
                 snapshot.forEach { listener ->
@@ -76,7 +81,7 @@ class NotificationTrackingService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         if (notificationPackages.isNotEmpty()) {
-            notificationPackages.clear()
+            notificationPackages = emptySet()
             notifyListeners()
         }
     }
@@ -89,21 +94,40 @@ class NotificationTrackingService : NotificationListenerService() {
         // own listener on destroy; clearing the set here would silently
         // drop their registrations across a service rebind, and
         // onListenerConnected would then notify nobody.
-        notificationPackages.clear()
+        notificationPackages = emptySet()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
-        sbn?.packageName?.let { pkg ->
-            if (notificationPackages.add(pkg)) {
-                notifyListeners()
-            }
+        if (sbn == null || !isTrackable(sbn)) return
+        val pkg = sbn.packageName ?: return
+        val current = notificationPackages
+        if (!current.contains(pkg)) {
+            notificationPackages = current + pkg
+            notifyListeners()
         }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
         updateActiveNotifications()
+    }
+
+    /**
+     * Whether a notification counts as user activity worth promoting to the
+     * front of the sidebar. Excluded: our own foreground-service
+     * notification, other users' notifications, and ongoing/persistent ones
+     * (media playback, VPN, foreground services) — an app with only a
+     * persistent notification is not "active" in the sense the sidebar means.
+     */
+    private fun isTrackable(sbn: StatusBarNotification): Boolean {
+        val pkg = sbn.packageName ?: return false
+        if (pkg == packageName) return false
+        if (sbn.user != android.os.Process.myUserHandle()) return false
+        if (!sbn.isClearable) return false
+        val flags = sbn.notification?.flags ?: 0
+        if (flags and android.app.Notification.FLAG_FOREGROUND_SERVICE != 0) return false
+        return true
     }
 
     private fun updateActiveNotifications() {
@@ -118,12 +142,13 @@ class NotificationTrackingService : NotificationListenerService() {
             if (sbns == null) return
 
             for (sbn in sbns) {
-                sbn.packageName?.let { current.add(it) }
+                if (isTrackable(sbn)) {
+                    sbn.packageName?.let { current.add(it) }
+                }
             }
 
             if (notificationPackages != current) {
-                notificationPackages.clear()
-                notificationPackages.addAll(current)
+                notificationPackages = current
                 notifyListeners()
             }
         } catch (e: Exception) {

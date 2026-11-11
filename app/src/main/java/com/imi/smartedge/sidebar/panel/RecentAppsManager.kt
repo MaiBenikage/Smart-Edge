@@ -49,6 +49,28 @@ class RecentAppsManager(context: Context) {
         /** Record source: accessibility service saw the app come to foreground. */
         const val SOURCE_A11Y = "a11y"
 
+        // Home (launcher) packages, resolved once per process and cached:
+        // the a11y recorder sees the launcher on almost every app switch,
+        // and without this the launcher becomes the most "frequent" recent
+        // app. The default launcher changes rarely; a process restart
+        // re-resolves it.
+        @Volatile
+        private var cachedHomePackages: Set<String>? = null
+
+        private fun homePackages(context: Context): Set<String> {
+            cachedHomePackages?.let { return it }
+            val home = try {
+                val intent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+                    .addCategory(android.content.Intent.CATEGORY_HOME)
+                context.packageManager.queryIntentActivities(intent, 0)
+                    .map { it.activityInfo.packageName }.toSet()
+            } catch (_: Exception) {
+                emptySet()
+            }
+            cachedHomePackages = home
+            return home
+        }
+
         /**
          * Ignore a repeat record of the same package within this window, but
          * ONLY when it comes from a different source than the previous record.
@@ -58,6 +80,39 @@ class RecentAppsManager(context: Context) {
          * "repeat opens are recorded repeatedly" requirement.
          */
         private const val DEBOUNCE_MS = 3000L
+
+        /**
+         * Pure extraction of the owning package from an `intent:` URI string,
+         * without calling [android.content.Intent.parseUri] (an Android stub
+         * that throws on the JVM, so the old inline version could never be
+         * unit-tested — the CUSTOM + `intent:` branch of
+         * [excludedPackagesFor] was unexercised).
+         *
+         * Mirrors what the parsed Intent used to yield, in the same
+         * precedence: the `package=` parameter wins, else the package part
+         * of `component=<pkg>/<cls>`. Only parameters after the `#Intent;`
+         * marker are read (a URI without it is not a valid intent URI), and
+         * parameters after `;SEL;` belong to the selector intent, not this
+         * one. Values must look like real package names (a relative
+         * component such as `.Foo` carries no package). Returns "" when
+         * nothing usable is present.
+         */
+        private val PACKAGE_NAME_REGEX =
+            Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+")
+        private val INTENT_PACKAGE_PARAM = Regex("(?:^|;)package=([^;]+)")
+        private val INTENT_COMPONENT_PARAM = Regex("(?:^|;)component=([^;/]+)/")
+
+        internal fun packageFromIntentUri(payload: String): String {
+            val params = payload.substringAfter("#Intent;", missingDelimiterValue = "")
+            if (params.isEmpty()) return ""
+            val main = params.substringBefore(";SEL;", params)
+            val byPackage = INTENT_PACKAGE_PARAM.find(main)
+                ?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            if (byPackage.isNotEmpty() && PACKAGE_NAME_REGEX.matches(byPackage)) return byPackage
+            val byComponent = INTENT_COMPONENT_PARAM.find(main)
+                ?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            return if (byComponent.isNotEmpty() && PACKAGE_NAME_REGEX.matches(byComponent)) byComponent else ""
+        }
 
         /**
          * Packages that must never appear in the Recent section because the
@@ -89,17 +144,8 @@ class RecentAppsManager(context: Context) {
                 // Custom item whose launch payload is an intent: resolve its package.
                 val payload = app.intentUri
                 if (payload != null && payload.startsWith("intent:")) {
-                    try {
-                        val intent = android.content.Intent.parseUri(
-                            payload, android.content.Intent.URI_INTENT_SCHEME
-                        )
-                        val target = intent.`package`
-                            ?: intent.component?.packageName
-                            ?: ""
-                        if (target.isNotEmpty()) out.add(target)
-                    } catch (_: Exception) {
-                        // Malformed custom payload — nothing to exclude.
-                    }
+                    val target = packageFromIntentUri(payload)
+                    if (target.isNotEmpty()) out.add(target)
                 }
             }
             return out
@@ -113,6 +159,22 @@ class RecentAppsManager(context: Context) {
      * @param source [SOURCE_CLICK] or [SOURCE_A11Y] — used for duplicate
      * suppression (see [DEBOUNCE_MS]).
      */
+    /**
+     * Whether a package may appear in the Recent section: not a home
+     * (launcher) package, and launchable (has a launch intent). The
+     * launcher comes to the foreground between almost every app switch,
+     * and non-launchable packages (permission controller, installer,
+     * Play Services dialogs, OEM overlays) are not apps the user can open.
+     */
+    private fun isTrackableRecent(pkg: String): Boolean {
+        if (pkg in homePackages(appContext)) return false
+        return try {
+            appContext.packageManager.getLaunchIntentForPackage(pkg) != null
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun recordLaunch(packageName: String, source: String) {
         // Static lock (see LOCK): two fresh instances must not interleave
         // loadHistory/saveHistory and lose a launch.
@@ -123,12 +185,20 @@ class RecentAppsManager(context: Context) {
             if (pkg == appContext.packageName) return
             // Respect the user toggle — don't accumulate history nobody asked for.
             if (!panelPrefs.recentEnabled) return
+            // Never track the launcher or non-launchable packages: the
+            // launcher foregrounds between almost every app switch and
+            // would dominate the frequency ranking.
+            if (!isTrackableRecent(pkg)) return
 
-            val now = System.currentTimeMillis()
+            // Monotonic clock for the debounce: wall-clock time breaks when
+            // the user (or the network) changes the clock. The persisted
+            // lastTime from before this change is a wall-clock value, so
+            // the first post-upgrade comparison can only skip one record.
+            val now = android.os.SystemClock.elapsedRealtime()
             val lastPkg = panelPrefs.recentLastPackage
             val lastTime = panelPrefs.recentLastTime
             val lastSource = panelPrefs.recentLastSource
-            if (pkg == lastPkg && source != lastSource && now - lastTime < DEBOUNCE_MS) return
+            if (pkg == lastPkg && source != lastSource && now - lastTime in 0..<DEBOUNCE_MS) return
 
             try {
                 val capacity = panelPrefs.recentHistorySize.coerceIn(
@@ -182,7 +252,11 @@ class RecentAppsManager(context: Context) {
             }
 
             return counts.entries
-                .filter { it.key !in excludedPackages }
+                // Validate before take(limit): uninstalled, launcher and
+                // non-launchable packages are dropped here, so the list
+                // still fills to N instead of coming up short — and
+                // existing polluted history is cleaned the same way.
+                .filter { it.key !in excludedPackages && isTrackableRecent(it.key) }
                 .sortedWith(
                     compareByDescending<Map.Entry<String, Int>> { it.value }
                         .thenByDescending { lastSeen[it.key] ?: 0 }

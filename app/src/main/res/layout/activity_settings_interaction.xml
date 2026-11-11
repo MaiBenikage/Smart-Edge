@@ -271,6 +271,13 @@
                             android:textSize="16sp" />
 
                         <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/recent_history_size_desc"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp" />
+
+                        <TextView
                             android:id="@+id/tv_recent_history_size_value"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -297,6 +304,13 @@
                             android:text="@string/recent_max_count_label"
                             android:textColor="?attr/colorOnSurface"
                             android:textSize="16sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/recent_max_count_desc"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp" />
 
                         <TextView
                             android:id="@+id/tv_recent_max_count_value"
@@ -389,12 +403,13 @@
 
                         <ImageView
                             android:id="@+id/btnAutomationSettings"
+                            android:contentDescription="@string/desc_automation_settings"
                             android:layout_width="40dp"
                             android:layout_height="40dp"
                             android:layout_marginStart="8dp"
                             android:padding="8dp"
                             android:src="@drawable/ic_settings"
-                            android:tint="?attr/colorPrimary"
+                            app:tint="?attr/colorPrimary"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:clickable="true"
                             android:focusable="true" />

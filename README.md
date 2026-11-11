@@ -1,7 +1,7 @@
 # Smart Edge: Sidebar & Gestures
 
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher_web.png" width="128" height="128" alt="Smart Edge Logo">
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="128" height="128" alt="Smart Edge Logo">
 </p>
 
 <p align="center">
@@ -77,6 +77,7 @@ Smart Edge is built to be yours. In the settings, you can adjust:
 
 *   **Android 8.0 (API 26) or higher:** Standard requirement for core functionality.
 *   **Accessibility Service:** Required for core interaction and multi-window features.
+*   **Shizuku or root (optional):** Powers the high-performance automation engine (privileged system settings and shell). Without it the app falls back to Accessibility-based automation.
 *   **Android 12+:** Recommended for native real-time background blur and Material You dynamic color support.
 
 ---
@@ -102,7 +103,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 This project is made possible thanks to the following open-source contributions and inspirations:
 
 *   **[SmartDock (Axel358)](https://github.com/Axel358/SmartDock)**: Conceptual inspiration and desktop-style interactions on Android.
-*   **[HiddenApiBypass (LSPosed)](https://github.com/LSPosed/Android-HiddenApiBypass)**: A critical library for enabling access to restricted windowing and system APIs.
+*   **[Shizuku (RikkaApps)](https://github.com/RikkaApps/Shizuku)**: Privileged-API access (system settings, shell) via Shizuku or root — the optional automation engine.
 *   **[ColorPickerView (skydoves)](https://github.com/skydoves/ColorPickerView)**: Modern and effective color picker for UI customization.
 *   **[Glide](https://github.com/bumptech/glide)**: Efficient media management and image loading framework for Android.
 

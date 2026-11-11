@@ -189,6 +189,70 @@ class AppsRecentSplitAndRecentsTest {
     }
 
     @Test
+    fun `custom intent item is excluded by its intent package`() {
+        // The CUSTOM + intent: branch used to call Intent.parseUri (an
+        // Android stub on the JVM), so it was never exercised. The package
+        // now comes from the pure packageFromIntentUri extractor.
+        val sidebar = listOf(
+            AppInfo(
+                packageName = "smartedge.custom.22222222-2222-2222-2222-222222222222",
+                appName = "Maps Link",
+                type = AppInfo.Type.CUSTOM,
+                intentUri = "intent:#Intent;component=com.example.maps/.MapsActivity;end"
+            )
+        )
+        assertEquals(
+            setOf("com.example.maps"),
+            RecentAppsManager.excludedPackagesFor(sidebar)
+        )
+    }
+
+    @Test
+    fun `custom intent item package param wins over component`() {
+        val sidebar = listOf(
+            AppInfo(
+                packageName = "smartedge.custom.33333333-3333-3333-3333-333333333333",
+                appName = "Scan Link",
+                type = AppInfo.Type.CUSTOM,
+                intentUri = "intent:#Intent;package=com.example.scan;component=com.other/.Main;end"
+            )
+        )
+        assertEquals(
+            setOf("com.example.scan"),
+            RecentAppsManager.excludedPackagesFor(sidebar)
+        )
+    }
+
+    @Test
+    fun `malformed custom intent payload excludes nothing`() {
+        val sidebar = listOf(
+            AppInfo(
+                packageName = "smartedge.custom.44444444-4444-4444-4444-444444444444",
+                appName = "Broken",
+                type = AppInfo.Type.CUSTOM,
+                intentUri = "intent:garbage"
+            ),
+            AppInfo(
+                packageName = "smartedge.custom.55555555-5555-5555-5555-555555555555",
+                appName = "Relative",
+                type = AppInfo.Type.CUSTOM,
+                intentUri = "intent:#Intent;component=.RelativeActivity;end"
+            )
+        )
+        assertTrue(RecentAppsManager.excludedPackagesFor(sidebar).isEmpty())
+    }
+
+    @Test
+    fun `selector params do not leak into the main intent package`() {
+        assertEquals(
+            "com.example.main",
+            RecentAppsManager.packageFromIntentUri(
+                "intent:#Intent;component=com.example.main/.Main;SEL;component=com.example.sel/.Sel;end"
+            )
+        )
+    }
+
+    @Test
     fun `empty sidebar excludes nothing`() {
         assertTrue(RecentAppsManager.excludedPackagesFor(emptyList()).isEmpty())
     }

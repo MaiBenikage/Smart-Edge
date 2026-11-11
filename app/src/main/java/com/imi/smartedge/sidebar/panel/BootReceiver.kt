@@ -24,16 +24,26 @@ class BootReceiver : BroadcastReceiver() {
         val prefs = PanelPreferences(context)
         if (!prefs.autoStart) return
 
-        // Check AccessibilityService availability BEFORE flipping serviceEnabled.
-        // Otherwise the UI shows "enabled" but the service can't start — inconsistent state.
-        if (!context.isAccessibilityServiceEnabled()) return
-        prefs.serviceEnabled = true
+        // Start only when the sidebar is actually enabled: forcing
+        // serviceEnabled = true here overrode a user who turned the sidebar
+        // off before rebooting. (The a11y service's ensurePanelRunning()
+        // already restarts the panel when it is enabled.)
+        if (!prefs.serviceEnabled) return
+
+        // Check the engine is available BEFORE starting. Otherwise the UI
+        // shows "enabled" but the service can't start — inconsistent state.
+        // Accessibility or usable automation both count (see isEngineAvailable).
+        if (!context.isEngineAvailable()) return
 
         val serviceIntent = Intent(context, FloatingPanelService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent)
-        } else {
-            context.startService(serviceIntent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BootReceiver", "Failed to start panel service on boot", e)
         }
     }
 

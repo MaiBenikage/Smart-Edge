@@ -4,7 +4,7 @@
     Layout (left to right): app icon, app name (weight=1), child count badge, expand/collapse chevron.
     The whole row is clickable to toggle expand/collapse.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/headerRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -47,12 +47,12 @@
         android:textSize="11sp"
         android:text="@string/value_placeholder_zero" />
 
-    <ImageView
+    <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/ivHeaderChevron"
         android:layout_width="16dp"
         android:layout_height="16dp"
         android:contentDescription="@string/xml_cd_expand"
         android:src="@drawable/ic_chevron_right"
-        android:tint="#80FFFFFF" />
+        app:tint="#80FFFFFF" />
 
 </LinearLayout>

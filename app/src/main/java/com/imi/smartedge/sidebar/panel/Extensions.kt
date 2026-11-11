@@ -12,7 +12,6 @@ import android.content.res.ColorStateList
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
-import android.os.Binder
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -33,7 +32,11 @@ const val LONG_PRESS_DRAG_MS = 600L
  */
 fun View.showModernToast(message: String, duration: Int = Snackbar.LENGTH_SHORT) {
     val snackbar = Snackbar.make(this, "", duration)
-    val snackbarView = snackbar.view as Snackbar.SnackbarLayout
+    // NB: do NOT cast to Snackbar.SnackbarLayout — it is @RestrictTo(LIBRARY_GROUP)
+    // and lint fails the release build on it (RestrictedApi). SnackbarLayout is a
+    // FrameLayout subclass and everything below only uses plain View/ViewGroup
+    // calls, so a FrameLayout cast is behaviour-identical.
+    val snackbarView = snackbar.view as FrameLayout
 
     snackbarView.setBackgroundColor(Color.TRANSPARENT)
     snackbarView.removeAllViews()
@@ -244,7 +247,9 @@ private fun isAutoStartOpAllowed(context: Context, opCode: Int): Boolean {
         val result = method.invoke(
             ops,
             opCode,
-            Binder.getCallingUid(),
+            // Our own uid: getCallingUid() returns the *caller's* uid when
+            // this runs on a binder thread, which would check the wrong app.
+            android.os.Process.myUid(),
             context.packageName
         ) as Int
         result == AppOpsManager.MODE_ALLOWED
@@ -294,7 +299,6 @@ object VivoUtils {
 
 private val KNOWN_VIDEO_PLAYER_PACKAGES = setOf(
     "com.google.android.youtube",
-    "com.google.android.apps.youtube.music",
     "com.netflix.mediaclient",
     "org.videolan.vlc",
     "com.mxtech.videoplayer.ad",
@@ -308,17 +312,21 @@ private val KNOWN_VIDEO_PLAYER_PACKAGES = setOf(
     "com.peacocktv.peacockandroid",
     "com.hulu.plus",
     "com.crunchyroll.crunchyroid",
-    "com.spotify.music",
-    "com.apple.android.music",
     "com.youku.phone",
     "com.iqiyi.i18n",
     "com.tencent.qqlive",
     "com.ss.android.article.video"      // Toutiao video
 )
 
-/**
- * Returns true if the given package is a known video player / streaming app.
- */
+// Music apps that must NOT count as video players: they share the
+// "youtube" / "player" substrings with video apps, and counting them
+// would put the panel into game/video mode while music plays.
+private val KNOWN_MUSIC_PACKAGES = setOf(
+    "com.google.android.apps.youtube.music",
+    "com.spotify.music",
+    "com.apple.android.music"
+)
+
 /**
  * Resolve a Material theme color attribute (e.g. `colorSurface`,
  * `colorOnSurface`) to its color int, so programmatic UIs follow the
@@ -331,13 +339,20 @@ fun Context.resolveThemeColor(@androidx.annotation.AttrRes attr: Int): Int {
     return typedValue.data
 }
 
+/**
+ * Returns true if the given package is a known video player / streaming app.
+ */
 fun Context.isVideoPlayerPackage(packageName: String): Boolean {
     if (packageName.isBlank()) return false
     if (KNOWN_VIDEO_PLAYER_PACKAGES.contains(packageName)) return true
+    if (KNOWN_MUSIC_PACKAGES.contains(packageName)) return false
     val lower = packageName.lowercase(java.util.Locale.ROOT)
-    return lower.contains(".video") || lower.contains(".player") ||
-            lower.contains("youtube") || lower.contains("netflix") ||
-            lower.contains("vlc") || lower.contains("mxplayer")
+    // Brand substrings are specific; the generic words only count as a
+    // whole package segment — the old ".video" / ".player" / "vlc"
+    // substrings also matched music players ("com.foo.musicplayer")
+    // and remotes.
+    if (lower.contains("youtube") || lower.contains("netflix")) return true
+    return lower.split(".").any { it == "video" || it == "player" || it == "vlc" }
 }
 
 /**
@@ -347,16 +362,23 @@ fun Context.isVideoPlayerPackage(packageName: String): Boolean {
  * Policy (user-selected): any *parseable* `intent:` URI is safe — including
  * intents whose component targets another package and selector chains that
  * embed foreign components. Scheme allowlisting happens earlier at save time
- * (`isValidCustom` only admits `intent:` / `http://` / `https://`), so the
- * only failure left to catch here is a malformed string that cannot be
- * parsed into an Intent at all.
+ * (`isValidCustom` only admits `intent:` / `http://` / `https://`) and
+ * again at decode time, so the only failure left to catch here for
+ * `intent:` URIs is a malformed string that cannot be parsed into an
+ * Intent at all. Non-`intent:` payloads (custom URL items) are held to
+ * the same allowlist here as defence in depth: only `http(s)://` may
+ * launch, so a `file:` / `javascript:` / `content:` URI that slipped
+ * past validation is refused at launch time too.
  *
  * Pure `http(s)://` URIs are out of scope here — OS Intent resolution already
  * confines them to the registered browser / viewer.
  */
 internal fun Context.isSafeIntentUri(uri: String?): Boolean {
     if (uri.isNullOrBlank()) return true
-    if (!uri.startsWith("intent:")) return true
+    if (!uri.startsWith("intent:")) {
+        val s = uri.trim().lowercase(java.util.Locale.ROOT)
+        return s.startsWith("http://") || s.startsWith("https://")
+    }
     return try {
         // Cross-app components and SEL=\u2026 selector chains are permitted by
         // policy. Only an unparseable `intent:` URI is refused.
@@ -369,11 +391,73 @@ internal fun Context.isSafeIntentUri(uri: String?): Boolean {
 }
 
 /**
+ * Launch a shortcut via LauncherApps, which can target non-exported
+ * activities that a raw startActivity(intent) cannot reach (dynamic
+ * shortcuts often point at them). Returns true on success; false when
+ * there is no shortcut id, no LauncherApps service, or the launch was
+ * refused — the caller then falls back to the raw intent.
+ */
+internal fun Context.tryLaunchShortcut(packageName: String, shortcutId: String?): Boolean {
+    if (shortcutId.isNullOrBlank()) return false
+    return try {
+        val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java) ?: return false
+        launcherApps.startShortcut(packageName, shortcutId, null, null, android.os.Process.myUserHandle())
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
+/**
+ * Switches the system brightness to manual mode, but only when it isn't
+ * already: writing it on every brightness tick permanently turns off the
+ * user's auto-brightness, which is never restored.
+ */
+fun ensureManualBrightnessMode(resolver: android.content.ContentResolver) {
+    val current = try {
+        android.provider.Settings.System.getInt(
+            resolver,
+            android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+            android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+        )
+    } catch (_: Exception) {
+        android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+    }
+    if (current != android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL) {
+        try {
+            android.provider.Settings.System.putInt(
+                resolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            )
+        } catch (_: Exception) {}
+    }
+}
+
+/**
  * Extension to convert DP to PX.
  */
 fun Context.dpToPx(dp: Int): Int {
     return (dp * resources.displayMetrics.density).toInt()
 }
+
+/**
+ * Height a handle window may use without exceeding the screen (minus the
+ * top/bottom safe margins). A handle taller than the screen makes the
+ * offset range below empty, and `coerceIn` on an empty range throws
+ * IllegalArgumentException.
+ */
+fun cappedHandleHeightPx(handleHeightPx: Int, screenHeightPx: Int, safeMarginPx: Int): Int =
+    handleHeightPx.coerceAtMost((screenHeightPx - 2 * safeMarginPx).coerceAtLeast(0))
+
+/**
+ * Largest |y| offset that keeps a handle of [handleHeightPx] on screen
+ * (the handle is centred vertically). Never negative, so
+ * `coerceIn(-maxOffset, maxOffset)` can never throw even when the handle
+ * is taller than the screen.
+ */
+fun maxHandleOffsetPx(screenHeightPx: Int, handleHeightPx: Int, safeMarginPx: Int): Int =
+    ((screenHeightPx - handleHeightPx) / 2 - safeMarginPx).coerceAtLeast(0)
 
 /**
  * Applies the selected theme mode (System, Light, Dark) to the application.
@@ -391,6 +475,20 @@ fun applyAppTheme(context: Context) {
 /**
  * Checks if the app's Accessibility Service is currently running.
  */
+/**
+ * One engine-availability check for the whole app: the sidebar works when
+ * either the Accessibility service is enabled or the native automation
+ * engine (Shizuku/root) is usable and the user opted into it. Previously
+ * each call site re-derived this with a different rule — BootReceiver and
+ * the QS tile required Accessibility outright, the a11y onUnbind stop
+ * assumed it, while shouldShowHandle() allowed automation-only — so
+ * automation-only users could not use boot or the tile, and the panel died
+ * when Accessibility was turned off.
+ */
+fun Context.isEngineAvailable(): Boolean =
+    isAccessibilityServiceEnabled() ||
+        (PanelPreferences(this).useAutomationForGestures && AutomationManager.isAutomationPossible())
+
 fun Context.isAccessibilityServiceEnabled(): Boolean {
     if (PanelAccessibilityService.isRunning) return true
 
@@ -402,9 +500,14 @@ fun Context.isAccessibilityServiceEnabled(): Boolean {
     val colonSplitter = android.text.TextUtils.SimpleStringSplitter(':')
     colonSplitter.setString(enabledServices)
 
+    // Compare as ComponentNames, not strings: the enabled-services setting
+    // also holds the short form "pkg/.PanelAccessibilityService" (written
+    // by adb/Shizuku grant flows and some ROMs), which a string comparison
+    // against the fully-qualified name misses.
+    val expected = android.content.ComponentName(this, PanelAccessibilityService::class.java)
     while (colonSplitter.hasNext()) {
-        val componentName = colonSplitter.next()
-        if (componentName.equals("$packageName/${PanelAccessibilityService::class.java.name}", ignoreCase = true)) {
+        val entry = colonSplitter.next()
+        if (android.content.ComponentName.unflattenFromString(entry) == expected) {
             return true
         }
     }

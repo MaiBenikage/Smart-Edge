@@ -1,16 +1,16 @@
 package com.imi.smartedge.sidebar.panel
 
-import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.MediaStore
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.imi.smartedge.sidebar.panel.databinding.ActivitySettingsMiscBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
@@ -26,21 +26,62 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
         super.attachBaseContext(LocaleHelper.onAttach(newBase))
     }
 
-    private val importFilePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    // OpenDocument with a MIME array: GetContent("application/json") hid
+    // backups whose provider reports text/plain or
+    // application/octet-stream (common for .json files shared from
+    // other apps or downloaded). The JSON is validated on import, so
+    // accepting the wider set is safe.
+    private val importFilePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@registerForActivityResult
-        try {
-            val stream = contentResolver.openInputStream(uri) ?: return@registerForActivityResult
-            val json = BufferedReader(InputStreamReader(stream)).use { it.readText() }
-            stream.close()
-            val success = panelPrefs.importFromJson(json)
-            if (success) {
-                applyGlobalRefresh()
-                binding.root.showModernToast(getString(R.string.toast_import_success))
-            } else {
-                binding.root.showModernToast(getString(R.string.toast_import_failed))
+        // Read off the main thread, bounded: importFromJson() caps at
+        // IMPORT_MAX_CHARS, but the old code already readText()s the whole
+        // file (on the main thread) before calling it, so a multi-MB
+        // backup could OOM first. Read at most cap + 1 chars and reject
+        // anything over the cap without ever holding it in RAM.
+        lifecycleScope.launch(Dispatchers.IO) {
+            var readError: String? = null
+            val json: String? = try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val reader = BufferedReader(InputStreamReader(stream))
+                    val sb = StringBuilder()
+                    val buf = CharArray(8192)
+                    var total = 0
+                    var overCap = false
+                    while (true) {
+                        val n = reader.read(buf)
+                        if (n <= 0) break
+                        total += n
+                        if (total > PanelPreferences.IMPORT_MAX_CHARS) {
+                            overCap = true
+                            break
+                        }
+                        sb.append(buf, 0, n)
+                    }
+                    if (overCap) null else sb.toString()
+                }
+            } catch (e: Exception) {
+                readError = e.message
+                null
             }
-        } catch (e: Exception) {
-            binding.root.showModernToast(getString(R.string.toast_import_read_error, e.message ?: ""))
+            withContext(Dispatchers.Main) {
+                if (readError != null) {
+                    binding.root.showModernToast(getString(R.string.toast_import_read_error, readError ?: ""))
+                    return@withContext
+                }
+                val success = json != null && panelPrefs.importFromJson(json)
+                if (success) {
+                    // An import can change the theme and the language: re-apply
+                    // them and recreate so the change is visible now, instead
+                    // of only after the next process start.
+                    applyAppTheme(this@MiscellaneousSettingsActivity)
+                    LocaleHelper.applyPersistedLocale(this@MiscellaneousSettingsActivity)
+                    applyGlobalRefresh()
+                    binding.root.showModernToast(getString(R.string.toast_import_success))
+                    recreate()
+                } else {
+                    binding.root.showModernToast(getString(R.string.toast_import_failed))
+                }
+            }
         }
     }
 
@@ -57,11 +98,11 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
         binding.featureLanguage.setOnClickListener { showLanguagePicker() }
 
         binding.btnExportSettings.setOnClickListener {
-            exportSettingsToDownloads()
+            exportSettings()
         }
 
         binding.btnImportSettings.setOnClickListener {
-            importFilePicker.launch("application/json")
+            importFilePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
         }
 
         handleDeepLink()
@@ -101,7 +142,28 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
                 if (selected != panelPrefs.appLanguage) {
                     panelPrefs.appLanguage = selected
                     LocaleHelper.setLocale(this, selected)
-                    
+
+                    // Restart the overlay service too: it runs in this
+                    // process with a base context wrapped at service start,
+                    // so it keeps the old locale until it restarts.
+                    // ACTION_STOP_RUNTIME tears it down without clearing
+                    // serviceEnabled; the delayed start recreates it in the
+                    // new language (delayed so the stop is processed first —
+                    // an immediate start would reuse the live instance).
+                    if (panelPrefs.serviceEnabled) {
+                        startService(Intent(this, FloatingPanelService::class.java).apply {
+                            action = FloatingPanelService.ACTION_STOP_RUNTIME
+                        })
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            val start = Intent(this, FloatingPanelService::class.java)
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                startForegroundService(start)
+                            } else {
+                                startService(start)
+                            }
+                        }, 500)
+                    }
+
                     // Restart app
                     val intent = Intent(this, MainActivity::class.java)
                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -113,43 +175,36 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun exportSettingsToDownloads() {
-        try {
-            val json = panelPrefs.exportToJson()
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val fileName = "smartedge_backup_$timestamp.json"
-            val folderName = "SidePanel"
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Scoped storage — write via MediaStore to Downloads/SidePanel/
-                val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(MediaStore.Downloads.MIME_TYPE, "application/json")
-                    put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$folderName")
-                }
-                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-                    binding.root.showModernToast(getString(R.string.toast_export_saved, folderName, fileName))
-                } else {
-                    binding.root.showModernToast(getString(R.string.toast_export_failed))
-                }
-            } else {
-                // Legacy — write directly to Downloads/SidePanel/
-                val dir = java.io.File(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    folderName
-                )
-                dir.mkdirs()
-                java.io.File(dir, fileName).writeText(json)
-                binding.root.showModernToast(getString(R.string.toast_export_saved, folderName, fileName))
+    private val exportFilePicker = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        // The user picked the destination: writing needs no storage
+        // permission on any API level. The old pre-Q branch wrote directly
+        // to public Downloads, which needs WRITE_EXTERNAL_STORAGE (not
+        // declared) and always failed with EACCES on API 26-28.
+        lifecycleScope.launch(Dispatchers.IO) {
+            val ok = try {
+                contentResolver.openOutputStream(uri)?.use { it.write(panelPrefs.exportToJson().toByteArray()) }
+                true
+            } catch (_: Exception) {
+                false
             }
-        } catch (e: Exception) {
-            binding.root.showModernToast(getString(R.string.toast_export_error, e.message ?: ""))
+            withContext(Dispatchers.Main) {
+                binding.root.showModernToast(
+                    getString(if (ok) R.string.toast_export_saved_file else R.string.toast_export_failed)
+                )
+            }
         }
     }
 
+    private fun exportSettings() {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        exportFilePicker.launch("smartedge_backup_$timestamp.json")
+    }
+
     private fun applyGlobalRefresh() {
+        // Same guard as the other screens' applyOnly(): no refresh
+        // while the service is off (it would flash its notification).
+        if (!panelPrefs.serviceEnabled) return
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_REFRESH
         }

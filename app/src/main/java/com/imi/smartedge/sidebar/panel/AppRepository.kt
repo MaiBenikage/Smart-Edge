@@ -37,6 +37,11 @@ class AppRepository(context: Context) {
     @Volatile private var activitiesCache: List<PickerGroup>? = null
     @Volatile private var activitiesCacheAtMs: Long = 0L
 
+    // Single-flight guard for getActivitiesByPackage(): without it the
+    // label backfill and the picker run duplicate full PM scans
+    // concurrently instead of sharing one result.
+    private val activitiesScanMutex = Mutex()
+
     /**
      * One package's picker group: its activities or shortcuts, plus the
      * display label the repository already resolved (via PackageManager)
@@ -310,8 +315,13 @@ class AppRepository(context: Context) {
 
     /**
      * Returns all launchable apps with metadata only.
+     *
+     * @param preloadIcons whether to pre-load the first 50 icons in the
+     * background. Callers that only need the app list (e.g. the settings
+     * dialogs) pass false so a simple list doesn't pay for 50 icon
+     * processings.
      */
-    suspend fun getAllApps(): List<AppInfo> = withContext(Dispatchers.IO) {
+    suspend fun getAllApps(preloadIcons: Boolean = true): List<AppInfo> = withContext(Dispatchers.IO) {
         val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
             addCategory(android.content.Intent.CATEGORY_LAUNCHER)
         }
@@ -333,6 +343,7 @@ class AppRepository(context: Context) {
 
         val list = resolved
             .distinctBy { it.activityInfo.packageName }
+            .filter { it.activityInfo.packageName != appContext.packageName }
             .map { resolveInfo ->
                 val pkg = resolveInfo.activityInfo.packageName
                     AppInfo(
@@ -356,9 +367,11 @@ class AppRepository(context: Context) {
         val sortedList = list.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) }
 
         // Aggressively pre-load icons into the memory cache in the background
-        iconPreloadScope.launch {
-            sortedList.take(50).forEach { appInfo ->
-                getProcessedIcon(appInfo.packageName, appInfo.appearanceKey ?: "")
+        if (preloadIcons) {
+            iconPreloadScope.launch {
+                sortedList.take(50).forEach { appInfo ->
+                    getProcessedIcon(appInfo.packageName, appInfo.appearanceKey ?: "")
+                }
             }
         }
 
@@ -379,6 +392,11 @@ class AppRepository(context: Context) {
         val appearanceKey = panelPrefs.appearanceKey
         val customItemsById = panelPrefs.getCustomItems().associateBy { it.id }
         val panelItemLabels = panelPrefs.getPanelItemLabels()
+        // Pinned identifiers, for the plain-package branch below: a package
+        // id here is not necessarily pinned — getPanelApps() also injects
+        // notification apps, and getTopRecentApps() passes recents — so
+        // isInPanel must be looked up, not hardcoded to true.
+        val pinnedIdentifiers = panelPrefs.getPanelApps().toSet()
 
         identifiers.mapNotNull { id ->
             when {
@@ -416,14 +434,20 @@ class AppRepository(context: Context) {
                 id.startsWith("intent:") -> {
                     try {
                         val intent = android.content.Intent.parseUri(id, android.content.Intent.URI_INTENT_SCHEME)
-                        val pkg = intent.`package` ?: intent.component?.packageName ?: ""
+                        val resolveInfo = packageManager.resolveActivity(intent, 0)
+                        // The owning package, for the icon and the exclusion
+                        // set: static shortcuts with only action+data carry
+                        // neither an explicit package nor a component, so
+                        // fall back to the resolved activity's package
+                        // instead of "" (which yields no icon).
+                        val pkg = intent.`package` ?: intent.component?.packageName
+                            ?: resolveInfo?.activityInfo?.packageName ?: ""
 
                         // Prefer the label captured when the user pinned the item
                         // (shortcut shortLabel / activity label from the picker).
                         // resolveActivity().loadLabel() often returns the *app* name
                         // for shortcut intents, which is wrong in the sidebar.
                         val savedLabel = panelItemLabels[id]
-                        val resolveInfo = packageManager.resolveActivity(intent, 0)
                         val resolvedName = resolveInfo?.loadLabel(packageManager)?.toString()
                         val fallback = intent.component?.shortClassName?.substringAfterLast('.')
                             ?: "Unknown Activity"
@@ -462,7 +486,7 @@ class AppRepository(context: Context) {
                         AppInfo(
                             packageName = id,
                             appName = packageManager.getApplicationLabel(appInfo).toString(),
-                            isInPanel = true,
+                            isInPanel = id in pinnedIdentifiers,
                             type = AppInfo.Type.APP,
                             appearanceKey = appearanceKey
                         )
@@ -481,6 +505,11 @@ class AppRepository(context: Context) {
      * `intent:` prefix handled by [getAppsForIdentifiers]).
      */
     suspend fun getActivitiesByPackage(): List<PickerGroup> = withContext(Dispatchers.IO) {
+        // Single-flight: the backfill and the picker can otherwise run
+        // duplicate full scans concurrently. The whole body (including the
+        // cache check) runs under this mutex, so the second caller finds
+        // the first scan's cached result instead of re-scanning.
+        activitiesScanMutex.withLock {
         // Same clock as the picker TTL (uptimeMillis): a wall-clock jump
         // backwards used to make this cache never expire, forwards made it
         // expire instantly. Hoisted here so the cache-hit path and
@@ -530,6 +559,10 @@ class AppRepository(context: Context) {
                 val activities = pkg.activities ?: continue
                 for (act in activities) {
                     if (!act.exported || !act.enabled) continue
+                    // Skip activities guarded by a permission we don't hold:
+                    // listing one is pointless — tapping it throws
+                    // SecurityException.
+                    if (act.permission != null && androidx.core.content.ContextCompat.checkSelfPermission(appContext, act.permission) != PackageManager.PERMISSION_GRANTED) continue
                     val intent = android.content.Intent().apply { setClassName(pkg.packageName, act.name) }
                     val uri = intent.toUri(android.content.Intent.URI_INTENT_SCHEME)
                     val label = try {
@@ -588,6 +621,8 @@ class AppRepository(context: Context) {
                 for (ri in resolved) {
                     val ai = ri.activityInfo ?: continue
                     if (!ai.exported || !ai.enabled) continue
+                    // Same permission guard as Path A.
+                    if (ai.permission != null && androidx.core.content.ContextCompat.checkSelfPermission(appContext, ai.permission) != PackageManager.PERMISSION_GRANTED) continue
                     val componentIntent = android.content.Intent().apply {
                         setClassName(ai.packageName, ai.name)
                     }
@@ -615,6 +650,7 @@ class AppRepository(context: Context) {
                 activitiesCache = it
                 activitiesCacheAtMs = android.os.SystemClock.uptimeMillis()
             }
+        }
     }
 
     /**
@@ -680,7 +716,9 @@ class AppRepository(context: Context) {
      * tag). [PackageManager.getResourcesForApplication] requires no special permission.
      */
     private suspend fun getStaticShortcutsByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
-        val appearanceKey = panelPrefs.appearanceKey
+        // NB: no appearanceKey local here — static-shortcut AppInfo items are
+        // built without one (the live path below hoists its own), and the
+        // unused local this used to declare tripped a compiler warning.
         val result = mutableListOf<Pair<String, List<AppInfo>>>()
         try {
             // Round-17: must include GET_ACTIVITIES so pkg.activities is non-null.
@@ -824,9 +862,11 @@ class AppRepository(context: Context) {
      * then resolved through the app's own [android.content.res.Resources], which works
      * without any permission (it's just an APK asset read).
      *
-     * Filter: shortcuts whose target intent can't be resolved by the current
-     * [PackageManager] (target package uninstalled, action unsupported, etc.) are
-     * dropped because they'd no-op on tap.
+     * Filter: a shortcut is kept when its target resolves, or when it
+     * names an explicit component/package or an action — deep links that
+     * only resolve with runtime extras are kept too. Only shortcuts with
+     * neither a resolvable target nor any explicit target/action are
+     * dropped, because they'd no-op on tap.
      */
     private fun parseStaticShortcutsXml(
         resources: android.content.res.Resources,
@@ -838,6 +878,7 @@ class AppRepository(context: Context) {
         val ANDROID_NS = "http://schemas.android.com/apk/res/android"
         try {
             val parser = resources.getXml(xmlResId)
+            try {
             val panelIds = panelPrefs.getPanelApps().toSet()
 
             // Scratch state shared across one <shortcut> element.
@@ -848,6 +889,11 @@ class AppRepository(context: Context) {
             var icData: String? = null
             var icTargetPackage: String? = null
             var icTargetClass: String? = null
+            // <extra android:name/value> children of <intent>, and
+            // <categories android:name> children: without these, shortcuts
+            // launch without the extras/categories their target requires.
+            val icExtras = mutableListOf<Pair<String, String>>()
+            val icCategories = mutableListOf<String>()
 
             while (parser.eventType != XmlPullParser.END_DOCUMENT) {
                 when (parser.eventType) {
@@ -874,6 +920,25 @@ class AppRepository(context: Context) {
                                 icTargetPackage = parser.getAttributeValue(ANDROID_NS, "targetPackage")
                                 icTargetClass = parser.getAttributeValue(ANDROID_NS, "targetClass")
                             }
+                            // <extra android:name/value> and <categories
+                            // android:name> children of <intent>: without
+                            // these the shortcut launches without the
+                            // extras/categories its target requires.
+                            "extra" -> {
+                                val name = parser.getAttributeValue(ANDROID_NS, "name")
+                                if (!name.isNullOrBlank()) {
+                                    val valueResId = parser.getAttributeResourceValue(ANDROID_NS, "value", 0)
+                                    val value = when {
+                                        valueResId != 0 -> try { resources.getString(valueResId) } catch (_: Exception) { null }
+                                        else -> parser.getAttributeValue(ANDROID_NS, "value")
+                                    } ?: ""
+                                    icExtras.add(name to value)
+                                }
+                            }
+                            "categories" -> {
+                                val name = parser.getAttributeValue(ANDROID_NS, "name")
+                                if (!name.isNullOrBlank()) icCategories.add(name)
+                            }
                         }
                     }
                     XmlPullParser.END_TAG -> {
@@ -894,6 +959,8 @@ class AppRepository(context: Context) {
                                     } else if (!targetPackage.isNullOrBlank()) {
                                         `package` = targetPackage
                                     }
+                                    for (category in icCategories) addCategory(category)
+                                    for ((name, value) in icExtras) putExtra(name, value)
                                     addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
                                 // Prefer resolvable targets; also keep explicit component / action
@@ -930,12 +997,18 @@ class AppRepository(context: Context) {
                             icData = null
                             icTargetPackage = null
                             icTargetClass = null
+                            icExtras.clear()
+                            icCategories.clear()
                         }
                     }
                 }
                 parser.next()
             }
-            parser.close()
+            } finally {
+                // Close on every path: the old code closed only on success,
+                // leaking the parser when parsing threw mid-document.
+                parser.close()
+            }
         } catch (e: Exception) {
             // Skip this resource if parsing fails.
         }
@@ -953,7 +1026,10 @@ class AppRepository(context: Context) {
     suspend fun backfillMissingPanelLabels(): Int = withContext(Dispatchers.IO) {
         val pinned = panelPrefs.getPanelApps().filter { it.startsWith("intent:") }
         if (pinned.isEmpty()) return@withContext 0
-        val missing = pinned.filter { panelPrefs.getPanelItemLabel(it).isNullOrBlank() }
+        // One JSON parse for all labels (was one getPanelItemLabel per id,
+        // each re-parsing the whole labels JSON — O(n²)).
+        val existingLabels = panelPrefs.getPanelItemLabels()
+        val missing = pinned.filter { existingLabels[it].isNullOrBlank() }
         if (missing.isEmpty()) return@withContext 0
 
         val labelByUri = mutableMapOf<String, String>()
@@ -1003,11 +1079,28 @@ class AppRepository(context: Context) {
         }
     }
 
+    /**
+     * Called (once, on a background thread) when the async label backfill
+     * fills at least one label, so the host can refresh the list and show
+     * the backfilled names. Set by the hosting service.
+     */
+    var onLabelsBackfilled: (() -> Unit)? = null
+
     suspend fun getPanelApps(): List<AppInfo> = withContext(Dispatchers.IO) {
         // Opportunistic one-shot label backfill for legacy intent: pins.
+        // Runs on the preload scope WITHOUT blocking this call: the
+        // backfill does two full PackageManager scans, which used to block
+        // the first sidebar open. When it fills labels, the host refreshes
+        // (see onLabelsBackfilled).
         if (!labelsBackfillAttempted) {
             labelsBackfillAttempted = true
-            try { backfillMissingPanelLabels() } catch (_: Exception) {}
+            iconPreloadScope.launch {
+                try {
+                    if (backfillMissingPanelLabels() > 0) {
+                        onLabelsBackfilled?.invoke()
+                    }
+                } catch (_: Exception) {}
+            }
         }
 
         val pinnedIdentifiers = panelPrefs.getPanelApps()
@@ -1016,9 +1109,14 @@ class AppRepository(context: Context) {
         if (panelPrefs.showNotificationApps) {
             val notifyApps = NotificationTrackingService.getActiveNotificationPackages()
             for (pkg in notifyApps.reversed()) {
-                if (!allIdentifiers.contains(pkg)) {
-                    allIdentifiers.add(0, pkg)
-                }
+                if (allIdentifiers.contains(pkg)) continue
+                // Never inject ourselves (our foreground-service
+                // notification) or system / non-launchable packages
+                // (USB/debug notices, SystemUI, dialogs): they have no
+                // launch intent and are not apps the user can open.
+                if (pkg == appContext.packageName) continue
+                if (packageManager.getLaunchIntentForPackage(pkg) == null) continue
+                allIdentifiers.add(0, pkg)
             }
         }
 
@@ -1043,6 +1141,7 @@ class AppRepository(context: Context) {
         }
         resolved
             .distinctBy { it.activityInfo.packageName }
+            .filter { it.activityInfo.packageName != appContext.packageName }
             .map { ri ->
                 val pkg = ri.activityInfo.packageName
                 val label = try {

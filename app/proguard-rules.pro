@@ -11,23 +11,9 @@
 #  - No Parcelable/Serializable types.
 # Keep only what has a real reason below.
 
-# Keep ViewBinding
--keep class com.imi.smartedge.sidebar.panel.databinding.** { *; }
-
 # Shizuku's provider is manifest-referenced; keep it explicit so a
 # future manifest refactor can't silently drop it.
 -keep class rikka.shizuku.ShizukuProvider { *; }
-
-# Skydoves ColorPickerView
--keep class com.skydoves.colorpickerview.** { *; }
-
-# Glide
--keep public class * implements com.bumptech.glide.module.GlideModule
--keep class * extends com.bumptech.glide.GeneratedAppGlideModule
--keepclassmembers public enum com.bumptech.glide.load.ImageHeaderParser$** {
-    **[] $VALUES;
-    public *;
-}
 
 # Strip android.util.Log calls in release builds to prevent
 # fingerprint / interaction leakage via connected debug tools. In-app

@@ -38,7 +38,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         // here (not in the click handler) so a recreated activity after
         // rotation still receives the pick.
         IconPackPickerDialog.registerResultListener(this) {
-            binding.tvCurrentIconPack.text = panelPrefs.iconPackLabel
+            binding.tvCurrentIconPack.text = panelPrefs.iconPackDisplayLabel(this)
         }
         handleDeepLink()
     }
@@ -117,7 +117,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         
         binding.featureCustomAccent.isChecked = panelPrefs.useCustomAccent
         
-        binding.tvCurrentIconPack.text = panelPrefs.iconPackLabel
+        binding.tvCurrentIconPack.text = panelPrefs.iconPackDisplayLabel(this)
 
         // parseColor throws on a corrupt persisted value (e.g. from an old
         // unvalidated backup import); fall back to the default instead of
@@ -130,42 +130,70 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             PanelPreferences.STYLE_POWER -> getString(R.string.button_style_power)
             else -> getString(R.string.button_style_logo)
         }
+
+        updateThemeLocks()
+    }
+
+    /**
+     * Lock the controls whose prefs the current theme ignores: the BG
+     * colour is fixed under Origin (#1F1F1F) and HyperOS (#E6252525), and
+     * the corner radius is fixed at 16dp under HyperOS. The BG button is
+     * dimmed (its tap guard toasts the reason); the radius slider is
+     * disabled outright, since a disabled slider has no tap to toast on.
+     */
+    private fun updateThemeLocks() {
+        val bgLocked = panelPrefs.uiTheme == PanelPreferences.THEME_ORIGIN ||
+            panelPrefs.uiTheme == PanelPreferences.THEME_HYPEROS
+        binding.btnPickBg.alpha = if (bgLocked) 0.4f else 1f
+        val radiusLocked = panelPrefs.uiTheme == PanelPreferences.THEME_HYPEROS
+        binding.sbPanelRadius.isEnabled = !radiusLocked
+        binding.sbPanelRadius.alpha = if (radiusLocked) 0.4f else 1f
     }
 
     private fun setupListeners() {
+        // Refresh the service once per drag, not per value tick: the old
+        // per-change refresh restarted the service on every slider step
+        // (same touch-stop pattern as the slide-sensitivity slider).
+        fun refreshOnStop(slider: com.google.android.material.slider.Slider) {
+            slider.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(slider: com.google.android.material.slider.Slider) {}
+                override fun onStopTrackingTouch(slider: com.google.android.material.slider.Slider) { applyOnly() }
+            })
+        }
+        refreshOnStop(binding.sbOpacity)
+        refreshOnStop(binding.sbPanelRadius)
+        refreshOnStop(binding.sbIconScale)
+        refreshOnStop(binding.sbMaxHeight)
+        refreshOnStop(binding.sbPickerMaxHeight)
+        refreshOnStop(binding.sbBlurAmount)
         binding.sbOpacity.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
             panelPrefs.panelOpacity = value.toInt()
             binding.tvOpacityValue.text = getString(R.string.fmt_percent, value.toInt())
-            applyOnly()
         }
 
         binding.sbPanelRadius.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
             panelPrefs.panelCornerRadius = value.toInt()
             binding.tvRadiusValue.text = getString(R.string.fmt_dp, value.toInt())
-            applyOnly()
         }
 
         binding.sbIconScale.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
             panelPrefs.scaleFactor = value
             binding.tvIconScaleValue.text = getString(R.string.fmt_scale_x, value)
-            applyOnly()
         }
 
         binding.sbMaxHeight.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
             panelPrefs.panelMaxHeight = value.toInt()
             binding.tvMaxHeightValue.text = getString(R.string.fmt_dp, value.toInt())
-            applyOnly()
         }
 
         binding.sbPickerMaxHeight.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
             panelPrefs.pickerMaxHeight = value.toInt()
             binding.tvPickerMaxHeightValue.text = getString(R.string.fmt_dp, value.toInt())
-            applyOnly()
         }
 
         binding.btnResetIconScale.setOnClickListener {
@@ -204,6 +232,14 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             panelPrefs.panelCornerRadius = default
             binding.sbPanelRadius.value = default.toFloat()
             binding.tvRadiusValue.text = getString(R.string.fmt_dp, default)
+            applyOnly()
+        }
+
+        binding.btnResetBlur.setOnClickListener {
+            val default = PanelPreferences.DEFAULT_BLUR_AMOUNT
+            panelPrefs.blurAmount = default
+            binding.sbBlurAmount.value = default.toFloat()
+            binding.tvBlurAmountValue.text = getString(R.string.fmt_number, default)
             applyOnly()
         }
 
@@ -252,6 +288,9 @@ class AppearanceSettingsActivity : AppCompatActivity() {
                         panelPrefs.useCustomAccent = false
                         binding.featureCustomAccent.isChecked = false
                     }
+                    // The theme change can lock/unlock the BG colour and
+                    // radius controls.
+                    updateThemeLocks()
                     applyOnly()
                     dialog.dismiss()
                 }
@@ -292,7 +331,6 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             if (!fromUser) return@addOnChangeListener
             panelPrefs.blurAmount = value.toInt()
             binding.tvBlurAmountValue.text = getString(R.string.fmt_number, value.toInt())
-            applyOnly()
         }
 
         binding.featureHideBg.setOnCheckedChangeListener { _, isChecked ->
@@ -363,6 +401,10 @@ class AppearanceSettingsActivity : AppCompatActivity() {
                 binding.root.showModernToast(getString(R.string.toast_bg_locked_origin))
                 return@setOnClickListener
             }
+            if (panelPrefs.uiTheme == PanelPreferences.THEME_HYPEROS) {
+                binding.root.showModernToast(getString(R.string.toast_bg_locked_hyperos))
+                return@setOnClickListener
+            }
             openColorPicker(parseColorOrDefault(panelPrefs.panelBackgroundColor, PanelPreferences.DEFAULT_PANEL_BG)) { newColor ->
                 val hex = String.format("#E6%06X", (0xFFFFFF and newColor))
                 panelPrefs.panelBackgroundColor = hex
@@ -390,6 +432,10 @@ class AppearanceSettingsActivity : AppCompatActivity() {
     }
 
     private fun applyOnly() {
+        // The service is off: starting it just to refresh would flash
+        // its foreground notification and stop again. The prefs are
+        // already saved; the service reads them when re-enabled.
+        if (!panelPrefs.serviceEnabled) return
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_REFRESH
         }

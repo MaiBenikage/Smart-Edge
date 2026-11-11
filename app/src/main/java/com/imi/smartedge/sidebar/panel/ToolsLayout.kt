@@ -18,6 +18,9 @@ object ToolsLayout {
     /** Base chrome height in dp: top padding (12) + bottom padding (4) + tools margin (4) + close button (32 + 4 top + 4 bottom margin = 40). */
     const val BASE_HEIGHT_DP = 60f
 
+    /** Extra chrome inside a folder: btnBack (40dp + 8 + 8 margins = 56dp) replaces btnClose (32 + 4 + 4 = 40dp). */
+    const val FOLDER_BACK_EXTRA_DP = 16f
+
     /** Divider: 1dp line + 8dp bottom margin. */
     const val DIVIDER_DP = 9f
 
@@ -67,7 +70,7 @@ object ToolsLayout {
         gridCols: Int,
         showSysInfo: Boolean
     ): Float {
-        if (!showTools || inFolder) return BASE_HEIGHT_DP
+        if (!showTools || inFolder) return BASE_HEIGHT_DP + if (inFolder) FOLDER_BACK_EXTRA_DP else 0f
         var h = BASE_HEIGHT_DP
         if (tools.hasStandardTools || showSysInfo) {
             if (tools.hasStandardTools) {

@@ -31,19 +31,22 @@ class ToggleActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         // 1. Handle Shortcut Creation request from Launcher
-        // SECURITY: Embed smartedge.from_shortcut=true into the shortcutIntent so on
-        // subsequent launches we can detect that ToggleActivity was triggered by
-        // tapping our own home-screen shortcut (vs. being invoked by a 3rd-party
-        // app via plain MAIN). This gates the silent service re-enable below.
+        // SECURITY: Embed the per-install shortcut token (see
+        // PanelPreferences.shortcutToken) into the shortcutIntent so on
+        // subsequent launches we can detect that ToggleActivity was triggered
+        // by tapping our own home-screen shortcut (vs. being invoked by a
+        // 3rd-party app via plain MAIN). A plain boolean extra can be set by
+        // any app; the random token cannot be guessed. This gates the silent
+        // service re-enable below.
         if (intent.action == Intent.ACTION_CREATE_SHORTCUT) {
             val shortcutIntent = Intent(this, ToggleActivity::class.java).apply {
                 action = ACTION_TOGGLE
-                putExtra("smartedge.from_shortcut", true)
+                putExtra("smartedge.shortcut_token", PanelPreferences(this@ToggleActivity).shortcutToken)
             }
 
             val resultIntent = Intent().apply {
                 putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent)
-                putExtra(Intent.EXTRA_SHORTCUT_NAME, "Toggle Sidebar")
+                putExtra(Intent.EXTRA_SHORTCUT_NAME, getString(R.string.label_toggle_sidebar))
                 val iconResource = Intent.ShortcutIconResource.fromContext(this@ToggleActivity, R.mipmap.ic_launcher)
                 putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, iconResource)
             }
@@ -70,16 +73,30 @@ class ToggleActivity : AppCompatActivity() {
 
         // Ensure service is enabled in preferences ONLY when ToggleActivity was
         // launched from our own home-screen shortcut (the CREATE_SHORTCUT branch
-        // above stamps smartedge.from_shortcut=true into the shortcut intent).
-        // Without this gate, any 3rd-party app could fire `Intent(MAIN).setClassName(
-        // this, ToggleActivity)` and silently flip the service back on after the
-        // user had disabled it for battery / privacy reasons.
-        if (intent.getBooleanExtra("smartedge.from_shortcut", false)
-            && intent.action == ACTION_TOGGLE) {
+        // above and pinShortcut() stamp the per-install shortcut token into
+        // the shortcut intent). Without this gate, any 3rd-party app could fire
+        // `Intent(MAIN).setClassName(this, ToggleActivity)` and silently flip
+        // the service back on after the user had disabled it for battery /
+        // privacy reasons. A boolean extra is not a gate — any app can set one —
+        // so the token (a random UUID only our prefs know) is checked instead.
+        if (intent.action == ACTION_TOGGLE &&
+            intent.getStringExtra("smartedge.shortcut_token") == PanelPreferences(this).shortcutToken) {
             PanelPreferences(this).serviceEnabled = true
         }
 
-        // 3. Trigger the Panel
+        // 3. Trigger the Panel — but only if the service is enabled. The
+        // token gate above re-enables it for our own shortcuts; without a
+        // valid token (static manifest shortcut, which can't carry the
+        // per-install token, or any other caller) the service stays off
+        // and ACTION_OPEN would silently do nothing. Tell the user and
+        // route them to the main screen where they can start it.
+        if (!PanelPreferences(this).serviceEnabled) {
+            Toast.makeText(this, getString(R.string.toast_service_stopped_start_first), Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, MainActivity::class.java))
+            finish()
+            return
+        }
+
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_OPEN
         }

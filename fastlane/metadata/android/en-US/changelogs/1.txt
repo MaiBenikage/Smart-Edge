@@ -1,6 +1,3 @@
-V1.0
-- Initial FOSS release for F-Droid.
-- Migrated to 100% Open Source model.
-- Implemented community-focused donation model.
-- Unlocked all features by default.
-- Modern Material 3 UI with Glassmorphic effects.
+Latest release — fixes and precise volume & brightness steps.
+- Full-codebase audit fixes across services, UI, data, settings and build, including repaired release signing and a CI release-variant check.
+- One volume tick is exactly one hardware media step on every phone; brightness moves exactly 1% per step.

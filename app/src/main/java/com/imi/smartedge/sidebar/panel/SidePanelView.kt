@@ -27,7 +27,6 @@ class SidePanelView @JvmOverloads constructor(
 ) : FrameLayout(context, attrs) {
 
     var onClose: (() -> Unit)? = null
-    var onAppsChanged: (() -> Unit)? = null
     var onAddClick: ((Boolean) -> Unit)? = null
     var onScreenshot: (() -> Unit)? = null
     var onFolderOpen: ((String) -> Unit)? = null
@@ -78,6 +77,18 @@ class SidePanelView @JvmOverloads constructor(
     private data class ListScrollState(val position: Int, val top: Int)
     private var savedAppsScroll: ListScrollState? = null
     private var savedRecentScroll: ListScrollState? = null
+
+    // Latest main-list scroll position, held in memory during a scroll and
+    // written to prefs only when scrolling settles (IDLE) or the view
+    // detaches — not on every onScrolled event (a disk write per event).
+    private var pendingSidebarScroll: Pair<Int, Int>? = null
+
+    private fun flushSidebarScroll() {
+        val pending = pendingSidebarScroll ?: return
+        pendingSidebarScroll = null
+        panelPrefs.lastSidebarScrollPos = pending.first
+        panelPrefs.lastSidebarScrollTop = pending.second
+    }
 
     // Cached set of home/launcher packages — resolved once on first use in isGameMode().
     private var homePackages: Set<String>? = null
@@ -157,8 +168,11 @@ class SidePanelView @JvmOverloads constructor(
     // visible (flings inside the quiet period are ignored); gestureDownX
     // records the current gesture's start X so onFling can require a real
     // outward displacement instead of just a velocity spike.
+    // itemTouchDragActive tracks an in-progress ItemTouchHelper reorder:
+    // a fast horizontal reorder must not close the panel mid-drag.
     private var panelOpenedAtMs = 0L
     private var gestureDownX = 0f
+    private var itemTouchDragActive = false
 
     private val gestureDetector = android.view.GestureDetector(context, object : android.view.GestureDetector.SimpleOnGestureListener() {
         override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, velocityX: Float, velocityY: Float): Boolean {
@@ -167,14 +181,21 @@ class SidePanelView @JvmOverloads constructor(
             // Ignore flings right after opening, and require a real outward
             // displacement — not just a velocity spike — before closing.
             if (android.os.SystemClock.uptimeMillis() - panelOpenedAtMs < FLING_QUIET_PERIOD_MS) return false
+            // Never close mid-drag: a separator drag or an edit-mode
+            // reorder can easily exceed the fling velocity.
+            if (separatorDragActive || itemTouchDragActive) return false
             val isRight = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
             if (Math.abs(velocityY) > Math.abs(velocityX)) return false
             val dx = e2.x - gestureDownX
-            val minDxPx = FLING_MIN_DISPLACEMENT_DP * context.resources.displayMetrics.density
-            if (isRight && velocityX > 1200f && dx > minDxPx) {
+            val density = context.resources.displayMetrics.density
+            val minDxPx = FLING_MIN_DISPLACEMENT_DP * density
+            // Velocity threshold in dp/s, scaled by density: a fixed px/s
+            // value is far too easy to hit on high-density screens.
+            val minVelocityPx = FLING_MIN_VELOCITY_DP * density
+            if (isRight && velocityX > minVelocityPx && dx > minDxPx) {
                 onClose?.invoke()
                 return true
-            } else if (!isRight && velocityX < -1200f && dx < -minDxPx) {
+            } else if (!isRight && velocityX < -minVelocityPx && dx < -minDxPx) {
                 onClose?.invoke()
                 return true
             }
@@ -186,7 +207,13 @@ class SidePanelView @JvmOverloads constructor(
         if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
             gestureDownX = ev.x
         }
-        gestureDetector.onTouchEvent(ev)
+        // Don't feed the fling detector during an internal drag (separator
+        // or edit-mode reorder): requestDisallowInterceptTouchEvent can't
+        // stop this detector — it is fed from dispatchTouchEvent — so the
+        // guard has to live here (and in onFling itself).
+        if (!separatorDragActive && !itemTouchDragActive) {
+            gestureDetector.onTouchEvent(ev)
+        }
         return super.dispatchTouchEvent(ev)
     }
 
@@ -200,6 +227,13 @@ class SidePanelView @JvmOverloads constructor(
     }
 
     init {
+        // The panel's geometry is absolute, not locale-mirrored: the side
+        // is a user setting (panelSide), and the fling direction, the
+        // handle swipe and the pill corner radii all use absolute
+        // left/right. Pin the overlay root to LTR so the relative
+        // START/END card positioning cannot mirror under an RTL locale
+        // and disagree with them. (Text inside still renders per locale.)
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
         springRotation.spring = SpringForce().apply {
             dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
             stiffness = SpringForce.STIFFNESS_MEDIUM
@@ -209,13 +243,15 @@ class SidePanelView @JvmOverloads constructor(
 
         adapter = PanelAppsAdapter(
             context,
-            onRemove = { removedApp ->
-                panelPrefs.removeApp(removedApp.identifier)
-                onAppsChanged?.invoke()
-            },
-            onAddClick = { isEdit -> onAddClick?.invoke(isEdit) },
+            // The Add button only shows in edit mode, so it always opens
+            // the picker in edit mode (true).
+            onAddClick = { onAddClick?.invoke(true) },
             onAppLaunched = { onClose?.invoke() },
             onFolderClick = { folderId ->
+                // Leave edit mode when a folder opens: dragging inside a
+                // folder would save the folder's contents as the pinned
+                // list, and the Add button must not show inside a folder.
+                adapter.setShowAddButton(false)
                 navigationStack.push(folderId)
                 updateNavigationUI()
                 onFolderOpen?.invoke(folderId)
@@ -240,7 +276,6 @@ class SidePanelView @JvmOverloads constructor(
         // (no add button, no edit/drag, no folders).
         recentAdapter = PanelAppsAdapter(
             context,
-            onRemove = { },
             onAddClick = { },
             onAppLaunched = { onClose?.invoke() },
             onFolderClick = { },
@@ -310,14 +345,23 @@ class SidePanelView @JvmOverloads constructor(
                 // Save position + top offset (not raw pixels): robust when
                 // the list content changes between save and restore, and
                 // RecyclerView.scrollTo() bypasses the LayoutManager anyway.
+                // Keep it in memory only: the prefs write happens when
+                // scrolling settles (onScrollStateChanged IDLE) and in
+                // onDetachedFromWindow, so a fling doesn't enqueue a
+                // SharedPreferences apply() per scroll event.
                 if (panelPrefs.rememberScroll && !isRestoringScroll) {
                     val lm = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
                     val pos = lm?.findFirstVisibleItemPosition()
                         ?: androidx.recyclerview.widget.RecyclerView.NO_POSITION
                     if (lm != null && pos != androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
-                        panelPrefs.lastSidebarScrollPos = pos
-                        panelPrefs.lastSidebarScrollTop = lm.findViewByPosition(pos)?.top ?: 0
+                        pendingSidebarScroll = pos to (lm.findViewByPosition(pos)?.top ?: 0)
                     }
+                }
+            }
+
+            override fun onScrollStateChanged(recyclerView: androidx.recyclerview.widget.RecyclerView, newState: Int) {
+                if (newState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE) {
+                    flushSidebarScroll()
                 }
             }
         })
@@ -328,7 +372,17 @@ class SidePanelView @JvmOverloads constructor(
             0
         ) {
             override fun isLongPressDragEnabled(): Boolean {
-                return adapter.isEditMode
+                // No dragging inside a folder: a drag there would run
+                // clearView on the folder's 7 tool ids and overwrite the
+                // whole pinned list with them.
+                return adapter.isEditMode && navigationStack.isEmpty()
+            }
+
+            override fun onSelectedChanged(viewHolder: androidx.recyclerview.widget.RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(viewHolder, actionState)
+                // Track an in-progress reorder so fling-to-close (fed from
+                // dispatchTouchEvent) can't fire mid-drag.
+                itemTouchDragActive = actionState == androidx.recyclerview.widget.ItemTouchHelper.ACTION_STATE_DRAG
             }
 
             override fun onMove(
@@ -356,8 +410,17 @@ class SidePanelView @JvmOverloads constructor(
 
             override fun clearView(recyclerView: androidx.recyclerview.widget.RecyclerView, viewHolder: androidx.recyclerview.widget.RecyclerView.ViewHolder) {
                 super.clearView(recyclerView, viewHolder)
-                val apps = adapter.getApps()
-                val identifiers = apps.map { it.identifier }
+                // Never save from inside a folder: the folder shows the 7
+                // tool ids, not the pinned apps.
+                if (navigationStack.isNotEmpty()) return
+                // Save only the real pinned ids, in their new order. The
+                // displayed list also contains injected entries — the Tools
+                // folder button and notification-prepended apps — which are
+                // not pins and must not become permanent.
+                val pinned = panelPrefs.getPanelApps().toSet()
+                val identifiers = adapter.getApps()
+                    .map { it.identifier }
+                    .filter { it in pinned }
 
                 panelPrefs.setPanelApps(identifiers)
                 updateSideLayout()
@@ -418,6 +481,25 @@ class SidePanelView @JvmOverloads constructor(
         // [brightnessDragState] / [handleDragTouch]; those capture-by-name references
         // are resolved lazily at touch-event time, by which point instance construction
         // (including all property initializers below) is complete.
+        // Tap and step actions, shared by the touch listener (physical
+        // tap/drag) and the click listener + accessibility actions below
+        // (TalkBack double-tap and Increase/Decrease).
+        val volumeTap = {
+            // Tap → show the system volume panel (no value change required).
+            showSystemVolumeBar()
+        }
+        val volumeStep: (Int) -> Unit = { direction ->
+            // Each unit = one hardware volume step (same semantics as
+            // edge-slide); the drag distance per unit adapts to the
+            // phone's media step count.
+            adjustVolumeByStep(direction)
+        }
+        val brightnessTap = { toggleAutoBrightness() }
+        val brightnessStep: (Int) -> Unit = { direction ->
+            // Each unit = one brightness level (same semantics as edge-slide).
+            adjustBrightnessByPercent(direction)
+            showBrightnessIndicator()
+        }
         btnVolumeDragTouchListener = View.OnTouchListener { v, event ->
             handleDragTouch(
                 view = v,
@@ -427,17 +509,8 @@ class SidePanelView @JvmOverloads constructor(
                 // media step on this phone (see VolumeStepMath), so the
                 // full-range drag distance stays the same.
                 distancePerUnitDp = { VolumeStepMath.dpPerStep(mediaMaxSteps(), 25f) },
-                onTap = {
-                    // Tap → show the system volume panel (no value change required).
-                    showSystemVolumeBar()
-                },
-                onStep = { direction ->
-                    // Enabled only after a 1s long-press (see handleDragTouch).
-                    // Each unit = one hardware volume step (same semantics as
-                    // edge-slide); the drag distance per unit adapts to the
-                    // phone's media step count.
-                    adjustVolumeByStep(direction)
-                }
+                // Enabled only after a 600ms long-press (LONG_PRESS_DRAG_MS, see handleDragTouch).
+                onStep = volumeStep
             )
         }
         btnBrightnessDragTouchListener = View.OnTouchListener { v, event ->
@@ -446,17 +519,34 @@ class SidePanelView @JvmOverloads constructor(
                 event = event,
                 dragState = brightnessDragState,
                 distancePerUnitDp = { 3f },    // mirrors EdgeHandleView brightness: 3dp/unit
-                onTap = { toggleAutoBrightness() },
-                onStep = { direction ->
-                    // Enabled only after a 1s long-press (see handleDragTouch).
-                    // Each unit = one brightness level (same semantics as edge-slide).
-                    adjustBrightnessByPercent(direction)
-                    showBrightnessIndicator()
-                }
+                // Enabled only after a 600ms long-press (LONG_PRESS_DRAG_MS, see handleDragTouch).
+                onStep = brightnessStep
             )
         }
         binding.btnVolumeDrag.setOnTouchListener(btnVolumeDragTouchListener)
         binding.btnBrightnessDrag.setOnTouchListener(btnBrightnessDragTouchListener)
+        // TalkBack: a double-tap sends performClick(), which the touch-only
+        // buttons ignored. Route it to the same tap action as a physical
+        // tap, and expose Increase/Decrease actions so the value can be
+        // stepped without the drag gesture.
+        binding.btnVolumeDrag.setOnClickListener { volumeTap() }
+        binding.btnBrightnessDrag.setOnClickListener { brightnessTap() }
+        androidx.core.view.ViewCompat.addAccessibilityAction(
+            binding.btnVolumeDrag,
+            context.getString(R.string.accessibility_action_increase)
+        ) { _, _ -> volumeStep(+1); true }
+        androidx.core.view.ViewCompat.addAccessibilityAction(
+            binding.btnVolumeDrag,
+            context.getString(R.string.accessibility_action_decrease)
+        ) { _, _ -> volumeStep(-1); true }
+        androidx.core.view.ViewCompat.addAccessibilityAction(
+            binding.btnBrightnessDrag,
+            context.getString(R.string.accessibility_action_increase)
+        ) { _, _ -> brightnessStep(+1); true }
+        androidx.core.view.ViewCompat.addAccessibilityAction(
+            binding.btnBrightnessDrag,
+            context.getString(R.string.accessibility_action_decrease)
+        ) { _, _ -> brightnessStep(-1); true }
 
         binding.btnReboot.setOnClickListener {
             if (panelPrefs.hapticEnabled) {
@@ -827,18 +917,19 @@ class SidePanelView @JvmOverloads constructor(
      * [sidebarApps] is the list just handed to [setApps] (the service's
      * own copy — including the Tools folder button and any
      * notification-prepended apps). It is passed in explicitly instead of
-     * reading `adapter.currentList`, because submitList() commits
-     * asynchronously: if setApps() hasn't committed yet, currentList is
-     * the stale list and the exclusion misses apps that were just added
-     * (or wrongly excludes apps that were just removed), so the Recent
-     * section can duplicate the sidebar.
+     * reading `adapter.currentList`, so the exclusion uses exactly the
+     * list that was just set, without depending on adapter state or
+     * commit timing.
      */
     fun setRecentApps(apps: List<AppInfo>, sidebarApps: List<AppInfo>) {
         // Defence in depth for the no-duplication rule: the service already
         // excludes sidebar apps before the recent-count limit, but any
         // future caller of setRecentApps gets the same guarantee here.
+        // Build the exclusion set once: it walks all sidebar apps and
+        // parses intent URIs, so rebuilding it per recent item is O(n*m).
+        val excludedPackages = RecentAppsManager.excludedPackagesFor(sidebarApps)
         val filteredApps = apps.filter {
-            it.packageName !in RecentAppsManager.excludedPackagesFor(sidebarApps)
+            it.packageName !in excludedPackages
         }
         val visible = panelPrefs.recentEnabled &&
             navigationStack.isEmpty() &&
@@ -850,9 +941,9 @@ class SidePanelView @JvmOverloads constructor(
         // snapshot (not the shared save/restore fields) so it can't
         // clobber a picker round-trip save in progress.
         val recentScroll = scrollStateOf(binding.rvRecentApps)
-        // submitList() commits asynchronously — size the list AND re-budget
-        // the main list height in the commit callback so recentListHeightDp()
-        // reads the new item count, not the stale one.
+        // Size the list AND re-budget the main list height in the commit
+        // callback so recentListHeightDp() reads the new item count, not
+        // the stale one.
         recentAdapter.submitList(list) {
             applyRecentMaxHeight()
             updateSideLayout()
@@ -921,17 +1012,6 @@ class SidePanelView @JvmOverloads constructor(
         dragSplitPercent ?: panelPrefs.appsRecentSplitPercent
 
     /**
-     * Height budget for the two lists, in dp, as (appsHeight, recentHeight),
-     * or null when the Recent section is hidden (no split to apply).
-     *
-     * @param screenHeightDp screen height in dp.
-     * @param nonAppHeightDp chrome height in dp *excluding* the recent
-     * section (68dp base + tools + SysInfo, as computed in
-     * [updateSideLayout]).
-     * @param recentChromeDp recent divider+header (28dp) + separator height,
-     * or 0 when the section is hidden.
-     */
-    /**
      * Height (dp) of everything in the panel except the two lists — chrome
      * that updateSideLayout() subtracts before splitting the remaining
      * budget between the app list and the recent list. Shared by
@@ -964,6 +1044,18 @@ class SidePanelView @JvmOverloads constructor(
         )
     }
 
+    /**
+     * Height budget for the two lists, in dp, as (appsHeight, recentHeight),
+     * or null when the Recent section is hidden (no split to apply).
+     *
+     * @param screenHeightDp screen height in dp.
+     * @param nonAppHeightDp chrome height in dp *excluding* the recent
+     * section (60dp base + tools + SysInfo, as computed in
+     * [updateSideLayout]; +16dp in a folder, where btnBack replaces
+     * btnClose).
+     * @param recentChromeDp recent divider+header (28dp) + separator height,
+     * or 0 when the section is hidden.
+     */
     private fun splitHeightsDp(
         screenHeightDp: Float,
         nonAppHeightDp: Float,
@@ -990,7 +1082,10 @@ class SidePanelView @JvmOverloads constructor(
      * • ACTION_DOWN — anchor on the current split and the shared budget in
      *   px (from [splitHeightsDp], so the percent maps to the same budget
      *   updateSideLayout() uses). Disallow parent interception so the
-     *   panel's fling-to-close gesture can't steal the drag.
+     *   RecyclerView doesn't steal the drag; fling-to-close is guarded
+     *   separately by the separatorDragActive flag in dispatchTouchEvent
+     *   and onFling (requestDisallowInterceptTouchEvent can't stop the
+     *   GestureDetector, which is fed from dispatchTouchEvent).
      * • ACTION_MOVE — dragging down grows the app list and shrinks recents
      *   (and vice versa). Re-layouts live via the transient
      *   [dragSplitPercent]; nothing is written to prefs per move.
@@ -1116,7 +1211,7 @@ class SidePanelView @JvmOverloads constructor(
         recentAdapter.refreshIcons()
     }
 
-    /** Bind dashboard tool ImageButtons to assets SVG (with vector fallback). */
+    /** Bind dashboard tool ImageButtons to vector drawables via ToolIconHelper. */
     private fun applyToolButtonIcons(tint: ColorStateList = ColorStateList.valueOf(Color.WHITE)) {
         val pairs = listOf(
             binding.btnScreenshot to "screenshot",
@@ -1191,7 +1286,13 @@ class SidePanelView @JvmOverloads constructor(
                 if (theme == PanelPreferences.THEME_HYPEROS) {
                     setStroke(context.dpToPx(1), Color.parseColor("#4DFFFFFF"))
                 } else if (theme == PanelPreferences.THEME_RICH) {
-                    val accent = try { Color.parseColor(panelPrefs.accentColor) } catch (e: Exception) { Color.parseColor("#4A9EFF") }
+                    // The Rich stroke uses the custom accent only when the
+                    // switch is on; otherwise the default blue applies.
+                    val accent = if (panelPrefs.useCustomAccent) {
+                        try { Color.parseColor(panelPrefs.accentColor) } catch (e: Exception) { Color.parseColor("#4A9EFF") }
+                    } else {
+                        Color.parseColor("#4A9EFF")
+                    }
                     setStroke(context.dpToPx(2), accent)
                 } else if (theme == PanelPreferences.THEME_REALME) {
                     val color1 = Color.parseColor("#333333")
@@ -1203,21 +1304,24 @@ class SidePanelView @JvmOverloads constructor(
             }
             binding.panelCard.background = shape
 
-            // Force white/light icons and text for dark floating panel
-            val iconColorList = ColorStateList.valueOf(Color.WHITE)
-            // btnClose and btnBack still use ImageButton with drawable icons
-            binding.btnClose.imageTintList = iconColorList
-            binding.btnBack.imageTintList = iconColorList
-            // Tool buttons are ImageButtons — tint + assets SVG (vector fallback).
-            applyToolButtonIcons(iconColorList)
-
-            binding.tvRamUsage.setTextColor(Color.WHITE)
-            binding.tvBatTemp.setTextColor(Color.WHITE)
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 binding.panelCard.clipToOutline = true
             }
         }
+
+        // Force white/light icons and text for the dark floating panel.
+        // This is independent of the card background: with hideBackground
+        // on, the buttons previously kept their XML defaults (#D9FFFFFF
+        // tint, XML src) and later theme changes never reached them.
+        val iconColorList = ColorStateList.valueOf(Color.WHITE)
+        // btnClose and btnBack still use ImageButton with drawable icons
+        binding.btnClose.imageTintList = iconColorList
+        binding.btnBack.imageTintList = iconColorList
+        // Tool buttons are ImageButtons — tint + vector drawables (ToolIconHelper).
+        applyToolButtonIcons(iconColorList)
+
+        binding.tvRamUsage.setTextColor(Color.WHITE)
+        binding.tvBatTemp.setTextColor(Color.WHITE)
 
         val isGameMode = isGameMode()
         val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
@@ -1228,7 +1332,22 @@ class SidePanelView @JvmOverloads constructor(
 
         // Tools container only depends on standard interactive tools.
         // SysInfo is independent and doesn't affect tools grid visibility.
-        binding.toolsContainer.visibility = if (showTools && hasStandardTools) View.VISIBLE else View.GONE
+        // Visibility comes from ToolsLayout.toolsContainerVisible (pure,
+        // unit-tested) so the tested logic is the production logic.
+        val toolsVisibility = ToolsLayout.ToolsVisibility(
+            showPower = showPower,
+            showVolume = showVolume,
+            showBrightness = showBrightness,
+            showScreenshot = showScreenshot,
+            showBlackScreen = showBlackScreen,
+            showLockScreen = showLockScreen,
+            showContentPicker = showContentPicker
+        )
+        binding.toolsContainer.visibility = if (ToolsLayout.toolsContainerVisible(
+            showTools = panelPrefs.showTools,
+            inFolder = inFolder,
+            tools = toolsVisibility
+        )) View.VISIBLE else View.GONE
 
         // Sync tools grid columns synchronously IMMEDIATELY after all
         // visibility changes — the GridLayout must have correct specs
@@ -1329,7 +1448,7 @@ class SidePanelView @JvmOverloads constructor(
 
     // Volume no longer accumulates — one drag tick is exactly one hardware
     // media step (see adjustVolumeByStep and VolumeStepMath). Brightness
-    // still accumulates 1% steps, in the shared accumulator (see
+    // still accumulates 1% steps, in this view's own accumulator (see
     // PanelPreferences.brightnessStepAccumulator).
 
     /** Live media-volume step count for this phone (e.g. 160, 15, 7). */
@@ -1385,28 +1504,26 @@ class SidePanelView @JvmOverloads constructor(
                 return
             }
             val cResolver = context.contentResolver
-            android.provider.Settings.System.putInt(
-                cResolver,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
-            )
+            // Only writes when the mode differs, so a drag doesn't
+            // permanently kill the user's auto-brightness.
+            ensureManualBrightnessMode(cResolver)
             val current = android.provider.Settings.System.getInt(
                 cResolver,
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
                 125
             )
             // 1% = 2.55 levels on the 0..255 scale; the fractional part
-            // accumulates in the shared brightnessStepAccumulator (see
+            // accumulates in this view's brightnessStepAccumulator (see
             // PanelPreferences) until it makes a whole level, so the applied
             // change averages exactly deltaPercent percent points.
             val units = panelPrefs.brightnessStepAccumulator.add(deltaPercent, MAX_BRIGHTNESS)
             if (units == 0) return
-            val brightness = (current + units).coerceIn(0, MAX_BRIGHTNESS)
-            // Refund the steps the clamp swallowed (see FloatingPanelService
-            // .adjustBrightness): percent dragged against the 0/255 stop
-            // must not be silently consumed.
-            val unlanded = units - (brightness - current)
-            if (unlanded != 0) panelPrefs.brightnessStepAccumulator.refund(unlanded, MAX_BRIGHTNESS)
+            // Clamp floor is 1, not 0: some OEMs treat 0 as "auto".
+            val brightness = (current + units).coerceIn(1, MAX_BRIGHTNESS)
+            // Steps the clamp swallowed are dropped, NOT refunded (see
+            // FloatingPanelService.adjustBrightness): the brightness is
+            // already at the stop, so nothing is owed, and refunding them
+            // dead-zones the first reversal tick.
             android.provider.Settings.System.putInt(
                 cResolver,
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
@@ -1448,8 +1565,10 @@ class SidePanelView @JvmOverloads constructor(
      *                   -1 if DOWN. Multiple units are coalesced so a fast flick still
      *                   feels responsive (mirrors the edge-slide accumulation).
      *  • ACTION_UP    — spring the button back to translationY = 0. If total travel is
-     *                   less than tapSlop (8dp), fire [onTap] once so the button still
-     *                   works for users who don't discover the drag gesture.
+     *                   less than tapSlop (8dp), call performClick() so the button's
+     *                   OnClickListener runs the tap action — the same path a
+     *                   TalkBack double-tap takes — and the button still works
+     *                   for users who don't discover the drag gesture.
      *  • ACTION_CANCEL— snap back without firing anything (covers window-manager
      *                   panics / panel-close mid-touch).
      */
@@ -1464,7 +1583,6 @@ class SidePanelView @JvmOverloads constructor(
         event: android.view.MotionEvent,
         dragState: FloatArray,
         distancePerUnitDp: () -> Float,
-        onTap: () -> Unit,
         onStep: (direction: Int) -> Unit
     ): Boolean {
         val density = resources.displayMetrics.density
@@ -1476,7 +1594,6 @@ class SidePanelView @JvmOverloads constructor(
         val multiplier = 100f / panelPrefs.slideSensitivity.coerceIn(1, 200)
         val pixelsPerUnit = (distancePerUnitDp() * density * multiplier).coerceAtLeast(1f)
         val tapSlopPx = 8f * density
-        val tagKey = 0x20F15EED // local tag for arm state Runnable / Boolean
 
         return when (event.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
@@ -1484,18 +1601,18 @@ class SidePanelView @JvmOverloads constructor(
                 dragState[1] = event.rawY
                 dragState[2] = event.rawY
                 dragState[3] = 0f
-                view.setTag(tagKey, false)
+                view.setTag(R.id.tag_drag_armed, false)
                 // Cancel any previous arm callback.
-                (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
+                (view.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { view.removeCallbacks(it) }
                 val arm = Runnable {
-                    view.setTag(tagKey, true)
+                    view.setTag(R.id.tag_drag_armed, true)
                     // Reset tick baseline at arm time so the first drag after hold is smooth.
                     dragState[1] = dragState[0]
                     if (panelPrefs.hapticEnabled) {
                         view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
                     }
                 }
-                view.setTag(tagKey + 1, arm)
+                view.setTag(R.id.tag_drag_arm_runnable, arm)
                 view.postDelayed(arm, LONG_PRESS_DRAG_MS)
                 if (panelPrefs.hapticEnabled) {
                     view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
@@ -1505,14 +1622,14 @@ class SidePanelView @JvmOverloads constructor(
             }
             android.view.MotionEvent.ACTION_MOVE -> {
                 dragState[0] = event.rawY
-                val armed = view.getTag(tagKey) as? Boolean ?: false
+                val armed = view.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                 if (!armed) {
-                    // Still waiting for the 1s hold — cancel arm if finger wandered too far.
+                    // Still waiting for the 600ms hold — cancel arm if finger wandered too far.
                     val travel = Math.abs(event.rawY - dragState[2])
                     if (travel > tapSlopPx * 2f) {
-                        (view.getTag(tagKey + 1) as? Runnable)?.let { armCb ->
+                        (view.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { armCb ->
                             view.removeCallbacks(armCb)
-                            view.setTag(tagKey + 1, null)
+                            view.setTag(R.id.tag_drag_arm_runnable, null)
                             // One-shot reject feedback so the hold does not feel "dead".
                             if (panelPrefs.hapticEnabled) {
                                 view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
@@ -1543,20 +1660,23 @@ class SidePanelView @JvmOverloads constructor(
             }
             android.view.MotionEvent.ACTION_UP -> {
                 view.animate().translationY(0f).scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
-                (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
-                val armed = view.getTag(tagKey) as? Boolean ?: false
+                (view.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { view.removeCallbacks(it) }
+                val armed = view.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                 val totalTravel = Math.abs(event.rawY - dragState[2])
                 if (!armed && totalTravel < tapSlopPx) {
-                    onTap()
+                    // Route the tap through performClick() so the
+                    // OnClickListener (and TalkBack's double-tap, which
+                    // calls performClick()) runs the same tap action.
+                    view.performClick()
                 }
-                view.setTag(tagKey, false)
+                view.setTag(R.id.tag_drag_armed, false)
                 dragState[3] = 0f
                 true
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
                 view.animate().translationY(0f).scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
-                (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
-                view.setTag(tagKey, false)
+                (view.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { view.removeCallbacks(it) }
+                view.setTag(R.id.tag_drag_armed, false)
                 dragState[3] = 0f
                 true
             }
@@ -1687,9 +1807,17 @@ class SidePanelView @JvmOverloads constructor(
         divider.layoutParams = divLp
 
         // ── Tool cells: only VISIBLE ones stay in the container ──
+        // Positions come from ToolsLayout.gridPositions (pure, unit-tested)
+        // so the tested math is the production math, not a mirror of it.
         val allToolCells = getToolCellList()
         val rowOffset = if (divider.visibility == View.VISIBLE) 1 else 0
+        val (positions, _) = ToolsLayout.gridPositions(
+            visibility = allToolCells.map { it.visibility == View.VISIBLE },
+            gridCols = gridCols,
+            dividerVisible = divider.visibility == View.VISIBLE
+        )
         var toolIdx = 0
+        var posIdx = 0
 
         for (cell in allToolCells) {
             if (cell.visibility == View.VISIBLE) {
@@ -1707,12 +1835,11 @@ class SidePanelView @JvmOverloads constructor(
                     }
                 }
 
-                val row = rowOffset + if (gridCols == 2) toolIdx / 2 else toolIdx
-                val col = if (gridCols == 2) toolIdx % 2 else 0
+                val pos = positions[posIdx++]
                 val lp = cell.layoutParams as? android.widget.GridLayout.LayoutParams
                     ?: android.widget.GridLayout.LayoutParams()
-                lp.rowSpec = android.widget.GridLayout.spec(row, 1, FILL, 0f)
-                lp.columnSpec = android.widget.GridLayout.spec(col, 1, FILL, 1.0f)
+                lp.rowSpec = android.widget.GridLayout.spec(pos.row, 1, FILL, 0f)
+                lp.columnSpec = android.widget.GridLayout.spec(pos.col, 1, FILL, 1.0f)
                 lp.width = 0
                 lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 cell.layoutParams = lp
@@ -1739,7 +1866,16 @@ class SidePanelView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        // Persist the final scroll position even if the panel closes
+        // mid-scroll (before the idle write fires).
+        flushSidebarScroll()
         updateHandler.removeCallbacks(updateRunnable)
+        // The close button's rotation spring is never cancelled elsewhere:
+        // stop it here so it cannot keep the detached view alive.
+        springRotation.cancel()
+        // Same for the panel's own open/close springs and any pending
+        // posted open Runnable.
+        SpringAnimator.cancel(this)
         // Round-12 audit L-Low: panelHandler drives showToolIndicator's
         // fade-out runnable. If the user drags the volume / brightness
         // button right before the service tears the panel down, the
@@ -1787,7 +1923,9 @@ class SidePanelView @JvmOverloads constructor(
 
         // Fling-to-close guards: quiet period after opening (ms) and minimum
         // outward displacement (dp) required before a fling closes the panel.
+        // Minimum outward velocity (dp/s), scaled by density at the call site.
         const val FLING_QUIET_PERIOD_MS = 500L
         const val FLING_MIN_DISPLACEMENT_DP = 48f
+        const val FLING_MIN_VELOCITY_DP = 1200f
     }
 }

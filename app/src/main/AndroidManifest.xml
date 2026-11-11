@@ -5,12 +5,11 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.FLASHLIGHT" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
@@ -65,7 +64,7 @@
 
         <activity
             android:name=".ToggleActivity"
-            android:label="Toggle Sidebar"
+            android:label="@string/label_toggle_sidebar"
             android:icon="@mipmap/ic_launcher"
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
@@ -82,37 +81,32 @@
 
         <activity
             android:name=".SettingsMainActivity"
-            android:label="Settings"
+            android:label="@string/settings"
             android:theme="@style/Theme.SidePanel.M3" />
 
         <activity
             android:name=".AppearanceSettingsActivity"
-            android:label="Appearance"
+            android:label="@string/section_appearance"
             android:theme="@style/Theme.SidePanel.M3" />
 
         <activity
             android:name=".InteractionSettingsActivity"
-            android:label="Interaction"
+            android:label="@string/section_interaction"
             android:theme="@style/Theme.SidePanel.M3" />
 
         <activity
             android:name=".HandleSettingsActivity"
-            android:label="Handle &amp; Pill"
+            android:label="@string/section_handle_pill"
             android:theme="@style/Theme.SidePanel.M3" />
 
         <activity
             android:name=".ToolsSettingsActivity"
-            android:label="Dashboard Tools"
+            android:label="@string/section_dashboard_tools"
             android:theme="@style/Theme.SidePanel.M3" />
 
         <activity
             android:name=".MiscellaneousSettingsActivity"
-            android:label="Miscellaneous"
-            android:theme="@style/Theme.SidePanel.M3" />
-
-        <activity
-            android:name=".IconPackActivity"
-            android:label="Select Icon Pack"
+            android:label="@string/section_miscellaneous"
             android:theme="@style/Theme.SidePanel.M3" />
 
         <activity
@@ -131,7 +125,7 @@
              ("Smart Edge…"); tapping it opens the user's configured TextAction list. -->
         <activity
             android:name=".ProcessTextActivity"
-            android:label="Smart Edge…"
+            android:label="@string/label_process_text"
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
             android:noHistory="true"
@@ -168,7 +162,7 @@
 
         <service
             android:name=".NotificationTrackingService"
-            android:label="Smart Edge Notification Access"
+            android:label="@string/label_notification_access"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -192,6 +186,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 

@@ -12,9 +12,20 @@ package com.imi.smartedge.sidebar.panel
  * VolumeStepMath).
  *
  * Pure JVM logic with no Android dependency, so it is unit-tested directly
- * (see PercentStepAccumulatorTest). Both the edge-slide path
+ * (see PercentStepAccumulatorTest). The edge-slide path
  * (FloatingPanelService) and the tools long-press-drag path (SidePanelView)
- * share this class for brightness, so the 1% behaviour is identical in both.
+ * each use an accumulator for brightness, but they do NOT share one: each
+ * [PanelPreferences] instance owns its own accumulator, so the pending
+ * remainder does not carry between the two paths.
+ *
+ * [refund] is only for steps that genuinely failed to land (e.g. the
+ * Settings write threw): it makes the unapplied steps spendable again.
+ * It must NOT be used for steps the 0/255 clamp swallowed — the brightness
+ * is already at the stop, so nothing is owed, and refunding those steps
+ * breaks the add/reversal invariant: the first tick in the opposite
+ * direction is then spent re-emitting the refunded steps (which the clamp
+ * swallows again) instead of moving the brightness, a dead zone at both
+ * ends of the range. Clamp-swallowed steps are simply dropped.
  *
  * The bookkeeping is exact integer arithmetic, deliberately NOT floating
  * point: accumulating 1% a hundred times in Float or Double lands a

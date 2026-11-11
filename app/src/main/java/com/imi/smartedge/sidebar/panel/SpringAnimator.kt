@@ -25,6 +25,12 @@ object SpringAnimator {
     // spring together), so this maps a view to its list of live springs.
     private val activeSprings = java.util.concurrent.ConcurrentHashMap<View, MutableList<SpringAnimation>>()
 
+    // The pending open Runnable per view, if animateOpen posted one that has
+    // not run yet. cancelExisting removes it, so a close issued within one
+    // frame of an open cannot be undone by the open's posted alpha/spring
+    // starting afterwards. Weak keys so a dead view does not leak here.
+    private val pendingOpenRunnables = java.util.WeakHashMap<View, Runnable>()
+
     private fun trackSpring(view: View, spring: SpringAnimation) {
         activeSprings.getOrPut(view) { mutableListOf() }.add(spring)
     }
@@ -64,7 +70,11 @@ object SpringAnimator {
         // Scale alpha duration inversely with stiffness (Balanced at 400f -> 200ms)
         val alphaDuration = (220 * (400f / stiffness)).toLong().coerceIn(50, 600)
 
-        view.post {
+        // Keep the posted Runnable so cancelExisting can remove it: a
+        // close issued within one frame of an open must not be undone by
+        // the open's posted alpha/spring starting afterwards.
+        val openRunnable = Runnable {
+            pendingOpenRunnables.remove(view)
             view.animate()
                 .alpha(1f)
                 .setDuration(alphaDuration)
@@ -111,14 +121,26 @@ object SpringAnimator {
                 scaleYSpring.start()
             }
         }
+        pendingOpenRunnables[view] = openRunnable
+        view.post(openRunnable)
     }
 
     fun animateClose(view: View, panelWidth: Float, stiffness: Float = 350f, isPicker: Boolean = false, slide: Boolean = true, onEnd: (() -> Unit)? = null) {
         cancelExisting(view)
         
-        val targetX = if (isPicker)
-            (if (panelWidth > 0) -panelWidth else (if (panelWidth < 0) panelWidth else -500f))
-        else (if (panelWidth > 0) panelWidth else 500f)
+        // The close must reverse the open. The panel close call passes the
+        // same signed width as its open (right: +w, left: -w), so use it
+        // as-is. The picker close call passes the NEGATED open startX
+        // (right: +w, left: -w, while open starts at right: -w, left: +w),
+        // so negate it back to close toward the side it opened from. The
+        // old picker branch forced both signs negative, so a left-side
+        // picker opened from +w and closed to -w — sliding across the
+        // screen instead of back out the way it came in.
+        val targetX = when {
+            panelWidth != 0f -> if (isPicker) -panelWidth else panelWidth
+            isPicker -> -500f
+            else -> 500f
+        }
 
         if (stiffness <= 0f) {
             // Animations disabled: jump straight to the closed state.
@@ -189,7 +211,21 @@ object SpringAnimator {
 
     private fun cancelExisting(view: View) {
         view.animate().cancel()
+        // Drop a not-yet-run open Runnable: without this, an open followed
+        // within one frame by a close would have its posted alpha/spring
+        // start after the close and undo it (in popup mode the close's
+        // onEnd would never fire, leaving the picker visible forever).
+        pendingOpenRunnables.remove(view)?.let { view.removeCallbacks(it) }
         activeSprings.remove(view)?.forEach { it.cancel() }
+    }
+
+    /**
+     * Cancel any pending open Runnable and live springs on a view, e.g.
+     * when the service tears the view's window down. A running spring
+     * keeps the view (and its window params) alive past detach.
+     */
+    fun cancel(view: View) {
+        cancelExisting(view)
     }
 
     fun scalePulse(view: View) {

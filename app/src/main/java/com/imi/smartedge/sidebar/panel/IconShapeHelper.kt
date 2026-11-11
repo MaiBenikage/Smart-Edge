@@ -1,9 +1,6 @@
 package com.imi.smartedge.sidebar.panel
 
 import android.graphics.Outline
-import android.graphics.drawable.AdaptiveIconDrawable
-import android.graphics.drawable.Drawable
-import android.os.Build
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.ImageView
@@ -13,6 +10,9 @@ import android.widget.ImageView
  */
 object IconShapeHelper {
 
+    // "System" shape: a fixed 22% rounded rect. It is NOT the device's
+    // adaptive-icon mask (that lives in the launcher, not in an overlay);
+    // it just approximates the system look.
     private val adaptiveProvider = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
             val minDim = Math.min(view.width, view.height).toFloat()
@@ -54,8 +54,8 @@ object IconShapeHelper {
         }
     }
 
-    /** Tag key marking a pending outline-refresh layout listener (see [applyShape]). */
-    private const val TAG_PENDING_OUTLINE_LISTENER = 0x7E57_0001
+    /** Tag key marking a pending outline-refresh layout listener (see [applyShape]). Declared in res/values/ids.xml. */
+    private val TAG_PENDING_OUTLINE_LISTENER = R.id.tag_pending_outline_listener
 
     fun applyShape(view: ImageView, shape: String) {
         val provider = when (shape) {

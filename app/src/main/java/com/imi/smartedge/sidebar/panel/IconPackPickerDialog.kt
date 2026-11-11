@@ -16,13 +16,23 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class IconPackPickerDialog : BottomSheetDialogFragment() {
 
     private lateinit var panelPrefs: PanelPreferences
     private lateinit var iconPackManager: IconPackManager
+
+    // The adapter and the "none" entry survive onCreateView so
+    // onViewCreated can append the installed packs once the IO query
+    // finishes (the query runs off the main thread — see below).
+    private var packAdapter: PackAdapter? = null
+    private var noneEntry: IconPackInfo? = null
 
     // Theme colors (resolved from the app theme, not hardcoded dark
     // values): the sheet must follow Light/Dark/System like the rest of
@@ -136,7 +146,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
             typeface = Typeface.DEFAULT_BOLD
         }
         val tvStatus = TextView(ctx).apply {
-            text = getString(R.string.dialog_current_icon_pack, panelPrefs.iconPackLabel)
+            text = getString(R.string.dialog_current_icon_pack, panelPrefs.iconPackDisplayLabel(ctx))
             textSize = 12f
             setTextColor(onSurfaceVariantColor)
         }
@@ -164,13 +174,16 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
         searchContainer.addView(etSearch)
         root.addView(searchContainer)
 
-        // List
+        // List — height capped at half the screen (max 450dp): the old
+        // fixed 450dp overflowed the sheet on a small screen and pushed
+        // the search row off. The list scrolls internally.
         val rv = RecyclerView(ctx).apply {
             id = View.generateViewId()
             layoutManager = LinearLayoutManager(ctx)
+            val listHeightDp = minOf(450f, ctx.resources.displayMetrics.heightPixels / density * 0.5f)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                (450 * density).toInt()
+                (listHeightDp * density).toInt()
             )
         }
 
@@ -179,12 +192,16 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
         // icon instead of force-unwrapping (getDrawable can return null).
         val noneIcon = ctx.getDrawable(android.R.drawable.sym_def_app_icon)
             ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
-        allPacks.add(IconPackInfo("none", ctx.getString(R.string.icon_pack_default), noneIcon))
-        allPacks.addAll(iconPackManager.getInstalledIconPacks())
+        val noneEntry = IconPackInfo("none", ctx.getString(R.string.icon_pack_default), noneIcon)
+        allPacks.add(noneEntry)
+        this.noneEntry = noneEntry
 
         val adapter = PackAdapter(allPacks) { item ->
             panelPrefs.selectedIconPack = item.packageName
-            panelPrefs.iconPackLabel = item.label
+            // "none" has no label to persist (its display string is
+            // resolved at display time); a real pack stores its label
+            // as a fallback for when the pack is uninstalled.
+            panelPrefs.iconPackLabel = if (item.packageName == "none") "" else item.label
 
             val intent = Intent(ctx, FloatingPanelService::class.java).apply {
                 action = FloatingPanelService.ACTION_REFRESH
@@ -198,6 +215,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
             dismiss()
         }
         rv.adapter = adapter
+        packAdapter = adapter
         root.addView(rv)
 
         etSearch.addTextChangedListener(object : android.text.TextWatcher {
@@ -209,6 +227,22 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
         })
 
         return root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        // PackageManager.queryIntentActivities + loadLabel/loadIcon is
+        // binder IPC that can take hundreds of ms with many icon packs
+        // installed: it ran on the main thread in onCreateView and
+        // froze the sheet open. Load it on IO; the list starts with
+        // just the "none" entry and fills in when the query returns.
+        viewLifecycleOwner.lifecycleScope.launch {
+            val packs = withContext(Dispatchers.IO) {
+                runCatching { iconPackManager.getInstalledIconPacks() }.getOrDefault(emptyList())
+            }
+            val none = noneEntry ?: return@launch
+            packAdapter?.updateItems(listOf(none) + packs)
+        }
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): android.app.Dialog {
@@ -230,16 +264,25 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
     }
 
     inner class PackAdapter(
-        private val allItems: List<IconPackInfo>,
+        private var allItems: List<IconPackInfo>,
         private val onSelect: (IconPackInfo) -> Unit
     ) : RecyclerView.Adapter<PackAdapter.VH>() {
 
         private var displayItems = allItems.toList()
+        private var currentQuery = ""
 
         fun filter(query: String) {
+            currentQuery = query
             displayItems = if (query.isEmpty()) allItems
             else allItems.filter { it.label.contains(query, ignoreCase = true) || it.packageName.contains(query, ignoreCase = true) }
             notifyDataSetChanged()
+        }
+
+        /** Replace the full list (the installed packs arrive async) and
+         *  re-apply the query the user may already have typed. */
+        fun updateItems(items: List<IconPackInfo>) {
+            allItems = items
+            filter(currentQuery)
         }
 
         inner class VH(v: View) : RecyclerView.ViewHolder(v) {

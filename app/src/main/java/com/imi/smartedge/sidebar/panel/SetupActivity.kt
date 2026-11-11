@@ -53,6 +53,12 @@ class SetupActivity : AppCompatActivity() {
         updateUI()
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        updateUI()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySetupBinding.inflate(layoutInflater)
@@ -64,7 +70,15 @@ class SetupActivity : AppCompatActivity() {
         // Fragment-result listener for the secure-settings dialog:
         // registered here (not in the click handler) so a recreated
         // activity after rotation still receives the grant.
-        SecureSettingsDialog.registerResultListener(this) { updateUI() }
+        SecureSettingsDialog.registerResultListener(this) {
+            // A successful grant through the dialog must also opt the user
+            // into automation: without this, hasAutomation stays false and
+            // Continue stays disabled until the card is tapped a second time.
+            if (AutomationManager.isAutomationPossible()) {
+                panelPrefs.useAutomationForGestures = true
+            }
+            updateUI()
+        }
 
         binding.cardOverlay.setOnClickListener { requestOverlayPermission() }
         binding.cardAccessibility.setOnClickListener { requestAccessibilityPermission() }
@@ -145,19 +159,36 @@ class SetupActivity : AppCompatActivity() {
 
     /**
      * First still-missing setup step (in request order), with the action
-     * that requests it. Notification access is intentionally NOT in the
-     * chain: the feature defaults off and Continue doesn't require it.
+     * that requests it. Notification-listener access is intentionally NOT in
+     * the chain: the feature defaults off and Continue doesn't require it.
+     * POST_NOTIFICATIONS (API 33+) IS in the chain: without it the
+     * foreground-service notification — including its Stop action — is
+     * hidden from the shade.
      */
     private fun nextMissingGrantStep(): Pair<String, () -> Unit>? {
         return when {
             !hasOverlayPermission() -> "overlay" to ::requestOverlayPermission
             !isAccessibilityServiceEnabled() -> "accessibility" to ::requestAccessibilityPermission
             !isIgnoringBatteryOptimizations() -> "battery" to ::requestIgnoreBatteryOptimization
+            !hasNotificationPermission() -> "notifications-post" to ::requestNotificationPermission
             !hasInteractedWithAutoStart -> "autostart" to {
                 hasInteractedWithAutoStart = true
                 requestAutoStartPermission()
             }
             else -> null
+        }
+    }
+
+    /** Runtime POST_NOTIFICATIONS grant (API 33+); always granted below 33. */
+    private fun hasNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -176,8 +207,8 @@ class SetupActivity : AppCompatActivity() {
 
         // Update Native Gesture Label with status
         val status = when {
-            AutomationManager.isRootAvailable() -> " (Root)"
-            AutomationManager.isShizukuAvailable() -> " (Shizuku)"
+            AutomationManager.isRootAvailable() -> getString(R.string.status_suffix_root)
+            AutomationManager.isShizukuAvailable() -> getString(R.string.status_suffix_shizuku)
             else -> ""
         }
         binding.titleAutomation.text = getString(R.string.setup_native_gesture_status, status)
@@ -277,7 +308,7 @@ class SetupActivity : AppCompatActivity() {
 
             action.setImageResource(android.R.drawable.checkbox_on_background)
             action.imageTintList = android.content.res.ColorStateList.valueOf(
-                android.graphics.Color.parseColor("#00FF00") // ELECTRIC GREEN
+                androidx.core.content.ContextCompat.getColor(this, R.color.md_theme_success)
             )
             // Allow clicking to toggle even when granted for internal preferences
             card.isClickable = card.id == binding.cardAutoStart.id ||
@@ -311,7 +342,14 @@ class SetupActivity : AppCompatActivity() {
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:$packageName")
         )
-        overlayPermissionLauncher.launch(intent)
+        try {
+            overlayPermissionLauncher.launch(intent)
+        } catch (e: android.content.ActivityNotFoundException) {
+            // Some OEMs (Samsung, Xiaomi) reject the package-scoped URI.
+            // Fall back to the generic overlay-permission settings page
+            // (same fallback as MainActivity).
+            overlayPermissionLauncher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+        }
     }
 
     private fun requestAccessibilityPermission() {

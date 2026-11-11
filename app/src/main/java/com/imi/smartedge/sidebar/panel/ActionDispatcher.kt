@@ -12,7 +12,11 @@ object ActionDispatcher {
         actionId: Int,
         panelPrefs: PanelPreferences,
         onTriggerPanel: (() -> Unit)? = null,
-        onDragHandle: (() -> Unit)? = null
+        onDragHandle: (() -> Unit)? = null,
+        // Which gesture slot fired (the action pref key, e.g.
+        // "tap_action"): only the favourite-app action needs it, so the
+        // right per-slot app opens instead of the shared global one.
+        slotKey: String? = null
     ) {
         if (actionId == PanelPreferences.ACTION_NONE) return
 
@@ -26,10 +30,13 @@ object ActionDispatcher {
             PanelPreferences.ACTION_FLASHLIGHT -> triggerServiceAction(context, FloatingPanelService.ACTION_TOGGLE_FLASHLIGHT)
             PanelPreferences.ACTION_CAMERA -> triggerServiceAction(context, FloatingPanelService.ACTION_LAUNCH_CAMERA)
             PanelPreferences.ACTION_AUTO_ROTATION -> triggerServiceAction(context, FloatingPanelService.ACTION_TOGGLE_ROTATION)
-            PanelPreferences.ACTION_OPEN_FAVORITE_APP -> triggerServiceAction(context, FloatingPanelService.ACTION_OPEN_FAV_APP)
+            PanelPreferences.ACTION_OPEN_FAVORITE_APP -> triggerServiceAction(context, FloatingPanelService.ACTION_OPEN_FAV_APP) { putExtra(FloatingPanelService.EXTRA_FAV_SLOT, slotKey) }
 
-            // System/Navigation Gestures
-            PanelPreferences.ACTION_SCREENSHOT -> executeSystemAction(context, panelPrefs, PanelAccessibilityService.ACTION_TAKE_SCREENSHOT)
+            // System/Navigation Gestures — screenshots go through
+            // FloatingPanelService.ACTION_SCREENSHOT (not straight to the
+            // a11y service), so triggerScreenshot() hides the overlays
+            // first and the pill/handle don't appear in the capture.
+            PanelPreferences.ACTION_SCREENSHOT -> triggerServiceAction(context, FloatingPanelService.ACTION_SCREENSHOT)
             PanelPreferences.ACTION_PREVIOUS_APP -> executeSystemAction(context, panelPrefs, PanelAccessibilityService.ACTION_PREVIOUS_APP)
             PanelPreferences.ACTION_BACK -> executeSystemAction(context, panelPrefs, PanelAccessibilityService.ACTION_BACK)
             PanelPreferences.ACTION_HOME -> executeSystemAction(context, panelPrefs, PanelAccessibilityService.ACTION_HOME)
@@ -41,9 +48,10 @@ object ActionDispatcher {
         }
     }
 
-    private fun triggerServiceAction(context: Context, action: String) {
+    private fun triggerServiceAction(context: Context, action: String, extras: (Intent.() -> Unit)? = null) {
         val intent = Intent(context, FloatingPanelService::class.java).apply {
             this.action = action
+            extras?.invoke(this)
         }
         context.startService(intent)
     }
@@ -69,20 +77,26 @@ object ActionDispatcher {
                     PanelAccessibilityService.ACTION_QUICK_SETTINGS -> AutomationManager.performQuickSettings()
                     PanelAccessibilityService.ACTION_LOCK_SCREEN -> AutomationManager.performLockScreen()
                     PanelAccessibilityService.ACTION_SHOW_POWER_MENU -> AutomationManager.performPowerMenu()
-                    PanelAccessibilityService.ACTION_TAKE_SCREENSHOT -> AutomationManager.takeScreenshot()
                     PanelAccessibilityService.ACTION_PREVIOUS_APP -> AutomationManager.performPreviousApp()
                     else -> false
                 }
                 if (success) return@Thread
             }
 
-            val intent = Intent(context, PanelAccessibilityService::class.java).apply {
-                this.action = accAction
-            }
-            try {
-                context.startService(intent)
-            } catch (e: Exception) {
-                // ignore — service may simply not be reachable from this caller
+            // Accessibility is the last resort here (automation already
+            // failed or is unavailable): only dispatch to it when it is
+            // actually enabled — otherwise startService creates a plain,
+            // non-connected instance whose performGlobalAction returns false
+            // and the action silently does nothing.
+            if (context.isAccessibilityServiceEnabled()) {
+                val intent = Intent(context, PanelAccessibilityService::class.java).apply {
+                    this.action = accAction
+                }
+                try {
+                    context.startService(intent)
+                } catch (e: Exception) {
+                    // ignore — service may simply not be reachable from this caller
+                }
             }
         }, "SmartEdge-AutoAction").start()
     }

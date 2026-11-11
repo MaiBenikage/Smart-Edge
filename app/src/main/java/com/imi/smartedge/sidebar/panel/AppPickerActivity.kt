@@ -24,8 +24,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Full-screen activity to add/remove apps from the side panel.
- * Opens from MainActivity → "Manage Apps" button.
- * Changes are saved to PanelPreferences immediately on checkbox toggle.
+ * Opens from Settings → "Manage Apps". Changes are saved to
+ * PanelPreferences immediately on checkbox toggle.
  */
 class AppPickerActivity : AppCompatActivity() {
 
@@ -44,13 +44,10 @@ class AppPickerActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         panelPrefs = PanelPreferences(this)
-        repository = AppRepository(this)
+        repository = AppRepository.shared(this)
 
-        // Setup toolbar
-        supportActionBar?.apply {
-            title = getString(R.string.app_picker_title)
-            setDisplayHomeAsUpEnabled(true)
-        }
+        // Toolbar (same pattern as the settings screens).
+        binding.toolbar.setNavigationOnClickListener { finish() }
 
         pickerAdapter = AppPickerAdapter { app, isChecked ->
             if (isChecked) {
@@ -94,7 +91,9 @@ class AppPickerActivity : AppCompatActivity() {
 
         binding.btnDone.setOnClickListener { finish() }
 
-        loadApps()
+        // No loadApps() here: onResume runs immediately after onCreate
+        // and loads the list once (calling it here too loaded twice and
+        // the onCreate load dropped the search query on resume).
     }
 
     override fun onResume() {
@@ -105,11 +104,6 @@ class AppPickerActivity : AppCompatActivity() {
         loadApps()
     }
 
-    override fun onSupportNavigateUp(): Boolean {
-        onBackPressedDispatcher.onBackPressed()
-        return true
-    }
-
     private fun loadApps() {
         lifecycleScope.launch {
             val apps = withContext(Dispatchers.IO) {
@@ -118,8 +112,10 @@ class AppPickerActivity : AppCompatActivity() {
             allApps = apps
             // Submit copies with isInPanel synced from prefs, so the
             // checkbox reflects external panel changes (not just the state
-            // captured when the list was first loaded).
-            pickerAdapter.submitList(apps.map { it.copy(isInPanel = panelPrefs.isInPanel(it.identifier)) })
+            // captured when the list was first loaded). Re-applies the
+            // search query: a reload on resume used to drop the query
+            // and show the unfiltered list.
+            filterApps(binding.searchView.query.toString())
         }
     }
 
@@ -153,10 +149,13 @@ class AppPickerActivity : AppCompatActivity() {
             val scale = panelPrefs.scaleFactor
             val baseIconSize = 44
             val baseTextSize = 14f
+            // The Glide override below must match this size in px: a fixed
+            // 120px bitmap is upscaled (blurry) on high-density screens.
+            val iconPx = (resources.displayMetrics.density * baseIconSize * scale).toInt()
 
             holder.ivIcon.layoutParams.let { lp ->
-                lp.width = (resources.displayMetrics.density * baseIconSize * scale).toInt()
-                lp.height = (resources.displayMetrics.density * baseIconSize * scale).toInt()
+                lp.width = iconPx
+                lp.height = iconPx
                 holder.ivIcon.layoutParams = lp
             }
             holder.tvName.textSize = baseTextSize * scale
@@ -168,7 +167,7 @@ class AppPickerActivity : AppCompatActivity() {
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
                 .error(android.R.drawable.sym_def_app_icon)
-                .override((120 * scale).toInt(), (120 * scale).toInt())
+                .override(iconPx, iconPx)
                 .into(holder.ivIcon)
             IconShapeHelper.applyShape(holder.ivIcon, panelPrefs.iconShape)
 

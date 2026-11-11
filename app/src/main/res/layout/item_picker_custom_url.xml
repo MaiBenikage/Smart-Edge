@@ -5,7 +5,7 @@
       [drag handle] | [title / content] | [edit btn] [delete btn]
     Badge (top-right corner of row) shows sidebar presence in global edit mode.
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/customRowRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -23,14 +23,14 @@
         android:minHeight="64dp">
 
         <!-- Drag handle (left) -->
-        <ImageView
+        <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/ivCustomDragHandle"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:contentDescription="@string/xml_cd_drag_reorder"
             android:padding="2dp"
             android:src="@drawable/ic_drag_handle"
-            android:tint="#80FFFFFF" />
+            app:tint="#80FFFFFF" />
 
         <!-- Middle column: title + content -->
         <FrameLayout
@@ -130,7 +130,7 @@
             android:orientation="vertical">
 
             <!-- Edit / Confirm button -->
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnCustomEdit"
                 android:layout_width="28dp"
                 android:layout_height="28dp"
@@ -141,10 +141,10 @@
                 android:padding="5dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_edit"
-                android:tint="#FFFFFF" />
+                app:tint="#FFFFFF" />
 
             <!-- Delete / Cancel button -->
-            <ImageButton
+            <androidx.appcompat.widget.AppCompatImageButton
                 android:id="@+id/btnCustomDelete"
                 android:layout_width="28dp"
                 android:layout_height="28dp"
@@ -154,12 +154,12 @@
                 android:padding="5dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_close"
-                android:tint="#FF6B6B" />
+                app:tint="#FF6B6B" />
         </LinearLayout>
     </LinearLayout>
 
     <!-- Badge: plus/check icon in top-right corner (shown in global edit mode) -->
-    <ImageView
+    <androidx.appcompat.widget.AppCompatImageView
         android:id="@+id/customBadge"
         android:layout_width="28dp"
         android:layout_height="28dp"
@@ -168,7 +168,7 @@
         android:layout_marginEnd="4dp"
         android:padding="4dp"
         android:src="@drawable/ic_plus_custom"
-        android:tint="#FFFFFF"
+        app:tint="#FFFFFF"
         android:visibility="gone" />
 
 </FrameLayout>

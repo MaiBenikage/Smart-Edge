@@ -33,6 +33,13 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOutline)
     private val surfaceContainerColor: Int
         get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorSurfaceContainer)
+    private val primaryColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorPrimary)
+    private val onPrimaryColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnPrimary)
+    /** Primary at 10% alpha, for tinted icon backgrounds. */
+    private val primaryTintColor: Int
+        get() = androidx.core.graphics.ColorUtils.setAlphaComponent(primaryColor, 26)
 
     companion object {
         const val TAG = "AccessibilityGuideDialog"
@@ -169,14 +176,12 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         val ctx = requireContext()
         val density = ctx.resources.displayMetrics.density
 
-        // Fragment-result listener for the secure-settings dialog:
-        // registered here (not in the click handler) so a recreated
-        // fragment after rotation still receives the grant.
-        SecureSettingsDialog.registerResultListener(this) {
-            if (AutomationManager.isAutomationPossible()) {
-                PanelPreferences(ctx).useAutomationForGestures = true
-            }
-        }
+        // NOTE: this dialog does NOT register a SecureSettingsDialog result
+        // listener. The host activity owns that listener, and registering
+        // here (on the same FragmentManager, same key) would replace the
+        // host's — and when this dialog is dismissed, FragmentManager
+        // removes the listener, leaving the host deaf to the grant.
+        // This dialog only opens SecureSettingsDialog (see btnAutomation).
 
         val guide = detectGuide()
 
@@ -224,13 +229,13 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = 14 * density
-                setColor(android.graphics.Color.parseColor("#1A4A9EFF"))
+                setColor(primaryTintColor)
             }
         }
         val iconView = ImageView(ctx).apply {
             setImageResource(android.R.drawable.ic_menu_manage)
             imageTintList = android.content.res.ColorStateList.valueOf(
-                android.graphics.Color.parseColor("#4A9EFF")
+                primaryColor
             )
             val pad = (10 * density).toInt()
             setPadding(pad, pad, pad, pad)
@@ -290,7 +295,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
             val numBubble = TextView(ctx).apply {
                 text = "${index + 1}"
                 textSize = 13f
-                setTextColor(android.graphics.Color.parseColor("#4A9EFF"))
+                setTextColor(primaryColor)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = android.view.Gravity.CENTER
                 val size = (28 * density).toInt()
@@ -299,7 +304,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                 layoutParams = lp
                 background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(android.graphics.Color.parseColor("#1A4A9EFF"))
+                    setColor(primaryTintColor)
                 }
             }
 
@@ -325,13 +330,13 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         // "Open Settings" button
         val btnOpen = Button(ctx).apply {
             text = getString(R.string.dialog_open_accessibility_settings)
-            setTextColor(onSurfaceColor)
+            setTextColor(onPrimaryColor)
             textSize = 15f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = 14 * density
-                setColor(android.graphics.Color.parseColor("#4A9EFF"))
+                setColor(primaryColor)
             }
             setPadding(0, (14 * density).toInt(), 0, (14 * density).toInt())
             layoutParams = LinearLayout.LayoutParams(
@@ -348,13 +353,13 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         // "Use System Automation instead" secondary button
         val btnAutomation = Button(ctx).apply {
             text = getString(R.string.dialog_use_system_automation_instead)
-            setTextColor(android.graphics.Color.parseColor("#4A9EFF"))
+            setTextColor(primaryColor)
             textSize = 14f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = 14 * density
-                setStroke((1 * density).toInt(), android.graphics.Color.parseColor("#4A9EFF"))
+                setStroke((1 * density).toInt(), primaryColor)
                 setColor(android.graphics.Color.TRANSPARENT)
             }
             setPadding(0, (10 * density).toInt(), 0, (10 * density).toInt())
@@ -418,6 +423,20 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
             }
         }
 
-        return root
+        // Tall content with no ScrollView: on a small screen (or with a
+        // large font) the bottom buttons were unreachable — the sheet is
+        // half-expanded by default, so the content must scroll within
+        // it instead of clipping.
+        return androidx.core.widget.NestedScrollView(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            root.layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            addView(root)
+        }
     }
 }

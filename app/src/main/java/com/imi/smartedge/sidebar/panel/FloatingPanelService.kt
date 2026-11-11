@@ -26,6 +26,13 @@ import kotlinx.coroutines.launch
 
 class FloatingPanelService : Service() {
 
+    override fun attachBaseContext(base: android.content.Context) {
+        // The overlay (sidebar, picker, tools) draws strings from this
+        // service's context: wrap it with the chosen language, which
+        // AppCompat's per-app locales do not cover for services.
+        super.attachBaseContext(LocaleHelper.onAttach(base))
+    }
+
     private lateinit var windowManager: WindowManager
     private var edgeHandleView: EdgeHandleView? = null
     private var notchHandleView: NotchHandleView? = null
@@ -37,17 +44,26 @@ class FloatingPanelService : Service() {
 
     private val activeTorches = mutableSetOf<String>()
     private var isFlashlightOn = false
-    private var lastManualToggleTime = 0L
+    private var lastManualTorchTime = 0L
+    /** (cameraId -> state) of our own just-issued setTorchMode calls, so the
+     *  callback can ignore exactly their echo. A blanket time window used
+     *  to drop real external changes for 500 ms after any manual toggle. */
+    private val lastManualTorchState = mutableMapOf<String, Boolean>()
     private var cameraManager: android.hardware.camera2.CameraManager? = null
     private val torchCallback = object : android.hardware.camera2.CameraManager.TorchCallback() {
         override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
             super.onTorchModeChanged(cameraId, enabled)
-            // Ignore system callbacks for a short period after a manual toggle
-            if (System.currentTimeMillis() - lastManualToggleTime > 500) {
-                if (enabled) activeTorches.add(cameraId) else activeTorches.remove(cameraId)
-                isFlashlightOn = activeTorches.isNotEmpty()
-                Log.d(TAG, "External torch change: $enabled for camera $cameraId. Master state: $isFlashlightOn")
+            // Ignore only the echo of our own just-issued setTorchMode for
+            // this camera and state (within 500 ms). A real external change
+            // — another camera, the opposite state, or a later change — must
+            // still be recorded.
+            if (lastManualTorchState[cameraId] == enabled &&
+                System.currentTimeMillis() - lastManualTorchTime <= 500) {
+                return
             }
+            if (enabled) activeTorches.add(cameraId) else activeTorches.remove(cameraId)
+            isFlashlightOn = activeTorches.isNotEmpty()
+            Log.d(TAG, "External torch change: $enabled for camera $cameraId. Master state: $isFlashlightOn")
         }
     }
     // Black Screen state
@@ -64,6 +80,85 @@ class FloatingPanelService : Service() {
     private var savedScreenOffTimeout: Int = -1
     /** True when true screen-off (via device admin) is active rather than the dim overlay. */
     private var trueScreenOffActive: Boolean = false
+
+    // Persisted Black Screen session (SharedPreferences "black_screen_session"):
+    // the saved brightness/timeout live in memory only, so a process kill
+    // while Black Screen is active would leave the device at a 15s timeout
+    // and minimum brightness. The session is written at activation, cleared
+    // at deactivation, and restored on the next service start if present.
+    private fun blackScreenSessionPrefs(): android.content.SharedPreferences =
+        getSharedPreferences("black_screen_session", Context.MODE_PRIVATE)
+
+    private fun persistBlackScreenSession() {
+        blackScreenSessionPrefs().edit()
+            .putBoolean("active", true)
+            .putInt("brightness", savedBrightness)
+            .putFloat("brightness_float", savedBrightnessFloat ?: -1f)
+            .putInt("brightness_mode", savedBrightnessMode)
+            .putInt("screen_off_timeout", savedScreenOffTimeout)
+            .putBoolean("true_screen_off", trueScreenOffActive)
+            .apply()
+    }
+
+    private fun clearBlackScreenSession() {
+        blackScreenSessionPrefs().edit().clear().apply()
+    }
+
+    /** Restore a session persisted by [persistBlackScreenSession] when the
+     *  previous process died while Black Screen was active. Runs once. */
+    private fun restorePersistedBlackScreenSession() {
+        val prefs = blackScreenSessionPrefs()
+        if (!prefs.getBoolean("active", false)) return
+        savedBrightness = prefs.getInt("brightness", 128)
+        savedBrightnessFloat = prefs.getFloat("brightness_float", -1f).takeIf { it >= 0f }
+        savedBrightnessMode = prefs.getInt(
+            "brightness_mode",
+            android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+        )
+        savedScreenOffTimeout = prefs.getInt("screen_off_timeout", -1)
+        trueScreenOffActive = prefs.getBoolean("true_screen_off", false)
+        clearBlackScreenSession()
+        restoreSavedBrightness()
+        if (trueScreenOffActive) {
+            trueScreenOffActive = false
+            try {
+                if (savedScreenOffTimeout > 0) {
+                    android.provider.Settings.System.putInt(
+                        contentResolver,
+                        android.provider.Settings.System.SCREEN_OFF_TIMEOUT,
+                        savedScreenOffTimeout
+                    )
+                    savedScreenOffTimeout = -1
+                }
+            } catch (_: Exception) {}
+            reenableKeyguardIfDeviceOwner()
+        }
+    }
+
+    /**
+     * setKeyguardDisabled is device-owner-only: a plain device admin cannot
+     * disable the keyguard, so the call throws (and was silently swallowed)
+     * on every activation. Only call it when this app is the device owner.
+     */
+    private fun disableKeyguardIfDeviceOwner() {
+        try {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+            val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+            if (dpm.isAdminActive(cn) && dpm.isDeviceOwnerApp(packageName)) {
+                dpm.setKeyguardDisabled(cn, true)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun reenableKeyguardIfDeviceOwner() {
+        try {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+            val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
+            if (dpm.isAdminActive(cn) && dpm.isDeviceOwnerApp(packageName)) {
+                dpm.setKeyguardDisabled(cn, false)
+            }
+        } catch (_: Exception) {}
+    }
 
     // ── Content Picker state ──────────────────────────────────────────────
     private var contentPickerOverlay: android.widget.FrameLayout? = null
@@ -91,7 +186,6 @@ class FloatingPanelService : Service() {
 
     private var isPanelOpen = false
     private var isPickerOpen = false
-    private var isImmersiveMode = false
     private var currentFolderId: String? = null
     private lateinit var panelPrefs: PanelPreferences
     // Audit L1: AppRepository is now a single per-service instance provisioned in
@@ -118,6 +212,13 @@ class FloatingPanelService : Service() {
 
             // Invalidate system icon cache for this app
             AppRepository.clearSystemIconCache()
+            // Drop the cached version tag so Glide's icon key for this
+            // package is rebuilt from the new lastUpdateTime and the
+            // pre-update icon is not served from Glide's caches.
+            AppIconModelLoader.invalidateVersionTag(packageName)
+            // Drop any cached icon-pack mapping for this package: a pack
+            // update or reinstall must re-parse its appfilter.
+            IconPackManager.invalidateCache(packageName)
 
             // If it was removed, purge all references to this package.
             if (action == Intent.ACTION_PACKAGE_REMOVED && !intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
@@ -143,9 +244,7 @@ class FloatingPanelService : Service() {
                 panelPrefs.setFullscreenWhitelist(
                     panelPrefs.getFullscreenWhitelist().filterNot { it == packageName }
                 )
-                if (panelPrefs.favoriteAppPackage == packageName) {
-                    panelPrefs.favoriteAppPackage = ""
-                }
+                panelPrefs.clearFavoriteAppIfPackage(packageName)
             }
 
             // Refresh lists if picker or panel is open
@@ -195,11 +294,18 @@ class FloatingPanelService : Service() {
         const val ACTION_TOGGLE = "com.imi.smartedge.sidebar.panel.TOGGLE"
         const val ACTION_SCREENSHOT = "com.imi.smartedge.sidebar.panel.SCREENSHOT"
         const val ACTION_SCREENSHOT_UI_RESTORE = "com.imi.smartedge.sidebar.panel.SCREENSHOT_UI_RESTORE"
-        const val ACTION_UPDATE_IMMERSIVE = "com.imi.smartedge.sidebar.panel.UPDATE_IMMERSIVE"
+        /** Light foreground-switch signal: only re-checks handle visibility
+         *  and game mode (see refreshForegroundState). The a11y service
+         *  sends this on every foreground switch; the full ACTION_REFRESH
+         *  is reserved for settings changes. */
+        const val ACTION_FOREGROUND_CHANGED = "com.imi.smartedge.sidebar.panel.FOREGROUND_CHANGED"
         const val ACTION_TOGGLE_FLASHLIGHT = "com.imi.smartedge.sidebar.panel.TOGGLE_FLASHLIGHT"
         const val ACTION_LAUNCH_CAMERA = "com.imi.smartedge.sidebar.panel.LAUNCH_CAMERA"
         const val ACTION_TOGGLE_ROTATION = "com.imi.smartedge.sidebar.panel.TOGGLE_ROTATION"
         const val ACTION_OPEN_FAV_APP = "com.imi.smartedge.sidebar.panel.OPEN_FAV_APP"
+        /** Which gesture slot fired the favourite-app action (the action
+         *  pref key, e.g. "tap_action"); absent for legacy callers. */
+        const val EXTRA_FAV_SLOT = "fav_slot"
 
         // Timing (ms)
         const val SCREENSHOT_TRIGGER_DELAY_MS = 200L
@@ -224,6 +330,9 @@ class FloatingPanelService : Service() {
         }
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         panelPrefs = PanelPreferences(this)
+        // A previous process may have died while Black Screen was active:
+        // restore the brightness/timeout it saved (persisted at activation).
+        restorePersistedBlackScreenSession()
         // The engine-lost callback reads panelPrefs, so it must be assigned
         // AFTER panelPrefs exists: if the engine dies between service start
         // and this line, the callback would read an uninitialised lateinit
@@ -236,7 +345,12 @@ class FloatingPanelService : Service() {
         }
         // Audit L1: provision the shared repository BEFORE initSidePanel() calls
         // refreshApps() — otherwise the launch would NPE on repository.getPanelApps().
-        repository = AppRepository(this)
+        repository = AppRepository.shared(this)
+        // When the async label backfill fills legacy intent: labels, show
+        // them without waiting for the next refresh cycle.
+        repository.onLabelsBackfilled = {
+            serviceScope.launch { refreshApps() }
+        }
 
         try {
             cameraManager = getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
@@ -299,9 +413,15 @@ class FloatingPanelService : Service() {
         }
 
         serviceScope.launch {
-            if (panelPrefs.getPanelApps().isEmpty()) {
+            // First-run seeding, once only: without the flag, a user who
+            // deliberately unpins everything gets 5 apps re-pinned on the
+            // next service start, making an empty sidebar impossible.
+            if (!panelPrefs.panelSeeded && panelPrefs.getPanelApps().isEmpty()) {
                 val topApps = repository.getTop5Apps()
-                panelPrefs.setPanelApps(topApps)
+                if (topApps.isNotEmpty()) {
+                    panelPrefs.setPanelApps(topApps)
+                    panelPrefs.panelSeeded = true
+                }
                 refreshApps()
             }
         }
@@ -332,8 +452,10 @@ class FloatingPanelService : Service() {
         
         when (action) {
             ACTION_TOGGLE -> {
-                // Non-null intent guaranteed by the prior `if (intent == null || action == null)` guard;
-                // Kotlin smart-casts the receiver.
+                // `intent` is non-null here: a matched non-null `action`
+                // implies a non-null intent (the `if (intent == null ||
+                // action == null)` guard above only handles the both-null
+                // case and does not return).
                 val newState = intent.getBooleanExtra("target_state", !panelPrefs.serviceEnabled)
                 panelPrefs.setServiceEnabled(newState, commit = true)
                 
@@ -367,47 +489,18 @@ class FloatingPanelService : Service() {
             ACTION_OPEN_HUB -> {
                 togglePicker(false)
             }
-            PanelAccessibilityService.ACTION_TAKE_SCREENSHOT -> {
-                handler.postDelayed({ triggerScreenshot() }, SCREENSHOT_TRIGGER_DELAY_MS)
-            }
             ACTION_REFRESH -> {
                 serviceScope.launch {
-                    if (panelPrefs.getPanelApps().isEmpty()) {
+                    // First-run seeding, once only (see onCreate).
+                    if (!panelPrefs.panelSeeded && panelPrefs.getPanelApps().isEmpty()) {
                         val topApps = repository.getTop5Apps()
-                        panelPrefs.setPanelApps(topApps)
+                        if (topApps.isNotEmpty()) {
+                            panelPrefs.setPanelApps(topApps)
+                            panelPrefs.panelSeeded = true
+                        }
                     }
-                    val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                    val shouldShowHandle = if (isLandscape && !panelPrefs.showInLandscape) false
-                                          else if (panelPrefs.onlyOnHome && !isCurrentPackageLauncher()) false
-                                          else true
+                    refreshForegroundState()
 
-                    if (!shouldShowHandle) {
-                        edgeHandleView?.visibility = View.GONE
-                        // Also remove it from WM to be sure it doesn't block touches
-                        removeView(edgeHandleView)
-                        edgeHandleView = null
-                        
-                        // Also hide notch handle if onlyOnHome is active and not on home
-                        notchHandleView?.visibility = View.GONE
-                    } else {
-                        addEdgeHandle(forceRecreate = false)
-                        // addNotchHandle()
-                        edgeHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
-                        notchHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
-                    }
-
-                    // Update game mode state: user-curated list OR dynamic landscape+fullscreen+non-video.
-                    val currentPkg = panelPrefs.currentForegroundPackage
-                    val isInGameList = panelPrefs.getGameApps().contains(currentPkg)
-                    val isDynamicGame = if (isInGameList) true else {
-                        val isLandscapeOrientation = resources.configuration.orientation ==
-                                android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                        isLandscapeOrientation && currentPkg.isNotBlank() &&
-                                !isCurrentPackageLauncher() &&
-                                !isVideoPlayerPackage(currentPkg)
-                    }
-                    edgeHandleView?.isGameActive = isDynamicGame
-                    
                     sidePanelView?.updateStyles()
                     sidePanelView?.refreshIcons()
                     
@@ -445,18 +538,28 @@ class FloatingPanelService : Service() {
                     refreshApps()
                 }
             }
+            ACTION_FOREGROUND_CHANGED -> {
+                // Light path for every foreground switch: only handle
+                // visibility and game mode. The full REFRESH (styles, icons,
+                // theme, blur, repository IO, recents disk read) runs only
+                // for settings changes.
+                serviceScope.launch {
+                    refreshForegroundState()
+                }
+            }
             ACTION_CLOSE_PANEL -> closePanel(immediate = false)
             ACTION_SCREENSHOT -> {
                 handler.postDelayed({ triggerScreenshot() }, SCREENSHOT_TRIGGER_DELAY_MS)
             }
             ACTION_SCREENSHOT_UI_RESTORE -> {
                 restoreScreenshotUi()
-            }
-            ACTION_UPDATE_IMMERSIVE -> {
-                // Non-null intent guaranteed by the prior `if (intent == null || action == null)` guard;
-                // Kotlin smart-casts the receiver.
-                isImmersiveMode = intent.getBooleanExtra("is_immersive", false)
-                edgeHandleView?.isImmersiveMode = isImmersiveMode
+                // The a11y service's delayed restore can arrive after the
+                // user stopped the panel (or the service was recreated for
+                // it): restore the UI, then stop instead of lingering in
+                // the foreground while disabled.
+                if (!panelPrefs.serviceEnabled) {
+                    stopSelf()
+                }
             }
             ACTION_SHOW_TEMP -> {
                 addEdgeHandle(forceRecreate = false)
@@ -466,7 +569,7 @@ class FloatingPanelService : Service() {
             ACTION_TOGGLE_FLASHLIGHT -> toggleFlashlight()
             ACTION_LAUNCH_CAMERA -> launchCamera()
             ACTION_TOGGLE_ROTATION -> toggleAutoRotation()
-            ACTION_OPEN_FAV_APP -> openFavoriteApp()
+            ACTION_OPEN_FAV_APP -> openFavoriteApp(intent.getStringExtra(EXTRA_FAV_SLOT))
         }
         return if (panelPrefs.serviceEnabled) START_STICKY else START_NOT_STICKY
     }
@@ -495,27 +598,53 @@ class FloatingPanelService : Service() {
         // Restore is driven by ACTION_SCREENSHOT_UI_RESTORE from the accessibility
         // service (preferred) with a safety timeout fallback.
         handler.post {
-            try {
-                val intent = Intent(this, PanelAccessibilityService::class.java).apply {
-                    action = PanelAccessibilityService.ACTION_TAKE_SCREENSHOT
-                }
-                startService(intent)
-            } catch (e: SecurityException) {
-                Log.e(TAG, "startService(PanelAccessibilityService) denied; falling back to AutomationManager.takeScreenshot()", e)
-                // Never block the main thread on a shell call (it can take
-                // seconds on a cold engine probe); see ActionDispatcher.
-                serviceScope.launch(Dispatchers.IO) {
-                    try {
-                        AutomationManager.takeScreenshot()
-                    } catch (e2: Exception) {
-                        Log.e(TAG, "Automation fallback also failed", e2)
+            if (!isAccessibilityServiceEnabled()) {
+                // Accessibility is off: startService would create a plain,
+                // non-connected instance whose performGlobalAction returns
+                // false, so go straight to the automation fallback.
+                takeScreenshotViaAutomation()
+            } else {
+                try {
+                    val intent = Intent(this, PanelAccessibilityService::class.java).apply {
+                        action = PanelAccessibilityService.ACTION_TAKE_SCREENSHOT
                     }
+                    startService(intent)
+                } catch (e: SecurityException) {
+                    Log.e(TAG, "startService(PanelAccessibilityService) denied; falling back to AutomationManager.takeScreenshot()", e)
+                    takeScreenshotViaAutomation()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to dispatch screenshot intent", e)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to dispatch screenshot intent", e)
             }
             // Safety net if accessibility never acks restore (OEM quirks).
             handler.postDelayed(screenshotRestoreRunnable, SCREENSHOT_RESTORE_DELAY_MS)
+        }
+    }
+
+    /** Screenshot via the Shizuku/root automation engine, off the main thread
+     *  (a shell call can take seconds on a cold engine probe). */
+    private fun takeScreenshotViaAutomation() {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                AutomationManager.takeScreenshot()
+            } catch (e: Exception) {
+                Log.e(TAG, "Automation screenshot fallback failed", e)
+            }
+        }
+    }
+
+    /** Lock screen via the Shizuku/root automation engine, off the main thread. */
+    private fun lockScreenViaAutomation() {
+        // Never block the main thread on a shell call (it can take seconds
+        // on a cold engine probe); see ActionDispatcher.
+        // The failure indicator must be posted back to the main thread.
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                AutomationManager.performLockScreen()
+            } catch (e: Exception) {
+                Log.e(TAG, "Automation lock fallback failed", e)
+                handler.post { showIndicator(getString(R.string.toast_lock_screen_failed)) }
+            }
         }
     }
 
@@ -550,12 +679,32 @@ class FloatingPanelService : Service() {
             
             Log.d(TAG, "toggleFlashlight: Toggling to $newState (current state: $currentState, activeTorches: $activeTorches)")
             
-            lastManualToggleTime = System.currentTimeMillis()
-            manager.setTorchMode(cameraId, newState)
-            // Update state AFTER the hardware call succeeds to prevent
-            // desync if setTorchMode throws CameraAccessException.
-            isFlashlightOn = newState
-            if (newState) activeTorches.add(cameraId) else activeTorches.clear()
+            lastManualTorchTime = System.currentTimeMillis()
+            if (newState) {
+                manager.setTorchMode(cameraId, true)
+                lastManualTorchState[cameraId] = true
+                // Update state AFTER the hardware call succeeds to prevent
+                // desync if setTorchMode throws CameraAccessException.
+                isFlashlightOn = true
+                activeTorches.add(cameraId)
+            } else {
+                // Turn off EVERY torch that is on, not just the first
+                // flash-capable camera: the torch that is actually on may
+                // belong to a different camera ID (turned on elsewhere and
+                // recorded by the callback). That torch would otherwise stay
+                // on while the state says off.
+                val ids = (activeTorches + cameraId).toList()
+                for (id in ids) {
+                    try {
+                        manager.setTorchMode(id, false)
+                        lastManualTorchState[id] = false
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to turn off torch $id", e)
+                    }
+                }
+                isFlashlightOn = false
+                activeTorches.clear()
+            }
             showIndicator(if (newState) getString(R.string.indicator_flashlight_on) else getString(R.string.indicator_flashlight_off))
             
         } catch (e: Exception) {
@@ -607,27 +756,24 @@ class FloatingPanelService : Service() {
             dpm.lockNow()
         } catch (e: SecurityException) {
             Log.e(TAG, "Device admin required for lock screen; trying fallbacks", e)
-            try {
-                val intent = Intent(this, PanelAccessibilityService::class.java).apply {
-                    action = PanelAccessibilityService.ACTION_LOCK_SCREEN
-                }
-                startService(intent)
-            } catch (e2: SecurityException) {
-                Log.e(TAG, "startService denied for lock; trying AutomationManager", e2)
-                // Never block the main thread on a shell call (it can take
-                // seconds on a cold engine probe); see ActionDispatcher.
-                // The failure indicator must be posted back to the main thread.
-                serviceScope.launch(Dispatchers.IO) {
-                    try {
-                        AutomationManager.performLockScreen()
-                    } catch (e3: Exception) {
-                        Log.e(TAG, "Automation lock fallback failed", e3)
-                        handler.post { showIndicator(getString(R.string.toast_lock_screen_failed)) }
+            if (isAccessibilityServiceEnabled()) {
+                try {
+                    val intent = Intent(this, PanelAccessibilityService::class.java).apply {
+                        action = PanelAccessibilityService.ACTION_LOCK_SCREEN
                     }
+                    startService(intent)
+                } catch (e2: SecurityException) {
+                    Log.e(TAG, "startService denied for lock; trying AutomationManager", e2)
+                    lockScreenViaAutomation()
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Accessibility lock fallback failed", e2)
+                    showIndicator(getString(R.string.toast_lock_screen_failed))
                 }
-            } catch (e2: Exception) {
-                Log.e(TAG, "Accessibility lock fallback failed", e2)
-                showIndicator(getString(R.string.toast_lock_screen_failed))
+            } else {
+                // Accessibility is off: startService would create a plain,
+                // non-connected instance whose performGlobalAction returns
+                // false, so skip it and go straight to automation.
+                lockScreenViaAutomation()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to lock screen", e)
@@ -835,8 +981,6 @@ class FloatingPanelService : Service() {
         // multiple controls; the joined clipboard write happens on dismissal.
     }
 
-    /** Extract copyable text from a control and append it to the accumulation
-     *  list (priority: text → contentDescription → viewIdResourceName). */
     /** Show transient feedback inside the Content Picker overlay (top-center).
      *  Unlike Toast, this is guaranteed visible because the overlay is the top
      *  window and the host rootLayout is removed while picking. */
@@ -850,6 +994,8 @@ class FloatingPanelService : Service() {
         handler.postDelayed(contentPickerFeedbackHideRunnable, INDICATOR_SHOW_DURATION_MS)
     }
 
+    /** Extract copyable text from a control and append it to the accumulation
+     *  list (priority: text → contentDescription → viewIdResourceName). */
     private fun accumulateContentInfo(c: ContentInfo) {
         val text: String? = when {
             !c.text.isNullOrBlank() -> c.text
@@ -865,8 +1011,6 @@ class FloatingPanelService : Service() {
         showContentPickerFeedback(getString(R.string.content_picker_concatenated))
     }
 
-    /** Join every accumulated snippet with newlines and write them to the
-     *  clipboard once when the picker is dismissed via two-finger gesture. */
     /** Show a standalone confirmation overlay (bottom-center, same look and
      *  duration as the regular indicator) that survives the Content Picker
      *  overlay dismissal. The mini window is independent of rootLayout, Toast,
@@ -927,6 +1071,8 @@ class FloatingPanelService : Service() {
         }
     }
 
+    /** Join every accumulated snippet with newlines and write them to the
+     *  clipboard once when the picker is dismissed via two-finger gesture. */
     private fun flushContentPickerToClipboard() {
         if (contentPickerAccumulated.isEmpty()) return
         val joined = contentPickerAccumulated.joinToString("\n")
@@ -960,8 +1106,8 @@ class FloatingPanelService : Service() {
         contentPickerOverlayParams = null
     }
 
-    private fun openFavoriteApp() {
-        val pkg = panelPrefs.favoriteAppPackage
+    private fun openFavoriteApp(slotKey: String? = null) {
+        val pkg = if (slotKey != null) panelPrefs.favoriteAppPackageFor(slotKey) else panelPrefs.favoriteAppPackage
         if (pkg.isEmpty()) {
             showIndicator(getString(R.string.toast_fav_app_unset))
             return
@@ -1093,13 +1239,8 @@ class FloatingPanelService : Service() {
                     )
                     blackScreenWakeLock?.acquire() // held until Black Screen is dismissed (no fixed timeout so long-running background tasks survive past 10 min)
                     // Suppress the lock screen so waking returns to the app.
-                    try {
-                        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-                        val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
-                        if (dpm.isAdminActive(cn)) {
-                            dpm.setKeyguardDisabled(cn, true)
-                        }
-                    } catch (e: Exception) {}
+                    // Device-owner-only; a plain device admin cannot do this.
+                    disableKeyguardIfDeviceOwner()
                     // Drive a real screen-off with the shortest supported timeout.
                     try {
                         savedScreenOffTimeout = android.provider.Settings.System.getInt(
@@ -1118,6 +1259,11 @@ class FloatingPanelService : Service() {
                 // FLAG_KEEP_SCREEN_ON, the supported replacement for the
                 // deprecated SCREEN_BRIGHT_WAKE_LOCK.
             } catch (_: Exception) {}
+
+            // Persist the saved brightness/timeout so a process kill while
+            // Black Screen is active does not leave the device dimmed with
+            // a 15s timeout: the next service start restores them.
+            persistBlackScreenSession()
 
             // 5. Create full-screen black overlay with FLAG_KEEP_SCREEN_ON
             //    (replaces deprecated FULL_WAKE_LOCK for API 17+)
@@ -1269,19 +1415,14 @@ class FloatingPanelService : Service() {
                         savedScreenOffTimeout = -1
                     }
                 } catch (e: Exception) {}
-                try {
-                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-                    val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
-                    if (dpm.isAdminActive(cn)) {
-                        dpm.setKeyguardDisabled(cn, false)
-                    }
-                } catch (e: Exception) {}
+                reenableKeyguardIfDeviceOwner()
             }
 
             // 4. Restore brightness + auto-mode via the pure helper.
             //    The BrightnessSnapshot was constructed by activateBlackScreen
             //    and stored in savedBrightness / savedBrightnessMode fields.
             restoreSavedBrightness()
+            clearBlackScreenSession()
 
             showIndicator(getString(R.string.indicator_black_screen_off))
         } catch (e: Exception) {
@@ -1413,6 +1554,7 @@ class FloatingPanelService : Service() {
         removeView(notchHandleView)
         removeView(rootLayout)
         // Release black screen resources if active
+        val wasBlackScreenActive = blackScreenOverlay != null || trueScreenOffActive
         blackScreenWakeLock?.let { if (it.isHeld) it.release() }
         blackScreenWakeLock = null
         blackScreenOverlay?.let { overlay ->
@@ -1426,44 +1568,40 @@ class FloatingPanelService : Service() {
         blackScreenOverlayParams = null
         // Drop any active control picker overlay + callback.
         stopContentPicker()
-        // Lifecycle guard: if the service dies while a true screen-off session is
-        // active, restore the timeout and keyguard so the device doesn't stay in
-        // an unlocked, ultra-short-timeout state permanently.
-        if (trueScreenOffActive) {
-            trueScreenOffActive = false
-            try {
-                if (savedScreenOffTimeout > 0) {
-                    android.provider.Settings.System.putInt(
-                        contentResolver,
-                        android.provider.Settings.System.SCREEN_OFF_TIMEOUT,
-                        savedScreenOffTimeout
-                    )
-                }
-                savedScreenOffTimeout = -1
-            } catch (e: Exception) {}
-            try {
-                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-                val cn = android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java)
-                if (dpm.isAdminActive(cn)) {
-                    dpm.setKeyguardDisabled(cn, false)
-                }
-            } catch (e: Exception) {}
+        // Lifecycle guard: if the service dies while a Black Screen session
+        // is active, restore the brightness the dim overlay lowered and
+        // the timeout/keyguard a true screen-off session changed, so the
+        // device is not left dimmed, unlocked, or ultra-short-timeout.
+        if (wasBlackScreenActive) {
+            restoreSavedBrightness()
+            if (trueScreenOffActive) {
+                trueScreenOffActive = false
+                try {
+                    if (savedScreenOffTimeout > 0) {
+                        android.provider.Settings.System.putInt(
+                            contentResolver,
+                            android.provider.Settings.System.SCREEN_OFF_TIMEOUT,
+                            savedScreenOffTimeout
+                        )
+                    }
+                    savedScreenOffTimeout = -1
+                } catch (e: Exception) {}
+                reenableKeyguardIfDeviceOwner()
+            }
+            clearBlackScreenSession()
         }
     }
 
     // Audit U-Med: this service is the live overlay panel; it MUST outlive
     // any short-lived ConfigurationActivity the user swipes from Recents,
     // because that's exactly how the Android swipe-from-recents UX is
-    // expected to behave for foreground services. Calling stopSelf() here
-    // terminated the entire sidebar the moment the user cleaned up the
-    // launcher task — the most unexpected failure mode we have in the wild.
-    // The service still terminates voluntarily through Notification-stop /
-    // quick-tile / explicit user action or through the system's own
-    // low-memory killer. We do NOT call stopSelf().
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        super.onTaskRemoved(rootIntent)
-    }
-
+    // expected to behave for foreground services. Calling stopSelf() on
+    // task removal terminated the entire sidebar the moment the user
+    // cleaned up the launcher task — the most unexpected failure mode we
+    // have in the wild. The service still terminates voluntarily through
+    // Notification-stop / quick-tile / explicit user action or through the
+    // system's own low-memory killer. There is deliberately no
+    // onTaskRemoved override: the default (do nothing) is the policy.
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -1494,6 +1632,9 @@ class FloatingPanelService : Service() {
 
     private fun removeView(view: View?) {
         if (view == null) return
+        // Cancel any live SpringAnimator animation first: a running spring
+        // keeps the view (and its window params) alive past detach.
+        SpringAnimator.cancel(view)
         try {
             // More aggressive removal to ensure no 'permanent' ghosts remain
             if (view.isAttachedToWindow) {
@@ -1505,6 +1646,48 @@ class FloatingPanelService : Service() {
         } catch (e: Exception) {
             // View was likely already removed or never attached
         }
+    }
+
+    /**
+     * Re-checks handle visibility and game mode for the current foreground
+     * app. This is the light path run on every foreground switch
+     * (ACTION_FOREGROUND_CHANGED) and as the first step of the full
+     * ACTION_REFRESH. It does two PackageManager queries (via
+     * isCurrentPackageLauncher) but no repository IO, no recents disk read,
+     * and no style/icon/theme/blur work.
+     */
+    private fun refreshForegroundState() {
+        val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val shouldShowHandle = if (isLandscape && !panelPrefs.showInLandscape) false
+                              else if (panelPrefs.onlyOnHome && !isCurrentPackageLauncher()) false
+                              else true
+
+        if (!shouldShowHandle) {
+            edgeHandleView?.visibility = View.GONE
+            // Also remove it from WM to be sure it doesn't block touches
+            removeView(edgeHandleView)
+            edgeHandleView = null
+
+            // Also hide notch handle if onlyOnHome is active and not on home
+            notchHandleView?.visibility = View.GONE
+        } else {
+            addEdgeHandle(forceRecreate = false)
+            // addNotchHandle()
+            edgeHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
+            notchHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
+        }
+
+        // Update game mode state: user-curated list OR dynamic landscape+fullscreen+non-video.
+        val currentPkg = panelPrefs.currentForegroundPackage
+        val isInGameList = panelPrefs.getGameApps().contains(currentPkg)
+        val isDynamicGame = if (isInGameList) true else {
+            val isLandscapeOrientation = resources.configuration.orientation ==
+                    android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            isLandscapeOrientation && currentPkg.isNotBlank() &&
+                    !isCurrentPackageLauncher() &&
+                    !isVideoPlayerPackage(currentPkg)
+        }
+        edgeHandleView?.isGameActive = isDynamicGame
     }
 
     private fun isCurrentPackageLauncher(): Boolean {
@@ -1522,50 +1705,6 @@ class FloatingPanelService : Service() {
             .map { it.activityInfo.packageName }
         
         return currentPkg == homePkg || allLaunchers.contains(currentPkg) || currentPkg == "com.android.systemui"
-    }
-
-    private fun addNotchHandle() {
-        Log.d(TAG, "addNotchHandle called. Enabled: ${panelPrefs.notchGesturesEnabled}")
-        if (!panelPrefs.notchGesturesEnabled) {
-            removeView(notchHandleView)
-            notchHandleView = null
-            return
-        }
-
-        if (notchHandleView != null) {
-            Log.d(TAG, "Notch handle already exists")
-            return
-        }
-
-        notchHandleView = NotchHandleView(this)
-
-        val params = WindowManager.LayoutParams(
-            dpToPx(120), // Increased width for easier debugging
-            dpToPx(60),  // Increased height for easier debugging
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
-        }
-
-        try {
-            Log.d(TAG, "Adding notch handle to WindowManager")
-            notchHandleView?.let { windowManager.addView(it, params) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to add notch handle", e)
-            // Drop the reference so the next addNotchHandle() call doesn't try to
-            // re-attach a partially-attached view (would throw a different
-            // unchecked exception on second attempt).
-            try { notchHandleView?.let { windowManager.removeView(it) } } catch (_: Exception) {}
-            notchHandleView = null
-        }
     }
 
     /**
@@ -1603,8 +1742,7 @@ class FloatingPanelService : Service() {
         if (panelPrefs.onlyOnHome && !isCurrentPackageLauncher()) return false
         // --- MANDATORY ENGINE CHECK ---
         // If neither Accessibility is ON nor Native Automation is POSSIBLE, we must NOT show the handle.
-        return isAccessibilityServiceEnabled() ||
-            (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible())
+        return isEngineAvailable()
     }
 
     /**
@@ -1645,8 +1783,8 @@ class FloatingPanelService : Service() {
                 val density = resources.displayMetrics.density
                 val screenH = resources.displayMetrics.heightPixels
                 val safeMargin = (10 * density).toInt()
-                val h = handleHeightPx(isPillVisible)
-                val maxOffset = (screenH / 2) - (h / 2) - safeMargin
+                val h = cappedHandleHeightPx(handleHeightPx(isPillVisible), screenH, safeMargin)
+                val maxOffset = maxHandleOffsetPx(screenH, h, safeMargin)
                 val requestedOffset = (panelPrefs.handleVerticalOffset * density).toInt()
 
                 params.width = (panelPrefs.handleWidth * density).toInt()
@@ -1669,7 +1807,6 @@ class FloatingPanelService : Service() {
             edgeHandleView?.updateState(
                 isRight, 
                 isPillVisible, 
-                this.isImmersiveMode, 
                 panelPrefs.panelOpacity
             )
             return
@@ -1696,12 +1833,15 @@ class FloatingPanelService : Service() {
             }
             isRightSide = isRight
             showPill = isPillVisible
-            isImmersiveMode = this@FloatingPanelService.isImmersiveMode
             alpha = panelPrefs.panelOpacity / 100f
         }
 
         val handleWidth = panelPrefs.handleWidth // Use user-defined width
-        val handleHeight = handleHeightPx(isPillVisible)
+        val handleHeight = cappedHandleHeightPx(
+            handleHeightPx(isPillVisible),
+            resources.displayMetrics.heightPixels,
+            dpToPx(10)
+        )
 
         // Fix: Use FLAG_LAYOUT_NO_LIMITS carefully or ensure GRAVITY_CENTER doesn't overflow
         val params = WindowManager.LayoutParams(
@@ -1720,7 +1860,7 @@ class FloatingPanelService : Service() {
             // Calculate absolute max offset to keep handle on screen
             val screenH = resources.displayMetrics.heightPixels
             val safeMargin = dpToPx(10) // Keep away from extreme top/bottom edges
-            val maxOffset = (screenH / 2) - (handleHeight / 2) - safeMargin
+            val maxOffset = maxHandleOffsetPx(screenH, handleHeight, safeMargin)
             
             val requestedOffset = dpToPx(panelPrefs.handleVerticalOffset)
             y = requestedOffset.coerceIn(-maxOffset, maxOffset)
@@ -1762,7 +1902,6 @@ class FloatingPanelService : Service() {
             sidePanelView = SidePanelView(this).apply {
                 onShowIndicator = { text -> showIndicator(text) }
                 onClose = { closePanel() }
-                onAppsChanged = { refreshApps() }
                 onAddClick = { isEdit -> togglePicker(isEdit) }
                 onScreenshot = {
                     triggerScreenshot()
@@ -2156,9 +2295,6 @@ class FloatingPanelService : Service() {
             syncHandleVisibility()
             sidePanelView?.animatePickerToggle(false)
             
-            if (!panelPrefs.serviceEnabled) {
-                stopSelf()
-            }
             return
         }
 
@@ -2187,9 +2323,6 @@ class FloatingPanelService : Service() {
                 try { windowManager.removeView(rl) } catch (e: Exception) {}
             }
             syncHandleVisibility()
-            if (!panelPrefs.serviceEnabled) {
-                stopSelf()
-            }
             return
         }
         sidePanelView?.let { panel ->
@@ -2207,11 +2340,6 @@ class FloatingPanelService : Service() {
                 }
                 syncHandleVisibility()
                 panel.animatePickerToggle(false)
-
-                // If service is NOT enabled in prefs, stop it now (Test mode over)
-                if (!panelPrefs.serviceEnabled) {
-                    stopSelf()
-                }
             }
         }
     }
@@ -2461,7 +2589,7 @@ class FloatingPanelService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setContentIntent(openMainPending)
             .addAction(android.R.drawable.ic_menu_view,
-                "Open Sidebar", openPending)
+                getString(R.string.main_test_sidebar), openPending)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel,
                 getString(R.string.stop_panel), stopPending)
             .setPriority(NotificationCompat.PRIORITY_MIN)
@@ -2549,7 +2677,7 @@ class FloatingPanelService : Service() {
     /**
      * Change screen brightness by [deltaPercent] percent points (sign =
      * direction). One percent point per call; 1% = 2.55 levels on the 0..255
-     * scale, so the fractional part accumulates in the shared
+     * scale, so the fractional part accumulates in this service's
      * [PanelPreferences.brightnessStepAccumulator] until it makes a whole level.
      */
     fun adjustBrightness(deltaPercent: Int) {
@@ -2572,23 +2700,24 @@ class FloatingPanelService : Service() {
             }
 
             val cResolver = contentResolver
-            // 1. Ensure manual mode to allow manual override
-            android.provider.Settings.System.putInt(cResolver, 
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, 
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+            // 1. Ensure manual mode to allow manual override (only writes
+            // when the mode differs, so a drag doesn't permanently kill
+            // the user's auto-brightness).
+            ensureManualBrightnessMode(cResolver)
 
-            // 2. Update standard int brightness (0-255)
+            // 2. Update standard int brightness (1-255: 0 is treated as
+            // "auto" by some OEMs, so the clamp floor is 1, not 0).
             var brightness = android.provider.Settings.System.getInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, 125)
             val units = panelPrefs.brightnessStepAccumulator.add(deltaPercent, 255)
             if (units != 0) {
-                val before = brightness
-                brightness = (brightness + units).coerceIn(0, 255)
-                // Refund the steps the clamp swallowed: without this, percent
-                // dragged against the 0/255 stop is silently consumed and the
-                // user must re-accumulate it before the brightness moves
-                // again (a dead zone at both ends of the range).
-                val unlanded = units - (brightness - before)
-                if (unlanded != 0) panelPrefs.brightnessStepAccumulator.refund(unlanded, 255)
+                brightness = (brightness + units).coerceIn(1, 255)
+                // Steps the clamp swallowed are simply dropped, NOT refunded:
+                // the brightness is already at the 0/255 stop, so nothing is
+                // owed, and refunding them makes the first tick in the
+                // opposite direction re-emit the refunded steps (which the
+                // clamp swallows again) instead of moving the brightness —
+                // a dead zone at both ends of the range. Dropping them keeps
+                // the accumulator consistent, so reversal moves immediately.
                 android.provider.Settings.System.putInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, brightness)
 
                 // 3. Update modern float brightness for slider sync on Android 10+

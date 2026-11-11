@@ -182,6 +182,10 @@ class HandleSettingsActivity : AppCompatActivity() {
     }
 
     private fun applyOnly() {
+        // The service is off: starting it just to refresh would flash
+        // its foreground notification and stop again. The prefs are
+        // already saved; the service reads them when re-enabled.
+        if (!panelPrefs.serviceEnabled) return
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_REFRESH
         }

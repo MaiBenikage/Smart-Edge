@@ -16,6 +16,9 @@
     <color name="md_theme_onError">#690005</color>
     <color name="md_theme_errorContainer">#93000A</color>
     <color name="md_theme_onErrorContainer">#FFDAD6</color>
+
+    <!-- Success state (lighter green for dark surfaces). -->
+    <color name="md_theme_success">#4ADE80</color>
     <color name="md_theme_background">#10131A</color>
     <color name="md_theme_onBackground">#E0E2EC</color>
     <color name="md_theme_surface">#10131A</color>
@@ -24,7 +27,6 @@
     <color name="md_theme_onSurfaceVariant">#C1C6D6</color>
     <color name="md_theme_outline">#8B919F</color>
     <color name="md_theme_outlineVariant">#414754</color>
-    <color name="md_theme_scrim">#000000</color>
     <color name="md_theme_inverseSurface">#E0E2EC</color>
     <color name="md_theme_inverseOnSurface">#2D3038</color>
     <color name="md_theme_inversePrimary">#005DB8</color>

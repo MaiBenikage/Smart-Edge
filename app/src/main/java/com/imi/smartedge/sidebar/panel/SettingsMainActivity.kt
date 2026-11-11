@@ -60,17 +60,13 @@ class SettingsMainActivity : AppCompatActivity() {
             openGithub()
         }
 
-        // Handle System Back to close search.
-        // Disable BEFORE passing through to break infinite recursion,
-        // then re-enable in expandSearch() for subsequent search cycles.
-        searchBackCallback = object : androidx.activity.OnBackPressedCallback(true) {
+        // Handle System Back to close search. The callback starts
+        // disabled: an always-enabled callback claims every back press,
+        // which defeats predictive back on the main screen. expandSearch()
+        // enables it; collapseSearch() disables it again.
+        searchBackCallback = object : androidx.activity.OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
-                if (binding.rvSettingsResults.visibility == View.VISIBLE || binding.etSettingsSearch.visibility == View.VISIBLE) {
-                    collapseSearch()
-                } else {
-                    isEnabled = false  // break recursion before pass-through
-                    onBackPressedDispatcher.onBackPressed()
-                }
+                collapseSearch()
             }
         }
         onBackPressedDispatcher.addCallback(this, searchBackCallback)
@@ -104,16 +100,21 @@ class SettingsMainActivity : AppCompatActivity() {
 
     private fun discoverSettingsInView(view: View, activityClass: Class<*>, layoutId: Int) {
         if (view.visibility == View.GONE) return
-        
+
         val viewId = view.id
         if (viewId != View.NO_ID) {
             val idName = resources.getResourceEntryName(viewId)
-            
+
             // "Intelligent" Discovery: Any view starting with 'feature_' or 'layout_' is indexed
             if (idName.startsWith("feature_") || idName.startsWith("layout_")) {
+                // Rows the owning screen hides at runtime must not be
+                // indexed when their gate is off: the inflated layout
+                // shows them all, so a result would deep-link to a row
+                // the user can't see.
+                if (isRuntimeHidden(idName)) return
                 val category = getCategoryFromLayout(layoutId)
                 val (title, description) = extractMetadata(view)
-                
+
                 if (title.isNotEmpty()) {
                     allSettings.add(SettingItem(title, description, category, "$title $description $idName".lowercase(), activityClass, idName))
                 }
@@ -124,6 +125,20 @@ class SettingsMainActivity : AppCompatActivity() {
             for (i in 0 until view.childCount) {
                 discoverSettingsInView(view.getChildAt(i), activityClass, layoutId)
             }
+        }
+    }
+
+    /**
+     * Rows hidden at runtime by the owning screen's loadCurrentSettings
+     * (same gates as InteractionSettingsActivity). Only these two rows
+     * are runtime-gated; every other indexed row is always visible.
+     */
+    private fun isRuntimeHidden(idName: String): Boolean {
+        val prefs = PanelPreferences(this)
+        return when (idName) {
+            "layoutNotchTapGestures" -> !prefs.notchGesturesEnabled
+            "layoutSlideSensitivity" -> !prefs.slideBrightnessEnabled && !prefs.slideVolumeEnabled
+            else -> false
         }
     }
 
@@ -138,11 +153,18 @@ class SettingsMainActivity : AppCompatActivity() {
             if (textViews.isNotEmpty()) {
                 // The first TextView is almost always the Title in our layouts
                 title = textViews[0].text.toString()
-                
-                // The second TextView is usually the Description/Value
-                if (textViews.size > 1) {
-                    description = textViews[1].text.toString()
-                }
+
+                // The description is the first TextView after the title
+                // that is not a live-value label: value TextViews
+                // (tv*Value — "15", "English", "100%") still hold the
+                // layout's placeholder text at index time, which used to
+                // be indexed as the description.
+                description = textViews.drop(1).firstOrNull { tv ->
+                    val id = if (tv.id != View.NO_ID) {
+                        runCatching { resources.getResourceEntryName(tv.id) }.getOrDefault("")
+                    } else ""
+                    !id.endsWith("Value")
+                }?.text.toString().orEmpty()
             }
         } else if (view is com.google.android.material.materialswitch.MaterialSwitch) {
             title = view.text.toString()
@@ -248,8 +270,14 @@ class SettingsMainActivity : AppCompatActivity() {
                 .setMessage(R.string.dialog_reset_msg)
                 .setPositiveButton(R.string.btn_reset) { _, _ ->
                     panelPrefs.resetToDefaults()
+                    // Theme and language are part of the reset: re-apply
+                    // them and recreate so the change is visible now,
+                    // instead of only after the next process start.
+                    applyAppTheme(this)
+                    LocaleHelper.applyPersistedLocale(this)
                     applyGlobalRefresh()
                     binding.root.showModernToast(getString(R.string.toast_reset_success))
+                    recreate()
                 }
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()
@@ -257,6 +285,10 @@ class SettingsMainActivity : AppCompatActivity() {
 
         binding.btnMisc.setOnClickListener {
             startActivity(Intent(this, MiscellaneousSettingsActivity::class.java))
+        }
+
+        binding.btnManageApps.setOnClickListener {
+            startActivity(Intent(this, AppPickerActivity::class.java))
         }
     }
 
@@ -295,7 +327,8 @@ class SettingsMainActivity : AppCompatActivity() {
         binding.etSettingsSearch.requestFocus()
 
         // Re-enable the back callback so it can intercept future back presses
-        // (was disabled in handleOnBackPressed to break infinite recursion).
+        // while the search is expanded (it starts disabled; collapseSearch()
+        // disables it again).
         if (::searchBackCallback.isInitialized) {
             searchBackCallback.isEnabled = true
         }
@@ -332,6 +365,12 @@ class SettingsMainActivity : AppCompatActivity() {
         // Hide keyboard
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         imm.hideSoftInputFromWindow(binding.etSettingsSearch.windowToken, 0)
+
+        // Search is closed: stop intercepting Back so predictive back
+        // works on the main screen again.
+        if (::searchBackCallback.isInitialized) {
+            searchBackCallback.isEnabled = false
+        }
     }
 
     private fun filterSettings(query: String) {
@@ -381,7 +420,9 @@ class SettingsMainActivity : AppCompatActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
             val view = LayoutInflater.from(parent.context)
                 .inflate(android.R.layout.simple_list_item_2, parent, false)
-            view.setPadding(64, 32, 64, 32)
+            // dp, not raw px: 64px is 24dp on an xxhdpi screen but 64dp
+            // on an mdpi one.
+            view.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), dpToPx(12))
             return ViewHolder(view)
         }
 

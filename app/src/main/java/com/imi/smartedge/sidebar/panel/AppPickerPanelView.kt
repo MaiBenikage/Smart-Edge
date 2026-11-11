@@ -96,6 +96,14 @@ class AppPickerPanelView @JvmOverloads constructor(
     private val expandedPackages = linkedSetOf<String>()
     // Per-item editing state for custom tab
     private var editingCustomId: String? = null
+    // True while an ItemTouchHelper CUSTOM reorder is in progress; the
+    // swipe-down-to-close detector is gated on it.
+    private var customDragActive = false
+    // Set on attach when remember-scroll is on: the saved picker offset is
+    // restored once, on the first list commit that actually has content.
+    // (The offset is a raw pixel value, so it is applied with scrollBy
+    // after layout and simply clamps if the list is shorter now.)
+    private var restorePickerScroll = false
 
     // In-progress edit cache, keyed by item id. A TextWatcher on each
     // CustomRow's etTitle/etContent writes here on every keystroke so that
@@ -129,7 +137,10 @@ class AppPickerPanelView @JvmOverloads constructor(
 
     private val adapter = PickerAdapter()
     private val notificationAdapter = NotificationStripAdapter()
-    private val repository = AppRepository(context)
+    // Shared repository: a second instance would build a second picker
+    // cache and icon-pack state (see AppIconModelLoader, which uses
+    // shared() for exactly this reason).
+    private val repository = AppRepository.shared(context)
     private val panelPrefs = PanelPreferences(context)
 
     private var _scope = CoroutineScope(Dispatchers.Main + Job())
@@ -152,6 +163,10 @@ class AppPickerPanelView @JvmOverloads constructor(
     //                                Lifecycle
     // ====================================================================================
     init {
+        // Same LTR pin as SidePanelView: the picker's geometry follows the
+        // panel's absolute left/right side, so its relative START/END
+        // positioning must not mirror under an RTL locale.
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
         val view = LayoutInflater.from(context).inflate(R.layout.picker_panel_layout, this, true)
         pickerPanelCard = view.findViewById(R.id.pickerPanelCard)
         rvPickerGrid = view.findViewById(R.id.rvPickerGrid)
@@ -274,7 +289,18 @@ class AppPickerPanelView @JvmOverloads constructor(
         // Swipe-down to close (preserved from the original)
         gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (!rvPickerGrid.canScrollVertically(-1) && vy > 800f) {
+                // Require a real downward swipe, not just a velocity spike:
+                // >48dp of downward travel, dominant vertical direction,
+                // list already at the top — and never during a CUSTOM
+                // drag-reorder, which easily exceeds the fling velocity.
+                // Velocity threshold is dp/s, scaled by density.
+                val start = e1 ?: return false
+                if (customDragActive) return false
+                if (Math.abs(vy) <= Math.abs(vx)) return false
+                val density = context.resources.displayMetrics.density
+                if (vy <= 800f * density) return false
+                if (e2.y - start.y <= 48f * density) return false
+                if (!rvPickerGrid.canScrollVertically(-1)) {
                     onClose?.invoke()
                     return true
                 }
@@ -290,7 +316,10 @@ class AppPickerPanelView @JvmOverloads constructor(
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        gestureDetector?.onTouchEvent(ev)
+        // Don't feed the swipe-down detector during a CUSTOM drag-reorder.
+        if (!customDragActive) {
+            gestureDetector?.onTouchEvent(ev)
+        }
         return super.dispatchTouchEvent(ev)
     }
 
@@ -305,6 +334,11 @@ class AppPickerPanelView @JvmOverloads constructor(
         // Re-load custom items from prefs (in case sidebar sync changed them)
         customItems = panelPrefs.getCustomItems().toMutableList()
         if (activeTab == PickerTab.CUSTOM) rebuildAndSubmit()
+        // Restore the saved scroll offset on the next list commit (see
+        // rebuildAndSubmit). Only when remember-scroll is on.
+        if (panelPrefs.rememberScroll) {
+            restorePickerScroll = true
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -510,7 +544,13 @@ class AppPickerPanelView @JvmOverloads constructor(
         if (theme == PanelPreferences.THEME_HYPEROS) {
             drawable.setStroke((1.5 * density).toInt(), Color.parseColor("#4DFFFFFF"))
         } else if (theme == PanelPreferences.THEME_RICH) {
-            val accent = try { Color.parseColor(panelPrefs.accentColor) } catch (e: Exception) { Color.parseColor("#4A9EFF") }
+            // The Rich stroke uses the custom accent only when the switch
+            // is on; otherwise the default blue applies.
+            val accent = if (panelPrefs.useCustomAccent) {
+                try { Color.parseColor(panelPrefs.accentColor) } catch (e: Exception) { Color.parseColor("#4A9EFF") }
+            } else {
+                Color.parseColor("#4A9EFF")
+            }
             drawable.setStroke((2 * density).toInt(), accent)
         } else if (theme == PanelPreferences.THEME_REALME) {
             drawable.colors = intArrayOf(Color.parseColor("#333333"), Color.parseColor("#1A1A1A"))
@@ -689,9 +729,17 @@ class AppPickerPanelView @JvmOverloads constructor(
             updateHeaderAndEditButton()
             rebuildAndSubmit()
         } else {
-            // CANCEL previous if any
-            if (editingCustomId != null) {
-                cancelCustomItemEdit()
+            // Auto-save the previous row's edits (see the class KDoc:
+            // tapping the edit button on a different row auto-saves the
+            // previous one). If the previous edit is invalid, stay on that
+            // row and toast instead of throwing the user's typing away.
+            val prevId = editingCustomId
+            if (prevId != null) {
+                if (!saveCustomItemEdit(prevId)) {
+                    showInvalidCustomUriToast()
+                    return
+                }
+                editingCustomId = null
             }
             editingCustomId = id
             // Enter editing mode on this row
@@ -946,6 +994,16 @@ class AppPickerPanelView @JvmOverloads constructor(
         // submitList has finished applying + laying out.
         adapter.submitList(items) {
             updatePickerHeight()
+            // Restore the saved scroll offset once per picker open, on the
+            // first commit that has content (the data load is async, so an
+            // earlier empty commit must not consume the restore).
+            if (restorePickerScroll && adapter.itemCount > 0) {
+                restorePickerScroll = false
+                val offset = panelPrefs.lastPickerScroll
+                if (offset > 0) {
+                    rvPickerGrid.post { rvPickerGrid.scrollBy(0, offset) }
+                }
+            }
             // Force full rebind of EVERY custom row (first + last included).
             // Payload-only / last-only rebinds left edge rows with GONE buttons
             // or a disabled drag handle after recycle from modify/edit states.
@@ -997,6 +1055,10 @@ class AppPickerPanelView @JvmOverloads constructor(
                     .setDuration(EDIT_MODE_ANIM_DURATION_MS)
                     .setStartDelay(i * EDIT_MODE_ITEM_STAG_DELAY_MS)
                     .setInterpolator(android.view.animation.DecelerateInterpolator())
+                    // The stagger delay sticks to the view's animator: reset
+                    // it when the animation ends, or later scalePulse/item
+                    // animations on this view inherit the delay.
+                    .withEndAction { v.animate().setStartDelay(0) }
                     .start()
             }
         }
@@ -1050,6 +1112,13 @@ class AppPickerPanelView @JvmOverloads constructor(
         ) {
             override fun isLongPressDragEnabled(): Boolean = false  // drag from handle only
 
+            override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(viewHolder, actionState)
+                // Track an in-progress CUSTOM reorder so swipe-down-to-close
+                // (fed from dispatchTouchEvent) can't fire mid-drag.
+                customDragActive = actionState == ItemTouchHelper.ACTION_STATE_DRAG
+            }
+
             override fun getMovementFlags(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
                 if (activeTab != PickerTab.CUSTOM) return 0
                 if (editingCustomId != null || isEditMode) return 0  // block all gestures while in any edit state
@@ -1068,14 +1137,21 @@ class AppPickerPanelView @JvmOverloads constructor(
                 val fromPos = from.bindingAdapterPosition
                 val toPos = to.bindingAdapterPosition
                 if (fromPos == RecyclerView.NO_POSITION || toPos == RecyclerView.NO_POSITION) return false
-                // Audit v1.5.3: retrieve the actual item from the ADAPTER's
-                // currentList (which may be filtered) and find its real index in
-                // the customItems backing list. Using filtered positions to index
-                // into the unfiltered customItems would cause data corruption
-                // when a search query is active.
+                // Resolve the dragged item from the holders themselves, not
+                // from adapter.currentList[position]: after the first move
+                // in a drag, currentList still holds the pre-drag order
+                // (only notifyItemMoved was called) while the holders have
+                // already moved, so a position lookup picks the wrong item
+                // and corrupts the saved order on the next step. Fall back
+                // to the currentList lookup only if a holder was never
+                // bound (defensive; bindCustom always sets boundItem).
                 val adapterList = adapter.currentList
-                val fromItem = (adapterList.getOrNull(fromPos) as? PickerItem.CustomRow)?.item ?: return false
-                val toItem = (adapterList.getOrNull(toPos) as? PickerItem.CustomRow)?.item ?: return false
+                val fromItem = from.boundItem
+                    ?: (adapterList.getOrNull(fromPos) as? PickerItem.CustomRow)?.item
+                    ?: return false
+                val toItem = to.boundItem
+                    ?: (adapterList.getOrNull(toPos) as? PickerItem.CustomRow)?.item
+                    ?: return false
                 val realFrom = customItems.indexOfFirst { it.id == fromItem.id }
                 val realTo = customItems.indexOfFirst { it.id == toItem.id }
                 if (realFrom < 0 || realTo < 0) return false
@@ -1098,6 +1174,10 @@ class AppPickerPanelView @JvmOverloads constructor(
                 // (KEY_PANEL_APPS) so the user sees the same arrangement in both
                 // surfaces, not in only one of them.
                 panelPrefs.resyncPanelAppsOrderFromCustomItems(customItems)
+                // Re-sync the adapter's list with the new order now that the
+                // drag is over, so a later rebind cannot read stale items
+                // from the pre-drag currentList.
+                rebuildAndSubmit()
                 // Round-7 U3: notify the host so the sidebar reflects the
                 // reorder immediately. Without this hook the persisted
                 // KEY_PANEL_APPS is updated but SidePanelView's adapter
@@ -1225,11 +1305,13 @@ class AppPickerPanelView @JvmOverloads constructor(
             holder.tvName.text = app.appName
             holder.tvPackage?.text = app.packageName
 
-            // Indent child rows to show tree structure
-            holder.itemView.setPadding(
-                if (isChild) (CHILD_INDENT_DP * resources.displayMetrics.density).toInt() else 0,
+            // Indent child rows to show tree structure. RTL-aware: the
+            // indent is on the start side, and non-child rows keep the
+            // XML start padding instead of having it zeroed.
+            holder.itemView.setPaddingRelative(
+                if (isChild) (CHILD_INDENT_DP * resources.displayMetrics.density).toInt() else holder.itemView.paddingStart,
                 holder.itemView.paddingTop,
-                holder.itemView.paddingRight,
+                holder.itemView.paddingEnd,
                 holder.itemView.paddingBottom
             )
 
@@ -1248,7 +1330,7 @@ class AppPickerPanelView @JvmOverloads constructor(
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
                 .error(android.R.drawable.sym_def_app_icon)
-                .override((120 * scale).toInt(), (120 * scale).toInt())
+                .override(iconPx, iconPx)
                 .into(holder.ivIcon)
             IconShapeHelper.applyShape(holder.ivIcon, panelPrefs.iconShape)
 
@@ -1295,7 +1377,7 @@ class AppPickerPanelView @JvmOverloads constructor(
             // handling + the safety gate stay consistent with sidebar launches.
             val app = AppInfo(
                 packageName = PanelPreferences.CUSTOM_ID_PREFIX + ci.id,
-                appName = ci.title.ifBlank { "Untitled" },
+                appName = ci.title.ifBlank { context.getString(R.string.custom_untitled) },
                 isInPanel = true,
                 type = AppInfo.Type.CUSTOM,
                 intentUri = ci.content,
@@ -1317,6 +1399,15 @@ class AppPickerPanelView @JvmOverloads constructor(
             // have no gate at all since they come from the exported enumeration.
             if (app.type == AppInfo.Type.CUSTOM && !context.isSafeIntentUri(app.intentUri)) {
                 showLaunchBlockedUI(app)
+                return
+            }
+
+            // Dynamic / manifest shortcuts often target non-exported
+            // activities, so a raw startActivity(intent) fails. Launch via
+            // LauncherApps, which can reach them; fall back to the raw
+            // intent below when that fails (e.g. we are not the host).
+            if (app.type == AppInfo.Type.SHORTCUT && context.tryLaunchShortcut(app.packageName, app.activityName)) {
+                onAppLaunched?.invoke()
                 return
             }
 
@@ -1342,11 +1433,14 @@ class AppPickerPanelView @JvmOverloads constructor(
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 try {
                     context.startActivity(intent)
+                    // Only close the panel when the launch actually happened:
+                    // a null intent or a failed start must not dismiss the
+                    // picker (the sidebar only closes on a successful launch).
+                    onAppLaunched?.invoke()
                 } catch (e: Exception) {
                     Log.e("AppPickerPanelView", "Failed to launch ${app.identifier}", e)
                 }
             }
-            onAppLaunched?.invoke()
         }
 
         // --- HEADER ---
@@ -1360,7 +1454,9 @@ class AppPickerPanelView @JvmOverloads constructor(
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
                 .error(android.R.drawable.sym_def_app_icon)
-                .override(96, 96)
+                // Header icon is a fixed 32dp in the layout: decode at its
+                // real px size instead of a fixed 96px (right only at xhdpi).
+                .override(context.dpToPx(32), context.dpToPx(32))
                 .into(holder.ivIcon)
             holder.itemView.setOnClickListener { toggleHeaderExpansion(item.packageName) }
         }
@@ -1368,6 +1464,7 @@ class AppPickerPanelView @JvmOverloads constructor(
         // --- CUSTOM ---
         private fun bindCustom(holder: CustomViewHolder, item: PickerItem.CustomRow) {
             val ci = item.item
+            holder.boundItem = ci
             val itemId = ci.id
             val inGlobalEdit = item.isEditing          // Edit state
             val isThisItemEditing = item.isItemEditing // Modify state
@@ -1375,8 +1472,23 @@ class AppPickerPanelView @JvmOverloads constructor(
             // Horizontal scroll for long title/content (layout sets
             // scrollHorizontally + scrollbars="horizontal"; TextView needs a
             // movement method to actually show/scroll the horizontal bar).
-            holder.tvTitle.movementMethod = android.text.method.ScrollingMovementMethod()
-            holder.tvContent.movementMethod = android.text.method.ScrollingMovementMethod()
+            // setMovementMethod makes the TextView itself clickable,
+            // focusable and long-clickable, which would swallow taps over
+            // the text — and the text covers most of the row — so the
+            // body's click listener (launch URL/intent) would only fire on
+            // the padding. Clear those flags again right after setting it
+            // so taps pass through to the body while the text still
+            // scrolls horizontally. Use the shared instance instead of
+            // allocating a new movement method on every bind.
+            val movementMethod = android.text.method.ScrollingMovementMethod.getInstance()
+            holder.tvTitle.movementMethod = movementMethod
+            holder.tvContent.movementMethod = movementMethod
+            holder.tvTitle.isClickable = false
+            holder.tvTitle.isLongClickable = false
+            holder.tvTitle.isFocusable = false
+            holder.tvContent.isClickable = false
+            holder.tvContent.isLongClickable = false
+            holder.tvContent.isFocusable = false
 
             // NOTE: do NOT call holder.setIsRecyclable(false) here. Marking the
             // holder non-recyclable while it is being removed (cancel / delete /
@@ -1629,6 +1741,13 @@ class AppPickerPanelView @JvmOverloads constructor(
 
         inner class CustomViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             var isBinding: Boolean = true
+            // The CustomItem this holder is currently bound to. onMove
+            // resolves the dragged item from here, never from
+            // adapter.currentList[position]: after the first move in a
+            // drag, currentList still holds the old order while the
+            // holders have already moved, so a position lookup picks the
+            // wrong item and corrupts the saved order.
+            var boundItem: CustomItem? = null
             val dragHandle: ImageView = view.findViewById(R.id.ivCustomDragHandle)
             val body: View = view.findViewById(R.id.customBody)
             val readMode: View = view.findViewById(R.id.customReadMode)
@@ -1740,7 +1859,10 @@ class AppPickerPanelView @JvmOverloads constructor(
         override fun onBindViewHolder(h: VH, position: Int) {
             val app = getItem(position)
             val scale = panelPrefs.scaleFactor
-            val iconSize = (ICON_SIZE_NORMAL_DP * scale).toInt()
+            // ICON_SIZE_NORMAL_DP is in dp: convert to px first. The old
+            // code used the raw dp value as pixels, so on an xxhdpi phone
+            // the strip icons rendered at ~15dp instead of 44dp.
+            val iconSize = (context.dpToPx(ICON_SIZE_NORMAL_DP) * scale).toInt()
             h.ivIcon.layoutParams.let { lp ->
                 lp.width = iconSize; lp.height = iconSize
                 h.ivIcon.layoutParams = lp

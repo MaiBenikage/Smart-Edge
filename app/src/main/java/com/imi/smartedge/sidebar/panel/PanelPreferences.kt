@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.core.content.edit
+import kotlin.math.roundToInt
 
 /**
  * Manages the persistent list of apps pinned to the side panel,
@@ -55,6 +56,8 @@ class PanelPreferences(context: Context) {
         /** Minimum gap between WRITE_SETTINGS prompts from the brightness paths. */
         const val WRITE_SETTINGS_PROMPT_COOLDOWN_MS = 60_000L
         private const val KEY_PANEL_APPS = "panel_apps"
+        private const val KEY_PANEL_SEEDED = "panel_seeded"
+        private const val KEY_SHORTCUT_TOKEN = "shortcut_token"
         private const val KEY_PANEL_LABELS = "panel_item_labels"
         private const val KEY_PANEL_SIDE = "panel_side"
         private const val KEY_AUTO_START = "auto_start"
@@ -133,16 +136,28 @@ class PanelPreferences(context: Context) {
         private const val KEY_USE_AUTOMATION_FOR_GESTURES = "use_automation_for_gestures"
         private const val KEY_ONLY_ON_HOME = "only_on_home"
         private const val KEY_FAVORITE_APP = "favorite_app_package"
-        private const val KEY_NOTCH_GESTURES_ENABLED = "notch_gestures_enabled"
-        private const val KEY_NOTCH_TAP_ACTION = "notch_tap_action"
-        private const val KEY_NOTCH_DOUBLE_TAP_ACTION = "notch_double_tap_action"
-        private const val KEY_NOTCH_TRIPLE_TAP_ACTION = "notch_triple_tap_action"
-        private const val KEY_NOTCH_LONG_PRESS_ACTION = "notch_long_press_action"
+        private const val KEY_FAVORITE_APP_PREFIX = "favorite_app_"
 
-        private const val KEY_TAP_ACTION = "tap_action"
-        private const val KEY_DOUBLE_TAP_ACTION = "double_tap_action"
-        private const val KEY_TRIPLE_TAP_ACTION = "triple_tap_action"
-        private const val KEY_LONG_PRESS_ACTION = "long_press_action"
+        private const val KEY_NOTCH_GESTURES_ENABLED = "notch_gestures_enabled"
+        const val KEY_NOTCH_TAP_ACTION = "notch_tap_action"
+        const val KEY_NOTCH_DOUBLE_TAP_ACTION = "notch_double_tap_action"
+        const val KEY_NOTCH_TRIPLE_TAP_ACTION = "notch_triple_tap_action"
+        const val KEY_NOTCH_LONG_PRESS_ACTION = "notch_long_press_action"
+
+        const val KEY_TAP_ACTION = "tap_action"
+        const val KEY_DOUBLE_TAP_ACTION = "double_tap_action"
+        const val KEY_TRIPLE_TAP_ACTION = "triple_tap_action"
+        const val KEY_LONG_PRESS_ACTION = "long_press_action"
+
+        /** Gesture slots that can each have their own favourite app,
+         *  keyed by their action pref key. NB: this must stay AFTER the
+         *  KEY_*_ACTION consts above — a val initializer may not reference
+         *  a const declared later in the same companion (kotlinc reports
+         *  "variable must be initialized"). */
+        val FAVORITE_SLOT_KEYS = listOf(
+            KEY_TAP_ACTION, KEY_DOUBLE_TAP_ACTION, KEY_TRIPLE_TAP_ACTION, KEY_LONG_PRESS_ACTION,
+            KEY_NOTCH_TAP_ACTION, KEY_NOTCH_DOUBLE_TAP_ACTION, KEY_NOTCH_TRIPLE_TAP_ACTION, KEY_NOTCH_LONG_PRESS_ACTION
+        )
 
         // --- Custom Intents/URLs (user-added sidebar items) ---
         private const val KEY_CUSTOM_ITEMS = "custom_items_json"
@@ -151,6 +166,13 @@ class PanelPreferences(context: Context) {
 
         /** Maximum number of pinned sidebar entries (apps, activities, shortcuts, custom). */
         const val MAX_PANEL_APPS = 128
+
+        /**
+         * Maximum import size in chars (512 KiB). The cap exists so a
+         * multi-MB backup is never read fully into RAM; the caller must
+         * bound its read to this value (see MiscellaneousSettingsActivity).
+         */
+        const val IMPORT_MAX_CHARS = 524288
 
         /**
          * Shared lock for panel-list read-modify-write (setPanelApps /
@@ -307,6 +329,28 @@ class PanelPreferences(context: Context) {
             KEY_APP_LANGUAGE to appLanguage
         )
         strings.forEach { (k, v) -> obj.put(k, v) }
+        // Per-slot favourites (only when set): a slot without its own key
+        // falls back to the legacy global on import.
+        for (key in FAVORITE_SLOT_KEYS) {
+            prefs.getString(KEY_FAVORITE_APP_PREFIX + key, null)?.let {
+                obj.put(KEY_FAVORITE_APP_PREFIX + key, it)
+            }
+        }
+        // Never export a blank text-actions blob: when the presets were
+        // never seeded the key is absent, and exporting "" would make the
+        // next import write a present-but-blank key — after which
+        // getTextActions() returns an empty list forever instead of
+        // re-seeding the built-in presets.
+        if (!prefs.contains(KEY_TEXT_ACTIONS)) {
+            obj.remove(KEY_TEXT_ACTIONS)
+        }
+        // Never export a language the user never chose: appLanguage falls
+        // back to the device default, so exporting it unconditionally pins
+        // the source device's language into the backup, and importing it
+        // then forces that language on the target device.
+        if (!prefs.contains(KEY_APP_LANGUAGE)) {
+            obj.remove(KEY_APP_LANGUAGE)
+        }
 
         // Ints
         val ints = mapOf(
@@ -395,7 +439,7 @@ class PanelPreferences(context: Context) {
      * RAM while parsing would jank or OOM. Cap incoming JSON at 512 KiB.
      */
     fun importFromJson(json: String): Boolean {
-        if (json.length > 524288) return false
+        if (json.length > IMPORT_MAX_CHARS) return false
         return try {
             val obj = org.json.JSONObject(json)
             // Round-12 audit L-High: previous code used getString/getInt/
@@ -411,6 +455,15 @@ class PanelPreferences(context: Context) {
             fun readString(key: String): String? {
                 if (!obj.has(key) || obj.isNull(key)) return null
                 return try { obj.getString(key) } catch (_: Exception) { null }
+            }
+            // Enum strings: only accept values from the companion
+            // whitelist. An unknown panel_side silently becomes left, an
+            // unknown theme falls through the branches — a hand-edited
+            // backup must not be able to store a value no code path
+            // understands.
+            fun readEnum(key: String, allowed: Set<String>): String? {
+                val s = readString(key) ?: return null
+                return s.takeIf { it in allowed }
             }
             // Colour strings: only accept values Color.parseColor can parse.
             // An unparseable colour would crash AppearanceSettingsActivity
@@ -441,20 +494,31 @@ class PanelPreferences(context: Context) {
                 readString(KEY_PANEL_APPS)?.let { putString(KEY_PANEL_APPS, it) }
                 readString(KEY_PANEL_LABELS)?.let { putString(KEY_PANEL_LABELS, it) }
                 readString(KEY_CUSTOM_ITEMS)?.let { putString(KEY_CUSTOM_ITEMS, it) }
-                readString(KEY_TEXT_ACTIONS)?.let { putString(KEY_TEXT_ACTIONS, it) }
+                // A blank blob (written by old exports when the presets were
+                // never seeded) must not become a present-but-blank key:
+                // remove it so the next getTextActions() re-seeds the
+                // built-in presets instead of returning empty forever.
+                readString(KEY_TEXT_ACTIONS)?.let {
+                    if (it.isBlank()) remove(KEY_TEXT_ACTIONS) else putString(KEY_TEXT_ACTIONS, it)
+                }
                 readString(KEY_GAME_APPS)?.let { putString(KEY_GAME_APPS, it) }
-                readString(KEY_PANEL_SIDE)?.let { putString(KEY_PANEL_SIDE, it) }
+                readEnum(KEY_PANEL_SIDE, setOf(SIDE_LEFT, SIDE_RIGHT))?.let { putString(KEY_PANEL_SIDE, it) }
                 readColor(KEY_ACCENT_COLOR)?.let { putString(KEY_ACCENT_COLOR, it) }
                 readColor(KEY_PANEL_BG_COLOR)?.let { putString(KEY_PANEL_BG_COLOR, it) }
-                readString(KEY_UI_THEME)?.let { putString(KEY_UI_THEME, it) }
-                readString(KEY_ICON_SHAPE)?.let { putString(KEY_ICON_SHAPE, it) }
+                readEnum(KEY_UI_THEME, setOf(THEME_ORIGIN, THEME_HYPEROS, THEME_REALME, THEME_RICH))?.let { putString(KEY_UI_THEME, it) }
+                readEnum(KEY_ICON_SHAPE, setOf(SHAPE_SYSTEM, SHAPE_CIRCLE, SHAPE_SQUIRCLE, SHAPE_SQUARE, SHAPE_ROUNDED))?.let { putString(KEY_ICON_SHAPE, it) }
                 readColor(KEY_PILL_COLOR)?.let { putString(KEY_PILL_COLOR, it) }
                 readString(KEY_ICON_PACK)?.let { putString(KEY_ICON_PACK, it) }
                 readString(KEY_ICON_PACK_LABEL)?.let { putString(KEY_ICON_PACK_LABEL, it) }
-                readString(KEY_HOME_BUTTON_STYLE)?.let { putString(KEY_HOME_BUTTON_STYLE, it) }
-                readString(KEY_PICKER_ANIM_TYPE)?.let { putString(KEY_PICKER_ANIM_TYPE, it) }
+                readEnum(KEY_HOME_BUTTON_STYLE, setOf(STYLE_POWER, STYLE_CLASSIC))?.let { putString(KEY_HOME_BUTTON_STYLE, it) }
+                readEnum(KEY_PICKER_ANIM_TYPE, setOf(ANIM_TYPE_SLIDE, ANIM_TYPE_POPUP))?.let { putString(KEY_PICKER_ANIM_TYPE, it) }
                 readString(KEY_FULLSCREEN_WHITELIST)?.let { putString(KEY_FULLSCREEN_WHITELIST, it) }
                 readString(KEY_FAVORITE_APP)?.let { putString(KEY_FAVORITE_APP, it) }
+                for (key in FAVORITE_SLOT_KEYS) {
+                    readString(KEY_FAVORITE_APP_PREFIX + key)?.let {
+                        putString(KEY_FAVORITE_APP_PREFIX + key, it)
+                    }
+                }
                 readString(KEY_APP_LANGUAGE)?.let { putString(KEY_APP_LANGUAGE, it) }
 
                 // Ints (clamped to each control's range)
@@ -482,12 +546,17 @@ class PanelPreferences(context: Context) {
                 putIntClamped(KEY_NOTCH_DOUBLE_TAP_ACTION, notchDoubleTapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
                 putIntClamped(KEY_NOTCH_TRIPLE_TAP_ACTION, notchTripleTapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
                 putIntClamped(KEY_NOTCH_LONG_PRESS_ACTION, notchLongPressAction, ACTION_NONE, ACTION_MOVE_HANDLE)
-                putIntClamped(KEY_RECENT_HISTORY_SIZE, recentHistorySize, 1, 1024)
+                putIntClamped(KEY_RECENT_HISTORY_SIZE, recentHistorySize, 64, 256)
                 putIntClamped(KEY_RECENT_MAX_COUNT, recentMaxCount, 4, 20)
 
                 // Float
+                // Snap to the slider's 0.1 grid: the import clamp alone is
+                // not enough — a hand-edited 1.05 passes the 0.8..2.0 clamp
+                // but makes the Material Slider throw ("value must be
+                // valueFrom plus a multiple of stepSize") when the
+                // Appearance screen sets it.
                 if (obj.has(KEY_SCALE_FACTOR) && !obj.isNull(KEY_SCALE_FACTOR)) {
-                    putFloat(KEY_SCALE_FACTOR, obj.optDouble(KEY_SCALE_FACTOR, scaleFactor.toDouble()).toFloat().coerceIn(0.8f, 2.0f))
+                    putFloat(KEY_SCALE_FACTOR, snapScaleFactor(obj.optDouble(KEY_SCALE_FACTOR, scaleFactor.toDouble()).toFloat()))
                 }
 
                 // Booleans — optBoolean's signature is (key, fallback) so
@@ -579,7 +648,9 @@ class PanelPreferences(context: Context) {
             remove(KEY_TRIPLE_TAP_ACTION)
             remove(KEY_LONG_PRESS_ACTION)
             putString(KEY_ICON_PACK, DEFAULT_ICON_PACK)
-            putString(KEY_ICON_PACK_LABEL, "System Default")
+            // "none" has no label to persist: the display sites resolve
+            // the default string at display time instead.
+            remove(KEY_ICON_PACK_LABEL)
             putInt(KEY_BLUR_AMOUNT, DEFAULT_BLUR_AMOUNT)
             putBoolean(KEY_BLUR_ENABLED, false)
             putBoolean(KEY_SHOW_LOGS, false)
@@ -605,10 +676,12 @@ class PanelPreferences(context: Context) {
             putFloat(KEY_SCALE_FACTOR, 1.0f)
             putInt(KEY_PANEL_MAX_HEIGHT, 350)
             putInt(KEY_PICKER_MAX_HEIGHT, 450)
+            putInt(KEY_APPS_RECENT_SPLIT_PERCENT, DEFAULT_APPS_RECENT_SPLIT_PERCENT)
             putBoolean(KEY_SHOW_NOTIFICATION_APPS, false)
             putBoolean(KEY_REMEMBER_SCROLL, false)
             putBoolean(KEY_AUTO_SHOW_KEYBOARD, false)
             putString(KEY_PANEL_APPS, "")
+            putBoolean(KEY_PANEL_SEEDED, false)
             putString(KEY_PANEL_LABELS, "{}")
             putString(KEY_CUSTOM_ITEMS, "[]")
             remove(KEY_TEXT_ACTIONS) // next getTextActions() re-seeds the built-in presets
@@ -656,8 +729,11 @@ class PanelPreferences(context: Context) {
 
     /** How many launch events to keep in history: 64 / 128 / 256. */
     var recentHistorySize: Int
-        get() = prefs.getInt(KEY_RECENT_HISTORY_SIZE, DEFAULT_RECENT_HISTORY_SIZE).coerceIn(1, 1024)
-        set(value) = prefs.edit { putInt(KEY_RECENT_HISTORY_SIZE, value) }
+        // One range everywhere (64..256): the getter/import used to allow
+        // 1..1024 while recordLaunch enforced 64..256, so a stored 32 or
+        // 1024 was shown one way and enforced another.
+        get() = prefs.getInt(KEY_RECENT_HISTORY_SIZE, DEFAULT_RECENT_HISTORY_SIZE).coerceIn(64, 256)
+        set(value) = prefs.edit { putInt(KEY_RECENT_HISTORY_SIZE, value.coerceIn(64, 256)) }
 
     /** How many top apps to show in the Recent section: 4..20. */
     var recentMaxCount: Int
@@ -757,9 +833,20 @@ class PanelPreferences(context: Context) {
         get() = prefs.getString(KEY_PILL_COLOR, DEFAULT_PILL_COLOR) ?: DEFAULT_PILL_COLOR
         set(value) = prefs.edit { putString(KEY_PILL_COLOR, value) }
 
+    /**
+     * Snap a scale value to the Appearance slider's 0.1 grid and clamp it
+     * to the slider's 0.8..2.0 range. The Material Slider throws
+     * IllegalStateException when set to an off-grid value, so every path
+     * that can store a scale (import, getter, setter) goes through this.
+     */
+    private fun snapScaleFactor(value: Float): Float =
+        ((value * 10).roundToInt() / 10f).coerceIn(0.8f, 2.0f)
+
     var scaleFactor: Float
-        get() = prefs.getFloat(KEY_SCALE_FACTOR, 1.0f).coerceIn(0.8f, 2.0f)
-        set(value) = prefs.edit { putFloat(KEY_SCALE_FACTOR, value) }
+        // Snapped to the Appearance slider's 0.1 grid (see snapScaleFactor):
+        // a stored off-grid value would crash the slider on open.
+        get() = snapScaleFactor(prefs.getFloat(KEY_SCALE_FACTOR, 1.0f))
+        set(value) = prefs.edit { putFloat(KEY_SCALE_FACTOR, snapScaleFactor(value)) }
 
     var showSysInfo: Boolean
         get() = prefs.getBoolean(KEY_SHOW_SYS_INFO, false)
@@ -797,8 +884,9 @@ class PanelPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_SHOW_CONTENT_PICKER_TOOL, DEFAULT_SHOW_CONTENT_PICKER_TOOL)
         set(value) = prefs.edit { putBoolean(KEY_SHOW_CONTENT_PICKER_TOOL, value) }
 
-    /** Enable Device Admin so Black Screen can truly turn the screen off
-     *  without showing the lock screen (setKeyguardDisabled). */
+    /** Enable Device Admin so the Lock Screen tool can lock instantly
+     *  (lockNow()) and Black Screen can turn the display off. The
+     *  no-lock-screen behaviour (setKeyguardDisabled) is device-owner-only. */
     var enableDeviceAdmin: Boolean
         get() = prefs.getBoolean(KEY_ENABLE_DEVICE_ADMIN, false)
         set(value) = prefs.edit { putBoolean(KEY_ENABLE_DEVICE_ADMIN, value) }
@@ -820,8 +908,36 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putString(KEY_ICON_PACK, value) }
 
     var iconPackLabel: String
-        get() = prefs.getString(KEY_ICON_PACK_LABEL, "System Default") ?: "System Default"
-        set(value) = prefs.edit { putString(KEY_ICON_PACK_LABEL, value) }
+        // Empty means "none" (or never chosen): no literal "System
+        // Default" is persisted — display sites resolve the localised
+        // default string, and third-party labels, at display time.
+        get() = prefs.getString(KEY_ICON_PACK_LABEL, "") ?: ""
+        set(value) = prefs.edit {
+            if (value.isEmpty()) remove(KEY_ICON_PACK_LABEL) else putString(KEY_ICON_PACK_LABEL, value)
+        }
+
+    /**
+     * Label to show for the selected icon pack, resolved at display
+     * time: the localised default for "none", the live PackageManager
+     * label for a third-party pack (the stored label can be stale —
+     * the pack may have been updated or renamed since it was picked),
+     * and the stored label / package name only as a fallback when the
+     * pack is gone. The legacy persisted literal "System Default" is
+     * never shown for a real pack.
+     */
+    fun iconPackDisplayLabel(context: Context): String {
+        val pack = selectedIconPack
+        if (pack == DEFAULT_ICON_PACK || pack.isEmpty()) {
+            return context.getString(R.string.icon_pack_default)
+        }
+        return try {
+            val ai = context.packageManager.getApplicationInfo(pack, 0)
+            context.packageManager.getApplicationLabel(ai).toString()
+        } catch (_: Exception) {
+            val stored = iconPackLabel
+            if (stored.isNotEmpty() && stored != "System Default") stored else pack
+        }
+    }
 
     var tapToOpen: Boolean
         get() = prefs.getBoolean(KEY_TAP_TO_OPEN, DEFAULT_TAP_TO_OPEN)
@@ -975,6 +1091,34 @@ class PanelPreferences(context: Context) {
         get() = prefs.getString(KEY_FAVORITE_APP, "") ?: ""
         set(value) = prefs.edit { putString(KEY_FAVORITE_APP, value) }
 
+    /**
+     * Favourite app per gesture slot, stored as
+     * `favorite_app_<action key>` (e.g. `favorite_app_tap_action`).
+     * The old single global favourite was shared by every slot that
+     * picked "Open favourite app", so changing one slot silently
+     * changed them all. A slot without its own key falls back to the
+     * legacy global, so old backups and existing setups keep working.
+     */
+    fun favoriteAppPackageFor(slotKey: String): String =
+        prefs.getString(KEY_FAVORITE_APP_PREFIX + slotKey, null) ?: favoriteAppPackage
+
+    fun setFavoriteAppPackage(slotKey: String, pkg: String) {
+        prefs.edit { putString(KEY_FAVORITE_APP_PREFIX + slotKey, pkg) }
+    }
+
+    /** Clear the favourite for every slot (and the legacy global) that
+     *  points at an uninstalled package. */
+    fun clearFavoriteAppIfPackage(pkg: String) {
+        prefs.edit {
+            if (favoriteAppPackage == pkg) putString(KEY_FAVORITE_APP, "")
+            for (key in FAVORITE_SLOT_KEYS) {
+                if (prefs.getString(KEY_FAVORITE_APP_PREFIX + key, null) == pkg) {
+                    remove(KEY_FAVORITE_APP_PREFIX + key)
+                }
+            }
+        }
+    }
+
     var appLanguage: String
         get() = prefs.getString(KEY_APP_LANGUAGE, java.util.Locale.getDefault().language) ?: "en"
         set(value) = prefs.edit { putString(KEY_APP_LANGUAGE, value) }
@@ -1013,6 +1157,16 @@ class PanelPreferences(context: Context) {
             putBoolean("service_enabled", enabled)
         }
     }
+
+    /**
+     * Whether the first-run sidebar seeding has happened. The seed (top 5
+     * apps) runs only once: without this, a user who deliberately unpins
+     * everything gets 5 apps re-pinned on the next service start or
+     * refresh, making an empty sidebar impossible.
+     */
+    var panelSeeded: Boolean
+        get() = prefs.getBoolean(KEY_PANEL_SEEDED, false)
+        set(value) = prefs.edit { putBoolean(KEY_PANEL_SEEDED, value) }
 
     /**
      * Shared logic for starting/stopping the sidebar service.
@@ -1266,11 +1420,15 @@ class PanelPreferences(context: Context) {
      *  that show up in AppInfo lookups. */
     fun addCustomItem(item: CustomItem) {
         if (!UUID_PATTERN.matches(item.id)) return
-        val current = getCustomItems().toMutableList()
-        // Defensive: de-duplicate by id, then append.
-        current.removeAll { it.id == item.id }
-        current.add(item)
-        setCustomItems(current)
+        // Read-modify-write under the shared lock (like setPanelApps):
+        // the picker and an import can otherwise interleave and lose one.
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getCustomItems().toMutableList()
+            // Defensive: de-duplicate by id, then append.
+            current.removeAll { it.id == item.id }
+            current.add(item)
+            setCustomItems(current)
+        }
     }
 
     /** Replace an existing custom item in-place (matched by id).
@@ -1279,22 +1437,26 @@ class PanelPreferences(context: Context) {
      * addCustomItem, which silently rejects non-UUID ids). */
     fun updateCustomItem(item: CustomItem): Boolean {
         if (!UUID_PATTERN.matches(item.id)) return false
-        val current = getCustomItems().toMutableList()
-        val idx = current.indexOfFirst { it.id == item.id }
-        if (idx < 0) return false
-        current[idx] = item
-        setCustomItems(current)
-        return true
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getCustomItems().toMutableList()
+            val idx = current.indexOfFirst { it.id == item.id }
+            if (idx < 0) return false
+            current[idx] = item
+            setCustomItems(current)
+            return true
+        }
     }
 
     /** Remove a custom item by id. Returns the removed item, or null if not found. */
     fun removeCustomItem(id: String): CustomItem? {
-        val current = getCustomItems().toMutableList()
-        val idx = current.indexOfFirst { it.id == id }
-        if (idx < 0) return null
-        val removed = current.removeAt(idx)
-        setCustomItems(current)
-        return removed
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getCustomItems().toMutableList()
+            val idx = current.indexOfFirst { it.id == id }
+            if (idx < 0) return null
+            val removed = current.removeAt(idx)
+            setCustomItems(current)
+            return removed
+        }
     }
 
     /** Reorder the list of custom items (must contain the same ids). */
@@ -1318,6 +1480,9 @@ class PanelPreferences(context: Context) {
      * are no longer in `customItems`.
      */
     fun resyncPanelAppsOrderFromCustomItems(customItems: List<CustomItem>) {
+        // The read (getPanelApps) and the write (setPanelApps) must be one
+        // atomic step, or a concurrent panel edit between them is clobbered.
+        synchronized(PANEL_APPS_LOCK) {
         val current = getPanelApps().toMutableList()
         val customIdsInSidebar = current.filter { it.startsWith(CUSTOM_ID_PREFIX) }.toSet()
         val orderedCustom = customItems.mapNotNull { item ->
@@ -1345,6 +1510,7 @@ class PanelPreferences(context: Context) {
         result.addAll(ordered)
         // setPanelApps takes List<String> and handles dedup + delimiter join internally.
         setPanelApps(result)
+        }
     }
 
     // =====================================================================================
@@ -1397,41 +1563,49 @@ class PanelPreferences(context: Context) {
 
     /** Append a new action (id de-duplicated defensively). */
     fun addTextAction(item: TextAction) {
-        val current = getTextActions().toMutableList()
-        current.removeAll { it.id == item.id }
-        current.add(item)
-        setTextActions(current)
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getTextActions().toMutableList()
+            current.removeAll { it.id == item.id }
+            current.add(item)
+            setTextActions(current)
+        }
     }
 
     /** Replace an existing action in-place (matched by id). */
     fun updateTextAction(item: TextAction) {
-        val current = getTextActions().toMutableList()
-        val idx = current.indexOfFirst { it.id == item.id }
-        if (idx >= 0) {
-            current[idx] = item
-            setTextActions(current)
-        } else {
-            addTextAction(item)
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getTextActions().toMutableList()
+            val idx = current.indexOfFirst { it.id == item.id }
+            if (idx >= 0) {
+                current[idx] = item
+                setTextActions(current)
+            } else {
+                addTextAction(item)
+            }
         }
     }
 
     /** Remove an action by id. Returns the removed action, or null if not found. */
     fun removeTextAction(id: String): TextAction? {
-        val current = getTextActions().toMutableList()
-        val idx = current.indexOfFirst { it.id == id }
-        if (idx < 0) return null
-        val removed = current.removeAt(idx)
-        setTextActions(current)
-        return removed
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getTextActions().toMutableList()
+            val idx = current.indexOfFirst { it.id == id }
+            if (idx < 0) return null
+            val removed = current.removeAt(idx)
+            setTextActions(current)
+            return removed
+        }
     }
 
     /** Move an action from one position to another (drag/up-down reorder). */
     fun moveTextAction(from: Int, to: Int) {
-        val current = getTextActions().toMutableList()
-        if (from !in current.indices || to !in current.indices || from == to) return
-        val item = current.removeAt(from)
-        current.add(to, item)
-        setTextActions(current)
+        synchronized(PANEL_APPS_LOCK) {
+            val current = getTextActions().toMutableList()
+            if (from !in current.indices || to !in current.indices || from == to) return
+            val item = current.removeAt(from)
+            current.add(to, item)
+            setTextActions(current)
+        }
     }
 
     /** Restore the built-in preset list, discarding user edits. */
@@ -1475,14 +1649,30 @@ class PanelPreferences(context: Context) {
     }
 
     /**
-     * The brightness 1%-step accumulator, shared by the edge-slide path
-     * (FloatingPanelService.adjustBrightness) and the tools long-press-drag
-     * path (SidePanelView.adjustBrightnessByPercent). It used to be two
-     * separate instances, so a fraction accumulated on one path was
-     * invisible to the other and the two paths disagreed about how much
-     * brightness a drag should move. Runtime state only — not persisted.
+     * The brightness 1%-step accumulator for this [PanelPreferences]
+     * instance. The edge-slide path (FloatingPanelService.adjustBrightness)
+     * and the tools long-press-drag path (SidePanelView) each build their
+     * own PanelPreferences, so each has its own accumulator and the pending
+     * remainder does NOT carry between the two paths. Runtime state only —
+     * not persisted.
      */
     val brightnessStepAccumulator = PercentStepAccumulator()
+
+    /**
+     * Unguessable per-install token embedded in our home-screen shortcuts
+     * (see ToggleActivity) so it can tell our own shortcut apart from a
+     * spoofed intent: a plain boolean extra can be set by any app, a random
+     * UUID stored only in our prefs cannot. Generated once, on first read.
+     */
+    val shortcutToken: String
+        get() {
+            var token = prefs.getString(KEY_SHORTCUT_TOKEN, null)
+            if (token.isNullOrBlank()) {
+                token = java.util.UUID.randomUUID().toString()
+                prefs.edit().putString(KEY_SHORTCUT_TOKEN, token).apply()
+            }
+            return token
+        }
 
     fun getGameApps(): List<String> {
         val raw = prefs.getString(KEY_GAME_APPS, "") ?: ""
