@@ -58,7 +58,7 @@ android {
 
     lint {
         checkReleaseBuilds = true
-        abortOnError = false
+        abortOnError = true
     }
 
     dependenciesInfo {
@@ -108,6 +108,4 @@ dependencies {
     // Android-stub `org.json` (which throws `RuntimeException("Stub!")` on use).
     // android.jar is on the unit-test compileClasspath but not at runtime.
     testImplementation("org.json:json:20231013")
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 }

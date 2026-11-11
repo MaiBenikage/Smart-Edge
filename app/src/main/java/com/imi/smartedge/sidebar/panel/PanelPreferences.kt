@@ -17,6 +17,43 @@ class PanelPreferences(context: Context) {
 
     companion object {
         const val PREFS_NAME = "side_panel_prefs"
+
+        /**
+         * The foreground package, shared by every PanelPreferences instance.
+         * The accessibility service writes it on every window change; the
+         * panel service, EdgeHandleView and SidePanelView read it for
+         * game-mode and auto-hide decisions. It used to be a per-instance
+         * `var`, so the writer's instance and the readers' instances held
+         * different values and game-mode / auto-hide never fired. Runtime
+         * state only — deliberately not persisted (a stale value after a
+         * reboot would hide the pill in the wrong app until the first
+         * window event).
+         */
+        @Volatile
+        var sharedForegroundPackage: String = ""
+
+        /**
+         * The selected app language, stored under this key in the same
+         * `side_panel_prefs` file. Shared by PanelPreferences.appLanguage
+         * and LocaleHelper — it used to be a string literal in three places
+         * ("Locale.Helper.Selected.Language"), and the copy in
+         * PanelPreferences.appLanguage was not the same key the
+         * export/import used, so a backup silently dropped the language.
+         */
+        const val KEY_APP_LANGUAGE = "Locale.Helper.Selected.Language"
+
+        /**
+         * Last time (uptime ms) the WRITE_SETTINGS prompt was shown by a
+         * brightness path. Shared across instances so both brightness paths
+         * (FloatingPanelService and SidePanelView) throttle together: without
+         * this, every brightness tick while the permission is missing
+         * re-launches the settings screen. Runtime state only.
+         */
+        @Volatile
+        var lastWriteSettingsPromptMs: Long = 0L
+
+        /** Minimum gap between WRITE_SETTINGS prompts from the brightness paths. */
+        const val WRITE_SETTINGS_PROMPT_COOLDOWN_MS = 60_000L
         private const val KEY_PANEL_APPS = "panel_apps"
         private const val KEY_PANEL_LABELS = "panel_item_labels"
         private const val KEY_PANEL_SIDE = "panel_side"
@@ -128,7 +165,9 @@ class PanelPreferences(context: Context) {
         // with fixed-position hyphens). Anything else is rejected on addCustomItem
         // so corrupt prefs or future caller bugs can't smuggle arbitrary bytes
         // into sidebar identifiers.
-        private val UUID_PATTERN = Regex("""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""")
+        // Custom-item id pattern lives in CustomItemJson (single source of
+        // truth for the UUID shape, shared by the JSON decode path).
+        private val UUID_PATTERN get() = CustomItemJson.UUID_PATTERN
 
         private const val DELIMITER = ","
 
@@ -264,7 +303,8 @@ class PanelPreferences(context: Context) {
             KEY_ICON_PACK_LABEL to iconPackLabel,
             KEY_HOME_BUTTON_STYLE to homeButtonStyle,
             KEY_FULLSCREEN_WHITELIST to (prefs.getString(KEY_FULLSCREEN_WHITELIST, null) ?: ""),
-            KEY_FAVORITE_APP to favoriteAppPackage
+            KEY_FAVORITE_APP to favoriteAppPackage,
+            KEY_APP_LANGUAGE to appLanguage
         )
         strings.forEach { (k, v) -> obj.put(k, v) }
 
@@ -294,10 +334,11 @@ class PanelPreferences(context: Context) {
             KEY_NOTCH_TRIPLE_TAP_ACTION to notchTripleTapAction,
             KEY_NOTCH_LONG_PRESS_ACTION to notchLongPressAction,
             KEY_RECENT_HISTORY_SIZE to recentHistorySize,
-            KEY_RECENT_MAX_COUNT to recentMaxCount
+            KEY_RECENT_MAX_COUNT to recentMaxCount,
+            KEY_APPS_RECENT_SPLIT_PERCENT to appsRecentSplitPercent
         )
         ints.forEach { (k, v) -> obj.put(k, v) }
-        
+
         obj.put(KEY_PICKER_ANIM_TYPE, pickerAnimType)
 
         // Floats
@@ -371,7 +412,31 @@ class PanelPreferences(context: Context) {
                 if (!obj.has(key) || obj.isNull(key)) return null
                 return try { obj.getString(key) } catch (_: Exception) { null }
             }
+            // Colour strings: only accept values Color.parseColor can parse.
+            // An unparseable colour would crash AppearanceSettingsActivity
+            // on open (it calls Color.parseColor in loadCurrentSettings).
+            fun readColor(key: String): String? {
+                val s = readString(key) ?: return null
+                return try {
+                    android.graphics.Color.parseColor(s)
+                    s
+                } catch (_: Exception) {
+                    null
+                }
+            }
             prefs.edit {
+                // Clamp every imported int to the range its settings control
+                // accepts. Without this, a hand-edited or corrupt backup can
+                // persist e.g. opacity 500 or scaleFactor 0, and the Material
+                // Slider in the settings screen throws IllegalArgumentException
+                // on open (its value must be within [valueFrom, valueTo]).
+                // Ranges mirror the live settings layouts.
+                fun putIntClamped(key: String, current: Int, min: Int, max: Int) {
+                    if (obj.has(key) && !obj.isNull(key)) {
+                        putInt(key, obj.optInt(key, current).coerceIn(min, max))
+                    }
+                }
+
                 // Strings
                 readString(KEY_PANEL_APPS)?.let { putString(KEY_PANEL_APPS, it) }
                 readString(KEY_PANEL_LABELS)?.let { putString(KEY_PANEL_LABELS, it) }
@@ -379,48 +444,50 @@ class PanelPreferences(context: Context) {
                 readString(KEY_TEXT_ACTIONS)?.let { putString(KEY_TEXT_ACTIONS, it) }
                 readString(KEY_GAME_APPS)?.let { putString(KEY_GAME_APPS, it) }
                 readString(KEY_PANEL_SIDE)?.let { putString(KEY_PANEL_SIDE, it) }
-                readString(KEY_ACCENT_COLOR)?.let { putString(KEY_ACCENT_COLOR, it) }
-                readString(KEY_PANEL_BG_COLOR)?.let { putString(KEY_PANEL_BG_COLOR, it) }
+                readColor(KEY_ACCENT_COLOR)?.let { putString(KEY_ACCENT_COLOR, it) }
+                readColor(KEY_PANEL_BG_COLOR)?.let { putString(KEY_PANEL_BG_COLOR, it) }
                 readString(KEY_UI_THEME)?.let { putString(KEY_UI_THEME, it) }
                 readString(KEY_ICON_SHAPE)?.let { putString(KEY_ICON_SHAPE, it) }
-                readString(KEY_PILL_COLOR)?.let { putString(KEY_PILL_COLOR, it) }
+                readColor(KEY_PILL_COLOR)?.let { putString(KEY_PILL_COLOR, it) }
                 readString(KEY_ICON_PACK)?.let { putString(KEY_ICON_PACK, it) }
                 readString(KEY_ICON_PACK_LABEL)?.let { putString(KEY_ICON_PACK_LABEL, it) }
                 readString(KEY_HOME_BUTTON_STYLE)?.let { putString(KEY_HOME_BUTTON_STYLE, it) }
                 readString(KEY_PICKER_ANIM_TYPE)?.let { putString(KEY_PICKER_ANIM_TYPE, it) }
                 readString(KEY_FULLSCREEN_WHITELIST)?.let { putString(KEY_FULLSCREEN_WHITELIST, it) }
                 readString(KEY_FAVORITE_APP)?.let { putString(KEY_FAVORITE_APP, it) }
+                readString(KEY_APP_LANGUAGE)?.let { putString(KEY_APP_LANGUAGE, it) }
 
-                // Ints
-                if (obj.has(KEY_PANEL_OPACITY) && !obj.isNull(KEY_PANEL_OPACITY)) putInt(KEY_PANEL_OPACITY, obj.optInt(KEY_PANEL_OPACITY, panelOpacity))
-                if (obj.has(KEY_HANDLE_HEIGHT) && !obj.isNull(KEY_HANDLE_HEIGHT)) putInt(KEY_HANDLE_HEIGHT, obj.optInt(KEY_HANDLE_HEIGHT, handleHeight))
-                if (obj.has(KEY_HANDLE_WIDTH) && !obj.isNull(KEY_HANDLE_WIDTH)) putInt(KEY_HANDLE_WIDTH, obj.optInt(KEY_HANDLE_WIDTH, handleWidth))
-                if (obj.has(KEY_HANDLE_OFFSET) && !obj.isNull(KEY_HANDLE_OFFSET)) putInt(KEY_HANDLE_OFFSET, obj.optInt(KEY_HANDLE_OFFSET, handleVerticalOffset))
-                if (obj.has(KEY_PANEL_COLUMNS) && !obj.isNull(KEY_PANEL_COLUMNS)) putInt(KEY_PANEL_COLUMNS, obj.optInt(KEY_PANEL_COLUMNS, panelColumns).coerceIn(1, 2))
-                if (obj.has(KEY_PANEL_RADIUS) && !obj.isNull(KEY_PANEL_RADIUS)) putInt(KEY_PANEL_RADIUS, obj.optInt(KEY_PANEL_RADIUS, panelCornerRadius))
-                if (obj.has(KEY_PILL_WIDTH) && !obj.isNull(KEY_PILL_WIDTH)) putInt(KEY_PILL_WIDTH, obj.optInt(KEY_PILL_WIDTH, pillWidth))
-                if (obj.has(KEY_BLUR_AMOUNT) && !obj.isNull(KEY_BLUR_AMOUNT)) putInt(KEY_BLUR_AMOUNT, obj.optInt(KEY_BLUR_AMOUNT, blurAmount))
-                if (obj.has(KEY_ANIM_SPEED) && !obj.isNull(KEY_ANIM_SPEED)) putInt(KEY_ANIM_SPEED, obj.optInt(KEY_ANIM_SPEED, animSpeed))
-                if (obj.has(KEY_PICKER_GAP) && !obj.isNull(KEY_PICKER_GAP)) putInt(KEY_PICKER_GAP, obj.optInt(KEY_PICKER_GAP, pickerGap))
-                if (obj.has(KEY_PANEL_MAX_HEIGHT) && !obj.isNull(KEY_PANEL_MAX_HEIGHT)) putInt(KEY_PANEL_MAX_HEIGHT, obj.optInt(KEY_PANEL_MAX_HEIGHT, panelMaxHeight))
-                if (obj.has(KEY_PICKER_MAX_HEIGHT) && !obj.isNull(KEY_PICKER_MAX_HEIGHT)) putInt(KEY_PICKER_MAX_HEIGHT, obj.optInt(KEY_PICKER_MAX_HEIGHT, pickerMaxHeight))
-                if (obj.has(KEY_SLIDE_SENSITIVITY) && !obj.isNull(KEY_SLIDE_SENSITIVITY)) putInt(KEY_SLIDE_SENSITIVITY, obj.optInt(KEY_SLIDE_SENSITIVITY, slideSensitivity))
-                if (obj.has(KEY_SWIPE_SENSITIVITY) && !obj.isNull(KEY_SWIPE_SENSITIVITY)) putInt(KEY_SWIPE_SENSITIVITY, obj.optInt(KEY_SWIPE_SENSITIVITY, swipeSensitivity))
-                if (obj.has(KEY_THEME_MODE) && !obj.isNull(KEY_THEME_MODE)) putInt(KEY_THEME_MODE, obj.optInt(KEY_THEME_MODE, themeMode))
-                if (obj.has(KEY_TAP_ACTION) && !obj.isNull(KEY_TAP_ACTION)) putInt(KEY_TAP_ACTION, obj.optInt(KEY_TAP_ACTION, tapAction))
-                if (obj.has(KEY_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_DOUBLE_TAP_ACTION)) putInt(KEY_DOUBLE_TAP_ACTION, obj.optInt(KEY_DOUBLE_TAP_ACTION, doubleTapAction))
-                if (obj.has(KEY_TRIPLE_TAP_ACTION) && !obj.isNull(KEY_TRIPLE_TAP_ACTION)) putInt(KEY_TRIPLE_TAP_ACTION, obj.optInt(KEY_TRIPLE_TAP_ACTION, tripleTapAction))
-                if (obj.has(KEY_LONG_PRESS_ACTION) && !obj.isNull(KEY_LONG_PRESS_ACTION)) putInt(KEY_LONG_PRESS_ACTION, obj.optInt(KEY_LONG_PRESS_ACTION, longPressAction))
-                if (obj.has(KEY_NOTCH_TAP_ACTION) && !obj.isNull(KEY_NOTCH_TAP_ACTION)) putInt(KEY_NOTCH_TAP_ACTION, obj.optInt(KEY_NOTCH_TAP_ACTION, notchTapAction))
-                if (obj.has(KEY_NOTCH_DOUBLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_DOUBLE_TAP_ACTION)) putInt(KEY_NOTCH_DOUBLE_TAP_ACTION, obj.optInt(KEY_NOTCH_DOUBLE_TAP_ACTION, notchDoubleTapAction))
-                if (obj.has(KEY_NOTCH_TRIPLE_TAP_ACTION) && !obj.isNull(KEY_NOTCH_TRIPLE_TAP_ACTION)) putInt(KEY_NOTCH_TRIPLE_TAP_ACTION, obj.optInt(KEY_NOTCH_TRIPLE_TAP_ACTION, notchTripleTapAction))
-                if (obj.has(KEY_NOTCH_LONG_PRESS_ACTION) && !obj.isNull(KEY_NOTCH_LONG_PRESS_ACTION)) putInt(KEY_NOTCH_LONG_PRESS_ACTION, obj.optInt(KEY_NOTCH_LONG_PRESS_ACTION, notchLongPressAction))
-                if (obj.has(KEY_RECENT_HISTORY_SIZE) && !obj.isNull(KEY_RECENT_HISTORY_SIZE)) putInt(KEY_RECENT_HISTORY_SIZE, obj.optInt(KEY_RECENT_HISTORY_SIZE, recentHistorySize))
-                if (obj.has(KEY_RECENT_MAX_COUNT) && !obj.isNull(KEY_RECENT_MAX_COUNT)) putInt(KEY_RECENT_MAX_COUNT, obj.optInt(KEY_RECENT_MAX_COUNT, recentMaxCount))
+                // Ints (clamped to each control's range)
+                putIntClamped(KEY_PANEL_OPACITY, panelOpacity, 10, 100)
+                putIntClamped(KEY_HANDLE_HEIGHT, handleHeight, 50, 400)
+                putIntClamped(KEY_HANDLE_WIDTH, handleWidth, 5, 50)
+                putIntClamped(KEY_HANDLE_OFFSET, handleVerticalOffset, -500, 500)
+                putIntClamped(KEY_PANEL_COLUMNS, panelColumns, 1, 2)
+                putIntClamped(KEY_PANEL_RADIUS, panelCornerRadius, 0, 60)
+                putIntClamped(KEY_PILL_WIDTH, pillWidth, 1, 10)
+                putIntClamped(KEY_BLUR_AMOUNT, blurAmount, 5, 50)
+                putIntClamped(KEY_ANIM_SPEED, animSpeed, 0, 1000)
+                putIntClamped(KEY_PICKER_GAP, pickerGap, 0, 100)
+                putIntClamped(KEY_PANEL_MAX_HEIGHT, panelMaxHeight, 200, 800)
+                putIntClamped(KEY_PICKER_MAX_HEIGHT, pickerMaxHeight, 300, 800)
+                putIntClamped(KEY_APPS_RECENT_SPLIT_PERCENT, appsRecentSplitPercent, MIN_APPS_RECENT_SPLIT_PERCENT, MAX_APPS_RECENT_SPLIT_PERCENT)
+                putIntClamped(KEY_SLIDE_SENSITIVITY, slideSensitivity, 1, 100)
+                putIntClamped(KEY_SWIPE_SENSITIVITY, swipeSensitivity, 1, 100)
+                putIntClamped(KEY_THEME_MODE, themeMode, MODE_SYSTEM, MODE_DARK)
+                putIntClamped(KEY_TAP_ACTION, tapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_DOUBLE_TAP_ACTION, doubleTapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_TRIPLE_TAP_ACTION, tripleTapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_LONG_PRESS_ACTION, longPressAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_NOTCH_TAP_ACTION, notchTapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_NOTCH_DOUBLE_TAP_ACTION, notchDoubleTapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_NOTCH_TRIPLE_TAP_ACTION, notchTripleTapAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_NOTCH_LONG_PRESS_ACTION, notchLongPressAction, ACTION_NONE, ACTION_MOVE_HANDLE)
+                putIntClamped(KEY_RECENT_HISTORY_SIZE, recentHistorySize, 1, 1024)
+                putIntClamped(KEY_RECENT_MAX_COUNT, recentMaxCount, 4, 20)
 
                 // Float
                 if (obj.has(KEY_SCALE_FACTOR) && !obj.isNull(KEY_SCALE_FACTOR)) {
-                    putFloat(KEY_SCALE_FACTOR, obj.optDouble(KEY_SCALE_FACTOR, scaleFactor.toDouble()).toFloat())
+                    putFloat(KEY_SCALE_FACTOR, obj.optDouble(KEY_SCALE_FACTOR, scaleFactor.toDouble()).toFloat().coerceIn(0.8f, 2.0f))
                 }
 
                 // Booleans — optBoolean's signature is (key, fallback) so
@@ -589,12 +656,12 @@ class PanelPreferences(context: Context) {
 
     /** How many launch events to keep in history: 64 / 128 / 256. */
     var recentHistorySize: Int
-        get() = prefs.getInt(KEY_RECENT_HISTORY_SIZE, DEFAULT_RECENT_HISTORY_SIZE)
+        get() = prefs.getInt(KEY_RECENT_HISTORY_SIZE, DEFAULT_RECENT_HISTORY_SIZE).coerceIn(1, 1024)
         set(value) = prefs.edit { putInt(KEY_RECENT_HISTORY_SIZE, value) }
 
     /** How many top apps to show in the Recent section: 4..20. */
     var recentMaxCount: Int
-        get() = prefs.getInt(KEY_RECENT_MAX_COUNT, DEFAULT_RECENT_MAX_COUNT)
+        get() = prefs.getInt(KEY_RECENT_MAX_COUNT, DEFAULT_RECENT_MAX_COUNT).coerceIn(4, 20)
         set(value) = prefs.edit { putInt(KEY_RECENT_MAX_COUNT, value) }
 
     /** JSON array of package names (bounded FIFO history). Runtime data. */
@@ -662,7 +729,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_SHOW_NOTIFICATION_APPS, value) }
 
     var panelMaxHeight: Int
-        get() = prefs.getInt(KEY_PANEL_MAX_HEIGHT, 350)
+        get() = prefs.getInt(KEY_PANEL_MAX_HEIGHT, 350).coerceIn(200, 800)
         set(value) = prefs.edit { putInt(KEY_PANEL_MAX_HEIGHT, value) }
 
     /**
@@ -683,7 +750,7 @@ class PanelPreferences(context: Context) {
         }
 
     var pickerMaxHeight: Int
-        get() = prefs.getInt(KEY_PICKER_MAX_HEIGHT, 450)
+        get() = prefs.getInt(KEY_PICKER_MAX_HEIGHT, 450).coerceIn(300, 800)
         set(value) = prefs.edit { putInt(KEY_PICKER_MAX_HEIGHT, value) }
 
     var pillColor: String
@@ -691,7 +758,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putString(KEY_PILL_COLOR, value) }
 
     var scaleFactor: Float
-        get() = prefs.getFloat(KEY_SCALE_FACTOR, 1.0f)
+        get() = prefs.getFloat(KEY_SCALE_FACTOR, 1.0f).coerceIn(0.8f, 2.0f)
         set(value) = prefs.edit { putFloat(KEY_SCALE_FACTOR, value) }
 
     var showSysInfo: Boolean
@@ -741,7 +808,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putString(KEY_HOME_BUTTON_STYLE, value) }
 
     var pickerGap: Int
-        get() = prefs.getInt(KEY_PICKER_GAP, DEFAULT_PICKER_GAP)
+        get() = prefs.getInt(KEY_PICKER_GAP, DEFAULT_PICKER_GAP).coerceIn(0, 100)
         set(value) = prefs.edit { putInt(KEY_PICKER_GAP, value) }
 
     var useCustomAccent: Boolean
@@ -809,24 +876,24 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_BLUR_ENABLED, value) }
 
     var blurAmount: Int
-        get() = prefs.getInt(KEY_BLUR_AMOUNT, DEFAULT_BLUR_AMOUNT)
+        get() = prefs.getInt(KEY_BLUR_AMOUNT, DEFAULT_BLUR_AMOUNT).coerceIn(5, 50)
         set(value) = prefs.edit { putInt(KEY_BLUR_AMOUNT, value) }
 
     var panelOpacity: Int
-        get() = prefs.getInt(KEY_PANEL_OPACITY, DEFAULT_OPACITY)
+        get() = prefs.getInt(KEY_PANEL_OPACITY, DEFAULT_OPACITY).coerceIn(10, 100)
         set(value) = prefs.edit { putInt(KEY_PANEL_OPACITY, value) }
 
     var handleHeight: Int
-        get() = prefs.getInt(KEY_HANDLE_HEIGHT, DEFAULT_HANDLE_HEIGHT)
+        get() = prefs.getInt(KEY_HANDLE_HEIGHT, DEFAULT_HANDLE_HEIGHT).coerceIn(50, 400)
         set(value) = prefs.edit { putInt(KEY_HANDLE_HEIGHT, value) }
 
     var handleWidth: Int
-        get() = prefs.getInt(KEY_HANDLE_WIDTH, DEFAULT_HANDLE_WIDTH)
+        get() = prefs.getInt(KEY_HANDLE_WIDTH, DEFAULT_HANDLE_WIDTH).coerceIn(5, 50)
         set(value) = prefs.edit { putInt(KEY_HANDLE_WIDTH, value) }
 
     var handleVerticalOffset: Int
-        get() = prefs.getInt(KEY_HANDLE_OFFSET, DEFAULT_HANDLE_OFFSET)
-        set(value) = prefs.edit { putInt(KEY_HANDLE_OFFSET, value) }
+        get() = prefs.getInt(KEY_HANDLE_OFFSET, DEFAULT_HANDLE_OFFSET).coerceIn(-500, 500)
+        set(value) = prefs.edit { putInt(KEY_HANDLE_OFFSET, value.coerceIn(-500, 500)) }
 
     var accentColor: String
         get() = prefs.getString(KEY_ACCENT_COLOR, DEFAULT_ACCENT_COLOR) ?: DEFAULT_ACCENT_COLOR
@@ -841,7 +908,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putString(KEY_UI_THEME, value) }
 
     var panelCornerRadius: Int
-        get() = prefs.getInt(KEY_PANEL_RADIUS, DEFAULT_PANEL_RADIUS)
+        get() = prefs.getInt(KEY_PANEL_RADIUS, DEFAULT_PANEL_RADIUS).coerceIn(0, 60)
         set(value) = prefs.edit { putInt(KEY_PANEL_RADIUS, value) }
 
     var panelBackgroundColor: String
@@ -853,7 +920,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_HIDE_BG, value) }
 
     var pillWidth: Int
-        get() = prefs.getInt(KEY_PILL_WIDTH, DEFAULT_PILL_WIDTH)
+        get() = prefs.getInt(KEY_PILL_WIDTH, DEFAULT_PILL_WIDTH).coerceIn(1, 10)
         set(value) = prefs.edit { putInt(KEY_PILL_WIDTH, value) }
 
     var showTools: Boolean
@@ -865,7 +932,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_SHOW_LOGS, value) }
 
     var animSpeed: Int
-        get() = prefs.getInt(KEY_ANIM_SPEED, DEFAULT_ANIM_SPEED)
+        get() = prefs.getInt(KEY_ANIM_SPEED, DEFAULT_ANIM_SPEED).coerceIn(0, 1000)
         set(value) = prefs.edit { putInt(KEY_ANIM_SPEED, value) }
 
     var pickerAnimType: String
@@ -889,11 +956,11 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_SLIDE_VOLUME_ENABLED, value) }
 
     var slideSensitivity: Int
-        get() = prefs.getInt(KEY_SLIDE_SENSITIVITY, DEFAULT_SLIDE_SENSITIVITY)
+        get() = prefs.getInt(KEY_SLIDE_SENSITIVITY, DEFAULT_SLIDE_SENSITIVITY).coerceIn(1, 100)
         set(value) = prefs.edit { putInt(KEY_SLIDE_SENSITIVITY, value) }
 
     var swipeSensitivity: Int
-        get() = prefs.getInt(KEY_SWIPE_SENSITIVITY, DEFAULT_SWIPE_SENSITIVITY)
+        get() = prefs.getInt(KEY_SWIPE_SENSITIVITY, DEFAULT_SWIPE_SENSITIVITY).coerceIn(1, 100)
         set(value) = prefs.edit { putInt(KEY_SWIPE_SENSITIVITY, value) }
 
     var useAutomationForGestures: Boolean
@@ -909,8 +976,8 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putString(KEY_FAVORITE_APP, value) }
 
     var appLanguage: String
-        get() = prefs.getString("Locale.Helper.Selected.Language", java.util.Locale.getDefault().language) ?: "en"
-        set(value) = prefs.edit { putString("Locale.Helper.Selected.Language", value) }
+        get() = prefs.getString(KEY_APP_LANGUAGE, java.util.Locale.getDefault().language) ?: "en"
+        set(value) = prefs.edit { putString(KEY_APP_LANGUAGE, value) }
 
     var notchGesturesEnabled: Boolean
         get() = prefs.getBoolean(KEY_NOTCH_GESTURES_ENABLED, false)
@@ -959,7 +1026,7 @@ class PanelPreferences(context: Context) {
                 putExtra("target_state", forcedState)
             }
         }
-        
+
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -1072,7 +1139,8 @@ class PanelPreferences(context: Context) {
             current.remove(identifier)
             setPanelApps(current)
         }
-        removePanelItemLabel(identifier)
+        // No separate removePanelItemLabel() call: setPanelApps() already
+        // prunes labels for unpinned ids in the same edit.
     }
 
     fun isInPanel(identifier: String): Boolean = getPanelApps().contains(identifier)
@@ -1116,31 +1184,49 @@ class PanelPreferences(context: Context) {
 
     fun setPanelItemLabel(identifier: String, label: String) {
         if (identifier.isBlank() || label.isBlank()) return
-        val raw = prefs.getString(KEY_PANEL_LABELS, null)
-        val obj = try {
-            if (raw.isNullOrBlank()) org.json.JSONObject() else org.json.JSONObject(raw)
-        } catch (_: Exception) {
-            org.json.JSONObject()
+        setPanelItemLabels(mapOf(identifier to label))
+    }
+
+    /**
+     * Set several panel-item labels in one JSON parse + one edit. The
+     * per-label [setPanelItemLabel] re-parses the whole labels JSON per
+     * call; the label backfill (which can fill many at once) uses this.
+     * Held under [PANEL_APPS_LOCK] like [setPanelApps]: the labels JSON is
+     * a read-modify-write, and an unsynchronised write could interleave
+     * with setPanelApps() and lose updates or resurrect pruned labels.
+     */
+    fun setPanelItemLabels(labels: Map<String, String>) {
+        val valid = labels.filter { (id, label) -> id.isNotBlank() && label.isNotBlank() }
+        if (valid.isEmpty()) return
+        synchronized(PANEL_APPS_LOCK) {
+            val raw = prefs.getString(KEY_PANEL_LABELS, null)
+            val obj = try {
+                if (raw.isNullOrBlank()) org.json.JSONObject() else org.json.JSONObject(raw)
+            } catch (_: Exception) {
+                org.json.JSONObject()
+            }
+            for ((id, label) in valid) obj.put(id, label)
+            // Drop labels for identifiers no longer pinned (keep the ones just written).
+            val pinned = getPanelApps().toSet()
+            val keys = obj.keys().asSequence().toList()
+            for (k in keys) {
+                if (k !in pinned && k !in valid.keys) obj.remove(k)
+            }
+            prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
         }
-        obj.put(identifier, label)
-        // Drop labels for identifiers no longer pinned.
-        val pinned = getPanelApps().toSet()
-        val keys = obj.keys().asSequence().toList()
-        for (k in keys) {
-            if (k !in pinned && k != identifier) obj.remove(k)
-        }
-        prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
     }
 
     fun removePanelItemLabel(identifier: String) {
         if (identifier.isBlank()) return
-        val raw = prefs.getString(KEY_PANEL_LABELS, null) ?: return
-        try {
-            val obj = org.json.JSONObject(raw)
-            if (!obj.has(identifier)) return
-            obj.remove(identifier)
-            prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
-        } catch (_: Exception) {}
+        synchronized(PANEL_APPS_LOCK) {
+            val raw = prefs.getString(KEY_PANEL_LABELS, null) ?: return
+            try {
+                val obj = org.json.JSONObject(raw)
+                if (!obj.has(identifier)) return
+                obj.remove(identifier)
+                prefs.edit { putString(KEY_PANEL_LABELS, obj.toString()) }
+            } catch (_: Exception) {}
+        }
     }
 
 
@@ -1159,26 +1245,7 @@ class PanelPreferences(context: Context) {
      */
     fun getCustomItems(): List<CustomItem> {
         val raw = prefs.getString(KEY_CUSTOM_ITEMS, null) ?: return emptyList()
-        if (raw.isBlank()) return emptyList()
-        return try {
-            val arr = org.json.JSONArray(raw)
-            // Audit L1 — symmetric trim on the read path. saveEditingItem trims on
-            // write, but legacy rows pre-dating this fix may still carry leading /
-            // trailing whitespace which would defeat `app.intentUri.startsWith("intent:")`
-            // downstream. Trim here too so all consumers see canonical content.
-            (0 until arr.length()).mapNotNull { i ->
-                val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                val id = o.optString("id").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                CustomItem(
-                    id = id,
-                    isUrl = o.optBoolean("isUrl", false),
-                    title = o.optString("title", "").trim(),
-                    content = o.optString("content", "").trim()
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
+        return CustomItemJson.decode(raw)
     }
 
     /**
@@ -1186,16 +1253,7 @@ class PanelPreferences(context: Context) {
      * The list order is preserved as the user-specified display order.
      */
     fun setCustomItems(items: List<CustomItem>) {
-        val arr = org.json.JSONArray()
-        items.forEach { item ->
-            val o = org.json.JSONObject()
-            o.put("id", item.id)
-            o.put("isUrl", item.isUrl)
-            o.put("title", item.title)
-            o.put("content", item.content)
-            arr.put(o)
-        }
-        prefs.edit { putString(KEY_CUSTOM_ITEMS, arr.toString()) }
+        prefs.edit { putString(KEY_CUSTOM_ITEMS, CustomItemJson.encode(items)) }
     }
 
     /** Add a new custom item. Caller is responsible for also adding the corresponding
@@ -1215,16 +1273,18 @@ class PanelPreferences(context: Context) {
         setCustomItems(current)
     }
 
-    /** Replace an existing custom item in-place (matched by id). */
-    fun updateCustomItem(item: CustomItem) {
+    /** Replace an existing custom item in-place (matched by id).
+     * Returns false instead of silently dropping the edit when the id is
+     * not a valid UUID or no such item exists (previously it fell back to
+     * addCustomItem, which silently rejects non-UUID ids). */
+    fun updateCustomItem(item: CustomItem): Boolean {
+        if (!UUID_PATTERN.matches(item.id)) return false
         val current = getCustomItems().toMutableList()
         val idx = current.indexOfFirst { it.id == item.id }
-        if (idx >= 0) {
-            current[idx] = item
-            setCustomItems(current)
-        } else {
-            addCustomItem(item)
-        }
+        if (idx < 0) return false
+        current[idx] = item
+        setCustomItems(current)
+        return true
     }
 
     /** Remove a custom item by id. Returns the removed item, or null if not found. */
@@ -1260,13 +1320,31 @@ class PanelPreferences(context: Context) {
     fun resyncPanelAppsOrderFromCustomItems(customItems: List<CustomItem>) {
         val current = getPanelApps().toMutableList()
         val customIdsInSidebar = current.filter { it.startsWith(CUSTOM_ID_PREFIX) }.toSet()
-        val nonCustom = current.filterNot { it.startsWith(CUSTOM_ID_PREFIX) }
         val orderedCustom = customItems.mapNotNull { item ->
             val id = CUSTOM_ID_PREFIX + item.id
             if (id in customIdsInSidebar) id else null
         }
+        // Splice the newly ordered custom ids back into the slots the
+        // custom items already occupy, instead of appending them at the
+        // end: the old `nonCustom + orderedCustom` rebuild moved every
+        // custom pin to the bottom of an interleaved sidebar (app, custom,
+        // app) after any drag-reorder in the CUSTOM tab.
+        val ordered = orderedCustom.toMutableList()
+        val result = mutableListOf<String>()
+        for (id in current) {
+            if (id.startsWith(CUSTOM_ID_PREFIX)) {
+                // Next custom id in the new order for this slot; keep an
+                // orphaned pin (not in the custom list) rather than dropping it.
+                result.add(ordered.removeFirstOrNull() ?: id)
+            } else {
+                result.add(id)
+            }
+        }
+        // Any ordered ids not placed above (sidebar changed underneath)
+        // go at the end rather than being dropped.
+        result.addAll(ordered)
         // setPanelApps takes List<String> and handles dedup + delimiter join internally.
-        setPanelApps(nonCustom + orderedCustom)
+        setPanelApps(result)
     }
 
     // =====================================================================================
@@ -1296,8 +1374,14 @@ class PanelPreferences(context: Context) {
         if (raw.isBlank()) return emptyList()
         return try {
             val arr = org.json.JSONArray(raw)
+            // Dedupe by id on read (covers imported rows): duplicate ids
+            // produce duplicate chooser entries that can't be told apart.
+            val seen = HashSet<String>()
             (0 until arr.length()).mapNotNull { i ->
-                arr.optJSONObject(i)?.let { TextAction.fromJson(it) }
+                val item = arr.optJSONObject(i)?.let { TextAction.fromJson(it) }
+                    ?: return@mapNotNull null
+                if (!seen.add(item.id)) return@mapNotNull null
+                item
             }
         } catch (e: Exception) {
             emptyList()
@@ -1364,9 +1448,41 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_AUTO_START, value) }
 
     // Runtime-only foreground package (not a user preference). Do not persist to
-    // SharedPreferences — a11y fires this on every window change.
-    @Volatile
-    var currentForegroundPackage: String = ""
+    // SharedPreferences — a11y fires this on every window change. Backed by the
+    // companion's shared field so every PanelPreferences instance (a11y service,
+    // panel service, EdgeHandleView, SidePanelView) sees the same value.
+    var currentForegroundPackage: String
+        get() = sharedForegroundPackage
+        set(value) {
+            sharedForegroundPackage = value
+        }
+
+    /**
+     * True when the WRITE_SETTINGS prompt may be shown again: only once per
+     * [WRITE_SETTINGS_PROMPT_COOLDOWN_MS]. Both brightness paths call this
+     * before launching the settings screen, so a drag with the permission
+     * missing prompts once and then stays silent until the cooldown elapses
+     * (instead of re-launching the screen on every tick).
+     */
+    fun shouldPromptWriteSettings(): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        return if (now - lastWriteSettingsPromptMs >= WRITE_SETTINGS_PROMPT_COOLDOWN_MS) {
+            lastWriteSettingsPromptMs = now
+            true
+        } else {
+            false
+        }
+    }
+
+    /**
+     * The brightness 1%-step accumulator, shared by the edge-slide path
+     * (FloatingPanelService.adjustBrightness) and the tools long-press-drag
+     * path (SidePanelView.adjustBrightnessByPercent). It used to be two
+     * separate instances, so a fraction accumulated on one path was
+     * invisible to the other and the two paths disagreed about how much
+     * brightness a drag should move. Runtime state only — not persisted.
+     */
+    val brightnessStepAccumulator = PercentStepAccumulator()
 
     fun getGameApps(): List<String> {
         val raw = prefs.getString(KEY_GAME_APPS, "") ?: ""

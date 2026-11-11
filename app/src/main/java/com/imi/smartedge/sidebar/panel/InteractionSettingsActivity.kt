@@ -31,9 +31,18 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
 
         panelPrefs = PanelPreferences(this)
-        
+
         loadCurrentSettings()
         setupListeners()
+        // Fragment-result listener for the secure-settings dialog:
+        // registered here (not in the click handler) so a recreated
+        // activity after rotation still receives the grant.
+        SecureSettingsDialog.registerResultListener(this) {
+            updateSecureSettingsUI()
+            if (AutomationManager.isAutomationPossible()) {
+                binding.featureAutomationGestures.isChecked = true
+            }
+        }
         handleDeepLink()
     }
 
@@ -59,7 +68,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
 
     private fun loadCurrentSettings() {
         updateSecureSettingsUI()
-        
+
         // 1. MAIN TRIGGER & GESTURES
         if (panelPrefs.panelSide == PanelPreferences.SIDE_LEFT) {
             binding.togglePanelSide.check(R.id.btnSideLeft)
@@ -69,11 +78,10 @@ class InteractionSettingsActivity : AppCompatActivity() {
 
         binding.featureGestures.isChecked = panelPrefs.gesturesEnabled
         binding.featureOnlyOnHome.isChecked = panelPrefs.onlyOnHome
-        binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
         binding.sbSwipeSensitivity.value = panelPrefs.swipeSensitivity.toFloat()
         binding.tvSwipeSensitivityValue.text = getString(R.string.fmt_percent, panelPrefs.swipeSensitivity)
         binding.layoutSwipeSensitivity.visibility = if (panelPrefs.gesturesEnabled) View.VISIBLE else View.GONE
-        
+
         binding.tvTapGesturesValue.text = getString(R.string.tap_gestures_summary, actionLabel(panelPrefs.tapAction), actionLabel(panelPrefs.doubleTapAction), actionLabel(panelPrefs.tripleTapAction), actionLabel(panelPrefs.longPressAction))
         binding.featureHaptic.isChecked = panelPrefs.hapticEnabled
 
@@ -98,8 +106,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
         binding.featureRecentApps.isChecked = panelPrefs.recentEnabled
         updateRecentSettingsUI()
 
-        // 5. SHORTCUTS & AUTOMATION
-        binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
+        // 5. SHORTCUTS & AUTOMATION (switch state lives in updateSecureSettingsUI)
 
         // 6. ADVANCED OPTIONS
         val whitelistCount = panelPrefs.getFullscreenWhitelist().size
@@ -140,7 +147,13 @@ class InteractionSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateSecureSettingsUI() {
-        // Simple placeholder for M3 UI as it doesn't have a specific status TextView currently visible in the provided layout
+        // Sync the automation switch with the stored preference. This is
+        // the callback the secure-settings dialog fires after a grant, and
+        // it runs from loadCurrentSettings() and onResume() too, so the
+        // switch always reflects the current preference (not a stale grant
+        // state). It previously was an empty stub while loadCurrentSettings
+        // set the same switch in two places.
+        binding.featureAutomationGestures.isChecked = panelPrefs.useAutomationForGestures
     }
 
     private fun setupListeners() {
@@ -173,7 +186,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
                             applyOnly()
                         } else {
                             buttonView.isChecked = false
-                            showAutomationSetupDialog(buttonView)
+                            showAutomationSetupDialog()
                         }
                     }
                 }
@@ -184,12 +197,7 @@ class InteractionSettingsActivity : AppCompatActivity() {
         }
 
         findViewById<android.view.View>(R.id.btnAutomationSettings)?.setOnClickListener {
-            SecureSettingsDialog.show(this) {
-                updateSecureSettingsUI()
-                if (AutomationManager.isAutomationPossible()) {
-                    binding.featureAutomationGestures.isChecked = true
-                }
-            }
+            SecureSettingsDialog.show(this)
         }
 
         binding.sbSwipeSensitivity.addOnChangeListener { _, value, fromUser ->
@@ -416,17 +424,12 @@ class InteractionSettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAutomationSetupDialog(buttonView: android.widget.CompoundButton) {
+    private fun showAutomationSetupDialog() {
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(R.string.dialog_automation_title)
             .setMessage(R.string.dialog_automation_msg)
             .setPositiveButton(R.string.btn_setup) { _, _ ->
-                SecureSettingsDialog.show(this) {
-                    updateSecureSettingsUI()
-                    if (AutomationManager.isAutomationPossible()) {
-                        buttonView.isChecked = true
-                    }
-                }
+                SecureSettingsDialog.show(this)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
@@ -440,12 +443,18 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 .setCancelable(false)
                 .show()
 
-            val allApps = withContext(Dispatchers.IO) { AppRepository(this@InteractionSettingsActivity).getAllApps() }
-            loadingDialog.dismiss()
+            // Dismiss in finally: if the activity is destroyed mid-load,
+            // lifecycleScope is cancelled at the withContext point and the
+            // dismiss below never runs, leaking the window.
+            val allApps = try {
+                withContext(Dispatchers.IO) { AppRepository(this@InteractionSettingsActivity).getAllApps() }
+            } finally {
+                loadingDialog.dismiss()
+            }
 
-            val sortedApps = allApps.sortedBy { it.appName.lowercase() }
+            val sortedApps = allApps.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) }
             val selectedPkgs = currentSelected.toMutableSet()
-            
+
             val density = resources.displayMetrics.density
             val container = android.widget.LinearLayout(this@InteractionSettingsActivity).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
@@ -475,13 +484,13 @@ class InteractionSettingsActivity : AppCompatActivity() {
             fun updateList(query: String) {
                 displayApps = if (query.isEmpty()) sortedApps
                 else sortedApps.filter { it.appName.contains(query, ignoreCase = true) }
-                
+
                 listView.adapter = android.widget.ArrayAdapter(
                     this@InteractionSettingsActivity,
                     android.R.layout.simple_list_item_multiple_choice,
                     displayApps.map { it.appName }.toTypedArray()
                 )
-                
+
                 displayApps.forEachIndexed { index, app ->
                     listView.setItemChecked(index, selectedPkgs.contains(app.packageName))
                 }
@@ -519,10 +528,16 @@ class InteractionSettingsActivity : AppCompatActivity() {
                 .setCancelable(false)
                 .show()
 
-            val allApps = withContext(Dispatchers.IO) { AppRepository(this@InteractionSettingsActivity).getAllApps() }
-            loadingDialog.dismiss()
+            // Dismiss in finally: if the activity is destroyed mid-load,
+            // lifecycleScope is cancelled at the withContext point and the
+            // dismiss below never runs, leaking the window.
+            val allApps = try {
+                withContext(Dispatchers.IO) { AppRepository(this@InteractionSettingsActivity).getAllApps() }
+            } finally {
+                loadingDialog.dismiss()
+            }
 
-            val sortedApps = allApps.sortedBy { it.appName.lowercase() }
+            val sortedApps = allApps.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) }
             val density = resources.displayMetrics.density
             val container = android.widget.LinearLayout(this@InteractionSettingsActivity).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
@@ -701,7 +716,18 @@ class InteractionSettingsActivity : AppCompatActivity() {
         PanelPreferences.ACTION_FLASHLIGHT -> getString(R.string.action_flashlight)
         PanelPreferences.ACTION_CAMERA -> getString(R.string.action_camera)
         PanelPreferences.ACTION_AUTO_ROTATION -> getString(R.string.action_rotation)
-        PanelPreferences.ACTION_OPEN_FAVORITE_APP -> "Fav: ${panelPrefs.favoriteAppPackage.substringAfterLast(".").take(10)}"
+        PanelPreferences.ACTION_OPEN_FAVORITE_APP -> {
+            // Resolve the app name (not a truncated package fragment):
+            // "Fav: com.example" tells the user nothing.
+            val pkg = panelPrefs.favoriteAppPackage
+            val label = try {
+                val ai = packageManager.getApplicationInfo(pkg, 0)
+                packageManager.getApplicationLabel(ai).toString()
+            } catch (_: Exception) {
+                pkg.substringAfterLast(".").take(10)
+            }
+            getString(R.string.action_favorite_app, label)
+        }
         PanelPreferences.ACTION_MOVE_HANDLE -> getString(R.string.action_move_handle)
         else -> getString(R.string.action_none)
     }

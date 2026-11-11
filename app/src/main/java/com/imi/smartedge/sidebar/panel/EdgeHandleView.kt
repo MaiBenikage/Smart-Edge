@@ -143,6 +143,10 @@ class EdgeHandleView @JvmOverloads constructor(
 
     private fun enterDragMode() {
         isDragMode = true
+        // Cancel any in-flight IME-avoidance animation: the insets listener
+        // returns early in drag mode, so without this a pre-drag animation
+        // would keep fighting the drag.
+        imeAnimator?.cancel()
         vibrateHaptic(40)
 
         val params = layoutParams as? WindowManager.LayoutParams
@@ -204,7 +208,12 @@ class EdgeHandleView @JvmOverloads constructor(
                     if (handleBottomAbsY > keyboardTop) {
                         val overlap = handleBottomAbsY - keyboardTop
                         val margin = (32 * density).toInt()
-                        val newY = params.y - overlap - margin
+                        // Clamp like the restore branch below: without this,
+                        // a keyboard covering most of the screen pushes the
+                        // handle past -maxOffset and off the top of the screen.
+                        val safeMargin = (10 * density).toInt()
+                        val maxOffset = (screenHeight / 2) - (h / 2) - safeMargin
+                        val newY = (params.y - overlap - margin).coerceIn(-maxOffset, maxOffset)
 
                         imeAnimator?.cancel()
                         imeAnimator = android.animation.ValueAnimator.ofInt(params.y, newY.toInt()).apply {

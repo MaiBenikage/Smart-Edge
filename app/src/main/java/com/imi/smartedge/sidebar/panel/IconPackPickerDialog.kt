@@ -23,17 +23,43 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
 
     private lateinit var panelPrefs: PanelPreferences
     private lateinit var iconPackManager: IconPackManager
-    private var onSelected: (() -> Unit)? = null
+
+    // Theme colors (resolved from the app theme, not hardcoded dark
+    // values): the sheet must follow Light/Dark/System like the rest of
+    // the app. Resolved lazily — requireContext() isn't available until
+    // the fragment is attached.
+    private val surfaceColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorSurface)
+    private val onSurfaceColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnSurface)
+    private val onSurfaceVariantColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
+    private val outlineColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOutline)
 
     companion object {
         const val TAG = "IconPackPickerDialog"
-        
-        fun show(context: Context, onSelected: () -> Unit) {
-            val dialog = IconPackPickerDialog()
-            dialog.onSelected = onSelected
-            (context as? androidx.fragment.app.FragmentActivity)?.let {
-                dialog.show(it.supportFragmentManager, TAG)
+
+        /**
+         * Fragment-result key for the pack-picked event. The dialog reports
+         * via setFragmentResult (not a callback field): a plain field is
+         * lost when the FragmentManager recreates the dialog on rotation,
+         * so picking a pack after a rotation never ran the caller's label
+         * update. Hosts register in onCreate via [registerResultListener]
+         * so a recreated host picks up a pending result.
+         */
+        const val REQUEST_KEY = "IconPackPickerDialogResult"
+
+        fun registerResultListener(activity: androidx.fragment.app.FragmentActivity, onSelected: () -> Unit) {
+            activity.supportFragmentManager.setFragmentResultListener(REQUEST_KEY, activity) { _, _ ->
+                onSelected()
             }
+        }
+
+        fun show(context: Context) {
+            val activity = context as? androidx.fragment.app.FragmentActivity
+                ?: throw IllegalArgumentException("IconPackPickerDialog.show requires a FragmentActivity context")
+            IconPackPickerDialog().show(activity.supportFragmentManager, TAG)
         }
     }
 
@@ -66,7 +92,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 8 * density
-                setColor(Color.parseColor("#33FFFFFF"))
+                setColor(outlineColor)
             }
         }
         root.addView(handle)
@@ -106,13 +132,13 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
         val tvTitle = TextView(ctx).apply {
             text = getString(R.string.dialog_select_icon_pack)
             textSize = 20f
-            setTextColor(Color.WHITE)
+            setTextColor(onSurfaceColor)
             typeface = Typeface.DEFAULT_BOLD
         }
         val tvStatus = TextView(ctx).apply {
             text = getString(R.string.dialog_current_icon_pack, panelPrefs.iconPackLabel)
             textSize = 12f
-            setTextColor(Color.parseColor("#99FFFFFF"))
+            setTextColor(onSurfaceVariantColor)
         }
         titleCol.addView(tvTitle)
         titleCol.addView(tvStatus)
@@ -132,7 +158,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
         }
         val etSearch = com.google.android.material.textfield.TextInputEditText(ctx).apply {
             setSingleLine()
-            setTextColor(Color.WHITE)
+            setTextColor(onSurfaceColor)
             textSize = 14f
         }
         searchContainer.addView(etSearch)
@@ -147,15 +173,19 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
                 (450 * density).toInt()
             )
         }
-        
+
         val allPacks = mutableListOf<IconPackInfo>()
-        allPacks.add(IconPackInfo("none", ctx.getString(R.string.icon_pack_default), ctx.getDrawable(android.R.drawable.sym_def_app_icon)!!))
+        // The "none" entry has no real icon: fall back to the generic app
+        // icon instead of force-unwrapping (getDrawable can return null).
+        val noneIcon = ctx.getDrawable(android.R.drawable.sym_def_app_icon)
+            ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
+        allPacks.add(IconPackInfo("none", ctx.getString(R.string.icon_pack_default), noneIcon))
         allPacks.addAll(iconPackManager.getInstalledIconPacks())
 
         val adapter = PackAdapter(allPacks) { item ->
             panelPrefs.selectedIconPack = item.packageName
             panelPrefs.iconPackLabel = item.label
-            
+
             val intent = Intent(ctx, FloatingPanelService::class.java).apply {
                 action = FloatingPanelService.ACTION_REFRESH
             }
@@ -164,7 +194,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
             } else {
                 ctx.startService(intent)
             }
-            onSelected?.invoke()
+            setFragmentResult(REQUEST_KEY, android.os.Bundle.EMPTY)
             dismiss()
         }
         rv.adapter = adapter
@@ -193,7 +223,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
                     28 * density, 28 * density,
                     0f, 0f, 0f, 0f
                 )
-                setColor(Color.parseColor("#1F2732"))
+                setColor(surfaceColor)
             }
         }
         return dialog
@@ -232,7 +262,7 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
                 ).apply {
                     bottomMargin = (4 * density).toInt()
                 }
-                
+
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = 16 * density
@@ -260,13 +290,13 @@ class IconPackPickerDialog : BottomSheetDialogFragment() {
             val tvName = TextView(ctx).apply {
                 id = android.R.id.text1
                 textSize = 15f
-                setTextColor(Color.WHITE)
+                setTextColor(onSurfaceColor)
                 typeface = Typeface.DEFAULT_BOLD
             }
             val tvPkg = TextView(ctx).apply {
                 id = android.R.id.text2
                 textSize = 11f
-                setTextColor(Color.parseColor("#99FFFFFF"))
+                setTextColor(onSurfaceVariantColor)
             }
             textCol.addView(tvName)
             textCol.addView(tvPkg)

@@ -61,23 +61,6 @@ class PanelTileService : TileService() {
         tile.updateTile()
     }
 
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        if (PanelAccessibilityService.isRunning) return true
-        val enabledServices = android.provider.Settings.Secure.getString(
-            contentResolver,
-            android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        val colonSplitter = android.text.TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServices)
-        while (colonSplitter.hasNext()) {
-            val componentName = colonSplitter.next()
-            if (componentName.equals("$packageName/${PanelAccessibilityService::class.java.name}", ignoreCase = true)) {
-                return true
-            }
-        }
-        return false
-    }
-
     private fun hasOverlayPermission(): Boolean =
         android.provider.Settings.canDrawOverlays(this)
 

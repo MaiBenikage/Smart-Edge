@@ -34,7 +34,7 @@ const val LONG_PRESS_DRAG_MS = 600L
 fun View.showModernToast(message: String, duration: Int = Snackbar.LENGTH_SHORT) {
     val snackbar = Snackbar.make(this, "", duration)
     val snackbarView = snackbar.view as Snackbar.SnackbarLayout
-    
+
     snackbarView.setBackgroundColor(Color.TRANSPARENT)
     snackbarView.removeAllViews()
     snackbarView.setPadding(0, 0, 0, 0)
@@ -45,7 +45,7 @@ fun View.showModernToast(message: String, duration: Int = Snackbar.LENGTH_SHORT)
     // Resolve Material You colors
     context.theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceContainerHighest, typedValue, true)
     val bgColor = typedValue.data
-    
+
     context.theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, typedValue, true)
     val textColor = typedValue.data
 
@@ -57,7 +57,7 @@ fun View.showModernToast(message: String, duration: Int = Snackbar.LENGTH_SHORT)
         strokeWidth = (1f * density).toInt()
         strokeColor = (textColor and 0x00FFFFFF) or (0x1A shl 24) // 10% opacity border
         setCardBackgroundColor(ColorStateList.valueOf(bgColor))
-        
+
         layoutParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
@@ -70,7 +70,7 @@ fun View.showModernToast(message: String, duration: Int = Snackbar.LENGTH_SHORT)
     val textView = TextView(context).apply {
         text = message
         setTextColor(textColor)
-        textSize = 13f 
+        textSize = 13f
         setPadding((16 * density).toInt(), (6 * density).toInt(), (16 * density).toInt(), (6 * density).toInt())
         gravity = Gravity.CENTER
         maxWidth = (220 * density).toInt() // Very compact max width
@@ -81,11 +81,11 @@ fun View.showModernToast(message: String, duration: Int = Snackbar.LENGTH_SHORT)
 
     val params = snackbarView.layoutParams
     params.width = ViewGroup.LayoutParams.WRAP_CONTENT
-    
-    val marginPx = (90 * density).toInt() 
+
+    val marginPx = (90 * density).toInt()
     if (params is FrameLayout.LayoutParams) {
         params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        params.setMargins(0, 0, 0, marginPx) 
+        params.setMargins(0, 0, 0, marginPx)
     } else if (params is androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams) {
         params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
         params.setMargins(0, 0, 0, marginPx)
@@ -105,7 +105,7 @@ fun View.highlightView() {
     val highlightColor = typedValue.data
     val bounceDurationMs = 200L
     val settleDurationMs = 300L
-    
+
     // 1. Attention-grabbing Bounce
     this.animate()
         .scaleX(1.05f)
@@ -129,59 +129,36 @@ fun View.highlightView() {
         setColor(highlightColor)
     }
 
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-        val originalForeground = this.foreground
-        this.foreground = flashDrawable
-        
-        android.animation.ValueAnimator.ofInt(120, 0).apply { // ~45% opacity
-            duration = 1800
-            startDelay = 200 // Hold peak color for a moment
-            interpolator = android.view.animation.DecelerateInterpolator()
-            addUpdateListener { animator ->
-                flashDrawable.alpha = (animator.animatedValue as? Int) ?: 0
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    this@highlightView.foreground = originalForeground
-                }
-            })
-            start()
-        }
-    } else {
-        val originalBackground = this.background
-        val layerDrawable = if (originalBackground != null) {
-            android.graphics.drawable.LayerDrawable(arrayOf(originalBackground, flashDrawable))
-        } else {
-            flashDrawable
-        }
-        this.background = layerDrawable
+    // minSdk is 26 (M), so the pre-M background-layer fallback is dead
+    // code — the foreground path below always runs.
+    val originalForeground = this.foreground
+    this.foreground = flashDrawable
 
-        android.animation.ValueAnimator.ofInt(120, 0).apply {
-            duration = 1800
-            startDelay = 200
-            interpolator = android.view.animation.DecelerateInterpolator()
-            addUpdateListener { animator ->
-                flashDrawable.alpha = (animator.animatedValue as? Int) ?: 0
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    this@highlightView.background = originalBackground
-                }
-            })
-            start()
+    android.animation.ValueAnimator.ofInt(120, 0).apply { // ~45% opacity
+        duration = 1800
+        startDelay = 200 // Hold peak color for a moment
+        interpolator = android.view.animation.DecelerateInterpolator()
+        addUpdateListener { animator ->
+            flashDrawable.alpha = (animator.animatedValue as? Int) ?: 0
         }
+        addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                this@highlightView.foreground = originalForeground
+            }
+        })
+        start()
     }
 }
 
     /**
-    * Opens the accessibility settings. On Android 12+, it deep-links directly to 
+    * Opens the accessibility settings. On Android 12+, it deep-links directly to
  * this app's specific service toggle. On older versions, it opens the general
  * list and attempts to highlight this app if the OEM supports it.
  */
 fun Context.openAccessibilitySettings() {
     val componentName = android.content.ComponentName(this, PanelAccessibilityService::class.java)
     val flattenedName = componentName.flattenToString()
-    
+
     // We'll try the most specific action first (Android 12+)
     val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").apply {
@@ -208,9 +185,9 @@ fun Context.openAccessibilitySettings() {
             putExtra("highlight_key", flattenedName)
         }
     }
-    
+
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    
+
     try {
         startActivity(intent)
     } catch (e: Exception) {
@@ -228,7 +205,7 @@ fun Context.openAccessibilitySettings() {
             }
         }
 
-        // Fallback 2: Specifically for Vivo/OriginOS/Chinese ROMs which often 
+        // Fallback 2: Specifically for Vivo/OriginOS/Chinese ROMs which often
         // have a dedicated "Downloaded Services" or "Installed Apps" list.
         try {
             val vivoIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
@@ -250,33 +227,44 @@ fun Context.openAccessibilitySettings() {
     }
 }
 
+/**
+ * Shared AppOps auto-start check: MIUI and Vivo differ only in the op
+ * code (10008 vs 10002) — the reflection bodies were near-identical
+ * duplicates.
+ */
+private fun isAutoStartOpAllowed(context: Context, opCode: Int): Boolean {
+    val ops = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+    return try {
+        val method: Method = AppOpsManager::class.java.getMethod(
+            "checkOpNoThrow",
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType,
+            String::class.java
+        )
+        val result = method.invoke(
+            ops,
+            opCode,
+            Binder.getCallingUid(),
+            context.packageName
+        ) as Int
+        result == AppOpsManager.MODE_ALLOWED
+    } catch (e: Exception) {
+        false
+    }
+}
+
 object MIUIUtils {
     private const val OP_AUTO_START = 10008
 
-    fun isAutoStartEnabled(context: Context): Boolean {
-        val ops = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        return try {
-            val method: Method = AppOpsManager::class.java.getMethod(
-                "checkOpNoThrow",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType,
-                String::class.java
-            )
-            val result = method.invoke(
-                ops,
-                OP_AUTO_START,
-                Binder.getCallingUid(),
-                context.packageName
-            ) as Int
-            result == AppOpsManager.MODE_ALLOWED
-        } catch (e: Exception) {
-            false
-        }
-    }
+    fun isAutoStartEnabled(context: Context): Boolean =
+        isAutoStartOpAllowed(context, OP_AUTO_START)
 
     fun isMIUI(): Boolean {
         return try {
-            val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+            // Locale.ROOT: in a Turkish locale "XIAOMI".lowercase() is
+            // "xıaomı", which fails contains("xiaomi") and breaks MIUI
+            // detection (and the accessibility-settings fallback).
+            val manufacturer = android.os.Build.MANUFACTURER.lowercase(java.util.Locale.ROOT)
             // `Method.invoke(...)` returns Any? on the JVM. Cast to String? and
             // fall back to empty — without this the Kotlin compiler flags the
             // raw `.toString()` call as an "unsafe use of a nullable receiver".
@@ -293,35 +281,15 @@ object MIUIUtils {
 object VivoUtils {
     private const val OP_AUTO_START = 10002
 
-    fun isAutoStartEnabled(context: Context): Boolean {
-        val ops = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        return try {
-            val method: Method = AppOpsManager::class.java.getMethod(
-                "checkOpNoThrow",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType,
-                String::class.java
-            )
-            val result = method.invoke(
-                ops,
-                OP_AUTO_START,
-                Binder.getCallingUid(),
-                context.packageName
-            ) as Int
-            result == AppOpsManager.MODE_ALLOWED
-        } catch (e: Exception) {
-            false
-        }
-    }
+    fun isAutoStartEnabled(context: Context): Boolean =
+        isAutoStartOpAllowed(context, OP_AUTO_START)
 
     fun isVivo(): Boolean {
-        val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+        // Locale.ROOT, as isMIUI(): "VIVO".lowercase() in a Turkish locale
+        // is "vıvo" and fails contains("vivo").
+        val manufacturer = android.os.Build.MANUFACTURER.lowercase(java.util.Locale.ROOT)
         return manufacturer.contains("vivo") || manufacturer.contains("iqoo")
     }
-}
-
-fun Context.getAutoScalingFactor(): Float {
-    return 1.0f
 }
 
 private val KNOWN_VIDEO_PLAYER_PACKAGES = setOf(
@@ -351,10 +319,22 @@ private val KNOWN_VIDEO_PLAYER_PACKAGES = setOf(
 /**
  * Returns true if the given package is a known video player / streaming app.
  */
+/**
+ * Resolve a Material theme color attribute (e.g. `colorSurface`,
+ * `colorOnSurface`) to its color int, so programmatic UIs follow the
+ * app's Light/Dark/System theme instead of hardcoding dark-mode colors
+ * (white text on a `#1F2732` sheet is invisible in Light mode).
+ */
+fun Context.resolveThemeColor(@androidx.annotation.AttrRes attr: Int): Int {
+    val typedValue = android.util.TypedValue()
+    theme.resolveAttribute(attr, typedValue, true)
+    return typedValue.data
+}
+
 fun Context.isVideoPlayerPackage(packageName: String): Boolean {
     if (packageName.isBlank()) return false
     if (KNOWN_VIDEO_PLAYER_PACKAGES.contains(packageName)) return true
-    val lower = packageName.lowercase()
+    val lower = packageName.lowercase(java.util.Locale.ROOT)
     return lower.contains(".video") || lower.contains(".player") ||
             lower.contains("youtube") || lower.contains("netflix") ||
             lower.contains("vlc") || lower.contains("mxplayer")
@@ -413,15 +393,15 @@ fun applyAppTheme(context: Context) {
  */
 fun Context.isAccessibilityServiceEnabled(): Boolean {
     if (PanelAccessibilityService.isRunning) return true
-    
+
     val enabledServices = Settings.Secure.getString(
         contentResolver,
         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
     ) ?: return false
-    
+
     val colonSplitter = android.text.TextUtils.SimpleStringSplitter(':')
     colonSplitter.setString(enabledServices)
-    
+
     while (colonSplitter.hasNext()) {
         val componentName = colonSplitter.next()
         if (componentName.equals("$packageName/${PanelAccessibilityService::class.java.name}", ignoreCase = true)) {
@@ -532,7 +512,7 @@ fun Context.openColorPicker(initialColor: Int, onPick: (Int) -> Unit) {
         override fun onColorSelected(envelope: com.skydoves.colorpickerview.ColorEnvelope, fromUser: Boolean) {
             currentColor = envelope.color
             previewCard.setCardBackgroundColor(currentColor)
-            
+
             if (fromUser && !isUpdatingFromHex) {
                 isUpdatingFromPicker = true
                 val hexStr = "#" + envelope.hexCode
@@ -554,7 +534,7 @@ fun Context.openColorPicker(initialColor: Int, onPick: (Int) -> Unit) {
                 val c = Color.parseColor(if (colorStr.startsWith("#")) colorStr else "#$colorStr")
                 currentColor = c
                 previewCard.setCardBackgroundColor(c)
-                
+
                 isUpdatingFromHex = true
                 colorPickerView.setInitialColor(c) // This updates the cursor position in skydoves
                 isUpdatingFromHex = false

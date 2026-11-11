@@ -79,6 +79,48 @@ class AppsRecentSplitAndRecentsTest {
         assertTrue(recent2 >= 56f)
     }
 
+    @Test
+    fun `small budget falls back to 50 50 instead of collapsing a list`() {
+        // A11: when the budget can't hold two 56dp minima (<= 112dp),
+        // the split falls back to 50/50 so neither list collapses to ~0.
+        // (The old code clamped one list to 56dp and left the other with
+        // the remainder, e.g. 80/20 on a 100dp budget.)
+        val (apps, recent) = splitHeights(100f, 80)
+        assertEquals(50f, apps, 0.001f)
+        assertEquals(50f, recent, 0.001f)
+        val (apps2, recent2) = splitHeights(100f, 20)
+        assertEquals(50f, apps2, 0.001f)
+        assertEquals(50f, recent2, 0.001f)
+        // Boundary: exactly two minima still splits 50/50.
+        val (apps3, recent3) = splitHeights(112f, 80)
+        assertEquals(56f, apps3, 0.001f)
+        assertEquals(56f, recent3, 0.001f)
+    }
+
+    @Test
+    fun `just above the small-budget boundary the minimum still holds`() {
+        // 200dp at 80%: apps wants 160dp but is capped so recents keeps 56dp.
+        val (apps, recent) = splitHeights(200f, 80)
+        assertEquals(144f, apps, 0.001f)
+        assertEquals(56f, recent, 0.001f)
+        // 200dp at 20%: apps is floored to its 56dp minimum.
+        val (apps2, recent2) = splitHeights(200f, 20)
+        assertEquals(56f, apps2, 0.001f)
+        assertEquals(144f, recent2, 0.001f)
+    }
+
+    @Test
+    fun `split percent is clamped inside the function`() {
+        // Out-of-range splits (e.g. from a corrupt pref) can't produce a
+        // negative height: they clamp to 20..80.
+        val (apps, recent) = splitHeights(400f, 5)
+        assertEquals(80f, apps, 0.001f)
+        assertEquals(320f, recent, 0.001f)
+        val (apps2, recent2) = splitHeights(400f, 99)
+        assertEquals(320f, apps2, 0.001f)
+        assertEquals(80f, recent2, 0.001f)
+    }
+
     // ─── excludedPackagesFor — no duplication in recents ────────────────
 
     @Test

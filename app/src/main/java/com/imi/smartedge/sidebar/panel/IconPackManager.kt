@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 class IconPackManager(private val context: Context) {
 
     private val packageManager: PackageManager = context.packageManager
-    
+
     // Using a simple cache to avoid repeated XML parsing during a session
     companion object {
         private val iconMapCache = ConcurrentHashMap<String, Map<String, String>>()
@@ -46,7 +46,10 @@ class IconPackManager(private val context: Context) {
         if (cached != null) return cached
 
         val newMap = mutableMapOf<String, String>()
-        if (iconPackPackage == "none") return newMap
+        if (iconPackPackage == "none") {
+            iconMapCache[iconPackPackage] = newMap
+            return newMap
+        }
 
         try {
             val iconPackRes = packageManager.getResourcesForApplication(iconPackPackage)
@@ -55,29 +58,42 @@ class IconPackManager(private val context: Context) {
             } catch (e: Exception) {
                 val resId = iconPackRes.getIdentifier("appfilter", "xml", iconPackPackage)
                 if (resId != 0) iconPackRes.openRawResource(resId) else null
-            } ?: return newMap
-
-            val factory = XmlPullParserFactory.newInstance()
-            val parser = factory.newPullParser()
-            parser.setInput(InputStreamReader(inputStream))
-
-            var eventType = parser.eventType
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                if (eventType == XmlPullParser.START_TAG && parser.name == "item") {
-                    val component = parser.getAttributeValue(null, "component")
-                    val drawable = parser.getAttributeValue(null, "drawable")
-                    if (component != null && drawable != null) {
-                        val pkg = extractPackage(component)
-                        if (pkg.isNotEmpty()) newMap[pkg] = drawable
-                    }
-                }
-                eventType = parser.next()
             }
-            inputStream.close()
-            iconMapCache[iconPackPackage] = newMap
+            if (inputStream == null) {
+                // No appfilter at all: cache the empty map so we don't
+                // re-probe the pack on every icon load.
+                iconMapCache[iconPackPackage] = newMap
+                return newMap
+            }
+
+            // use{} closes the stream even when the parser throws
+            // mid-loop (previously close() ran only on the success path,
+            // leaking the stream on a malformed appfilter.xml).
+            inputStream.use { stream ->
+                val factory = XmlPullParserFactory.newInstance()
+                val parser = factory.newPullParser()
+                parser.setInput(InputStreamReader(stream))
+
+                var eventType = parser.eventType
+                while (eventType != XmlPullParser.END_DOCUMENT) {
+                    if (eventType == XmlPullParser.START_TAG && parser.name == "item") {
+                        val component = parser.getAttributeValue(null, "component")
+                        val drawable = parser.getAttributeValue(null, "drawable")
+                        if (component != null && drawable != null) {
+                            val pkg = extractPackage(component)
+                            if (pkg.isNotEmpty()) newMap[pkg] = drawable
+                        }
+                    }
+                    eventType = parser.next()
+                }
+            }
         } catch (e: Exception) {
             Log.e("IconPackManager", "Error parsing appfilter: ${e.message}")
         }
+        // Cache even on failure (possibly partial/empty): a broken
+        // appfilter was re-parsed on every getThemedIcon() call (once per
+        // icon) because the empty map was never cached.
+        iconMapCache[iconPackPackage] = newMap
         return newMap
     }
 
@@ -90,28 +106,41 @@ class IconPackManager(private val context: Context) {
                 return component.substring(start, end)
             }
         }
+        // Plain form: com.pkg/.Activity (or com.pkg/Activity) — split on "/".
+        // Previously this returned "" and the mapping was discarded even
+        // though the drawable exists.
+        val slash = component.indexOf("/")
+        if (slash > 0) {
+            return component.substring(0, slash)
+        }
         return ""
     }
 
     fun getThemedIcon(packageName: String, originalIcon: Drawable, iconPackPackage: String): Drawable {
         if (iconPackPackage == "none") return originalIcon
-        
+
         val map = loadAppFilter(iconPackPackage)
-        
+
+        // Fetch the pack's Resources once per call (was called twice per
+        // icon: once for the direct mapping, once for the heuristic).
+        val iconPackRes = try {
+            packageManager.getResourcesForApplication(iconPackPackage)
+        } catch (e: Exception) {
+            return originalIcon
+        }
+
         // 1. Try direct mapping from appfilter.xml
         val drawableName = map[packageName]
         if (drawableName != null) {
             try {
-                val iconPackRes = packageManager.getResourcesForApplication(iconPackPackage)
                 val resId = iconPackRes.getIdentifier(drawableName, "drawable", iconPackPackage)
                 if (resId != 0) return iconPackRes.getDrawable(resId, null)
             } catch (e: Exception) {}
         }
-        
+
         // 2. Try heuristic mapping (com.pkg.app -> com_pkg_app)
         try {
-            val iconPackRes = packageManager.getResourcesForApplication(iconPackPackage)
-            val resName = packageName.replace(".", "_").lowercase()
+            val resName = packageName.replace(".", "_").lowercase(java.util.Locale.ROOT)
             val resId = iconPackRes.getIdentifier(resName, "drawable", iconPackPackage)
             if (resId != 0) return iconPackRes.getDrawable(resId, null)
         } catch (e: Exception) {}

@@ -54,6 +54,9 @@ object IconShapeHelper {
         }
     }
 
+    /** Tag key marking a pending outline-refresh layout listener (see [applyShape]). */
+    private const val TAG_PENDING_OUTLINE_LISTENER = 0x7E57_0001
+
     fun applyShape(view: ImageView, shape: String) {
         val provider = when (shape) {
             PanelPreferences.SHAPE_SYSTEM -> adaptiveProvider
@@ -70,12 +73,20 @@ object IconShapeHelper {
         
         // Force hardware layer sync
         if (view.width == 0 && view.height == 0) {
-            view.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
-                override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
-                    view.removeOnLayoutChangeListener(this)
-                    view.invalidateOutline()
-                }
-            })
+            // Guard: applyShape can be called twice before the first layout
+            // (a rebind before measure), which would stack a second
+            // listener. Tag the view so at most one outline refresh is
+            // pending; the listener clears the tag when it fires.
+            if (view.getTag(TAG_PENDING_OUTLINE_LISTENER) == null) {
+                view.setTag(TAG_PENDING_OUTLINE_LISTENER, true)
+                view.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
+                        view.removeOnLayoutChangeListener(this)
+                        view.setTag(TAG_PENDING_OUTLINE_LISTENER, null)
+                        view.invalidateOutline()
+                    }
+                })
+            }
         } else {
             view.invalidateOutline()
         }

@@ -154,7 +154,7 @@ class PanelAppsAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        val scale = context.getAutoScalingFactor() * panelPrefs.scaleFactor
+        val scale = panelPrefs.scaleFactor
         val isRich = panelPrefs.uiTheme == PanelPreferences.THEME_RICH
         
         if (holder is AppViewHolder) {
@@ -166,6 +166,15 @@ class PanelAppsAdapter(
             // its captured `app` fires the WRONG tool on the next tap. Clear first,
             // then DRAG_TOOLS rebinding below re-installs the drag listener.
             holder.itemView.setOnTouchListener(null)
+            // Mirror the Add holder's reset: RecyclerView reuses itemView
+            // instances, and scalePulse() (click / drag-tool DOWN) leaves
+            // the view mid-animation if it is rebound before the pulse
+            // finishes — the new item would show shrunk (0.9) or faded
+            // until the stale end-action fires. Cancel and restore identity.
+            holder.itemView.animate().cancel()
+            holder.itemView.alpha = 1f
+            holder.itemView.scaleX = 1f
+            holder.itemView.scaleY = 1f
             // Restore original sizes + scaling
             var baseIconSize = if (isRich) 44 else 40
             if (currentColumns == 2) baseIconSize = (baseIconSize * 1.1).toInt() // 10% larger in 2-col
@@ -364,8 +373,10 @@ class PanelAppsAdapter(
                 // One tick is exactly one hardware media-volume step: 14dp was
                 // the 1% tick distance, and it now scales to the phone's own
                 // media step count (see VolumeStepMath), so the full-range
-                // drag distance stays the same.
-                val tickPx = VolumeStepMath.dpPerStep(mediaMaxSteps(), 14f) * density
+                // drag distance stays the same. Clamp to ≥1px like the other
+                // callers: a sub-pixel tick distance would make one pixel of
+                // movement fire hundreds of ticks.
+                val tickPx = (VolumeStepMath.dpPerStep(mediaMaxSteps(), 14f) * density).coerceAtLeast(1f)
                 val tapSlopPx = 8f * density
                 val longPressMs = LONG_PRESS_DRAG_MS
                 val armTag = 0x20F15EED
@@ -408,7 +419,13 @@ class PanelAppsAdapter(
                                 val direction = if (sinceLastTick > 0f) +1 else -1
                                 val ticks = (Math.abs(sinceLastTick) / tickPx).toInt().coerceAtLeast(1)
                                 repeat(ticks) { onToolDrag.invoke(app.packageName, direction) }
-                                dragState[1] = event.rawY
+                                // Keep the sub-tick remainder: advance the
+                                // anchor by exactly ticks * tickPx instead of
+                                // snapping it to rawY, so the leftover
+                                // fraction still counts toward the next tick
+                                // and a slow drag moves at the same rate as a
+                                // fast one (instead of losing up to a tick per event).
+                                dragState[1] -= direction * ticks * tickPx
                             }
                             true
                         }

@@ -24,9 +24,14 @@ object VolumeStepMath {
      * Drag distance in dp that produces exactly one hardware media-volume
      * step, for a gesture whose 1% distance was [dpPerPercent]. Falls back
      * to [dpPerPercent] when [maxSteps] is not a usable step count.
+     *
+     * The result is floored at 1dp: for an absurd [maxSteps] the raw value
+     * approaches 0, and a sub-pixel tick distance would make one pixel of
+     * movement fire hundreds of ticks (each a binder call) in the adapter,
+     * which doesn't clamp like the other callers.
      */
     fun dpPerStep(maxSteps: Int, dpPerPercent: Float): Float {
         if (maxSteps <= 0 || dpPerPercent <= 0f) return dpPerPercent
-        return dpPerPercent * 100f / maxSteps
+        return (dpPerPercent * 100f / maxSteps).coerceAtLeast(1f)
     }
 }

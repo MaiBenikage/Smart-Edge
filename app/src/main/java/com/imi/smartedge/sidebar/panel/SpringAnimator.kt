@@ -12,8 +12,7 @@ import androidx.interpolator.view.animation.FastOutSlowInInterpolator
  *
  * Improvements:
  *  1. FastOutSlowInInterpolator on alpha fades — matches Material Design motion spec.
- *  2. Adaptive spring stiffness — auto-tunes to device RAM class (flagship/mid/budget).
- *  3. Choreographer-synced start — first frame always aligns to VSYNC, eliminating the
+ *  2. Choreographer-synced start — first frame always aligns to VSYNC, eliminating the
  *     "first-frame flicker" seen on high refresh rate displays (90Hz / 120Hz).
  */
 object SpringAnimator {
@@ -21,12 +20,19 @@ object SpringAnimator {
     private val fadeInterpolator = FastOutSlowInInterpolator()
     private const val SPRING_DAMPING = SpringForce.DAMPING_RATIO_NO_BOUNCY
 
-    // Track active springs to cancel them if a new animation starts on the same view
-    private val activeSprings = java.util.concurrent.ConcurrentHashMap<View, SpringAnimation>()
+    // Track active springs to cancel them if a new animation starts on the same view.
+    // A view can have more than one (popup mode runs a scale-X and a scale-Y
+    // spring together), so this maps a view to its list of live springs.
+    private val activeSprings = java.util.concurrent.ConcurrentHashMap<View, MutableList<SpringAnimation>>()
 
-    fun adaptiveStiffness(): Float {
-        // Balanced stiffness: between LOW (200) and MEDIUM (500) for a calm and smooth feel
-        return 400f
+    private fun trackSpring(view: View, spring: SpringAnimation) {
+        activeSprings.getOrPut(view) { mutableListOf() }.add(spring)
+    }
+
+    private fun untrackSpring(view: View, spring: SpringAnimation) {
+        val list = activeSprings[view] ?: return
+        list.remove(spring)
+        if (list.isEmpty()) activeSprings.remove(view)
     }
 
     fun animateOpen(view: View, panelWidth: Float, stiffness: Float = 400f, isPicker: Boolean = false, slide: Boolean = true, onEnd: (() -> Unit)? = null) {
@@ -66,36 +72,41 @@ object SpringAnimator {
                 .start()
 
             if (slide) {
-                val spring = SpringAnimation(view, DynamicAnimation.TRANSLATION_X, 0f).apply {
-                    this.spring.stiffness = stiffness
-                    this.spring.dampingRatio = SPRING_DAMPING
-                    addEndListener { _, canceled, _, _ ->
-                        // A canceled animation (e.g. close interrupted by a new
-                        // open) must NOT run onEnd — its teardown belongs to the
-                        // old animation and would tear down the new state.
-                        if (canceled) return@addEndListener
-                        activeSprings.remove(view)
-                        view.setLayerType(View.LAYER_TYPE_NONE, null)
-                        onEnd?.invoke()
-                    }
+                val spring = SpringAnimation(view, DynamicAnimation.TRANSLATION_X, 0f)
+                spring.spring.stiffness = stiffness
+                spring.spring.dampingRatio = SPRING_DAMPING
+                spring.addEndListener { _, canceled, _, _ ->
+                    // A canceled animation (e.g. close interrupted by a new
+                    // open) must NOT run onEnd — its teardown belongs to the
+                    // old animation and would tear down the new state.
+                    if (canceled) return@addEndListener
+                    untrackSpring(view, spring)
+                    view.setLayerType(View.LAYER_TYPE_NONE, null)
+                    onEnd?.invoke()
                 }
-                activeSprings[view] = spring
+                trackSpring(view, spring)
                 spring.start()
             } else {
-                // Smooth scale spring for "Popup" mode
-                val scaleXSpring = SpringAnimation(view, DynamicAnimation.SCALE_X, 1f).apply {
-                    this.spring.stiffness = stiffness * 1.2f // Slightly snappier scale
-                    this.spring.dampingRatio = SpringForce.DAMPING_RATIO_LOW_BOUNCY
+                // Smooth scale spring for "Popup" mode. Both springs are
+                // tracked, so a rapid open→close cancels them instead of
+                // leaving them running against the new animation.
+                val scaleXSpring = SpringAnimation(view, DynamicAnimation.SCALE_X, 1f)
+                scaleXSpring.spring.stiffness = stiffness * 1.2f // Slightly snappier scale
+                scaleXSpring.spring.dampingRatio = SpringForce.DAMPING_RATIO_LOW_BOUNCY
+                scaleXSpring.addEndListener { _, canceled, _, _ ->
+                    if (!canceled) untrackSpring(view, scaleXSpring)
                 }
-                val scaleYSpring = SpringAnimation(view, DynamicAnimation.SCALE_Y, 1f).apply {
-                    this.spring.stiffness = stiffness * 1.2f
-                    this.spring.dampingRatio = SpringForce.DAMPING_RATIO_LOW_BOUNCY
-                    addEndListener { _, canceled, _, _ ->
-                        if (canceled) return@addEndListener
-                        view.setLayerType(View.LAYER_TYPE_NONE, null)
-                        onEnd?.invoke()
-                    }
+                val scaleYSpring = SpringAnimation(view, DynamicAnimation.SCALE_Y, 1f)
+                scaleYSpring.spring.stiffness = stiffness * 1.2f
+                scaleYSpring.spring.dampingRatio = SpringForce.DAMPING_RATIO_LOW_BOUNCY
+                scaleYSpring.addEndListener { _, canceled, _, _ ->
+                    if (canceled) return@addEndListener
+                    untrackSpring(view, scaleYSpring)
+                    view.setLayerType(View.LAYER_TYPE_NONE, null)
+                    onEnd?.invoke()
                 }
+                trackSpring(view, scaleXSpring)
+                trackSpring(view, scaleYSpring)
                 scaleXSpring.start()
                 scaleYSpring.start()
             }
@@ -110,11 +121,13 @@ object SpringAnimator {
         else (if (panelWidth > 0) panelWidth else 500f)
 
         if (stiffness <= 0f) {
-            if (slide) view.translationX = targetX
+            // Animations disabled: jump straight to the closed state.
+            // (The old code set translationX = targetX and then immediately
+            // overwrote it with 0f — the first assignment was dead.)
+            view.translationX = if (slide) targetX else 0f
             view.scaleX = 1f
             view.scaleY = 1f
             view.alpha = 0f
-            view.translationX = 0f
             onEnd?.invoke()
             return
         }
@@ -139,31 +152,36 @@ object SpringAnimator {
             .start()
 
         if (slide) {
-            val spring = SpringAnimation(view, DynamicAnimation.TRANSLATION_X, targetX).apply {
-                this.spring.stiffness = stiffness
-                this.spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
-                addEndListener { _, canceled, _, _ ->
-                    // Same guard as animateOpen: a canceled close must not run
-                    // its teardown or it destroys a panel that was re-opened
-                    // mid-close (the "swipe once, panel vanishes" race).
-                    if (canceled) return@addEndListener
-                    activeSprings.remove(view)
-                    view.setLayerType(View.LAYER_TYPE_NONE, null)
-                    view.translationX = 0f
-                    onEnd?.invoke()
-                }
+            val spring = SpringAnimation(view, DynamicAnimation.TRANSLATION_X, targetX)
+            spring.spring.stiffness = stiffness
+            spring.spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+            spring.addEndListener { _, canceled, _, _ ->
+                // Same guard as animateOpen: a canceled close must not run
+                // its teardown or it destroys a panel that was re-opened
+                // mid-close (the "swipe once, panel vanishes" race).
+                if (canceled) return@addEndListener
+                untrackSpring(view, spring)
+                view.setLayerType(View.LAYER_TYPE_NONE, null)
+                view.translationX = 0f
+                onEnd?.invoke()
             }
-            activeSprings[view] = spring
+            trackSpring(view, spring)
             spring.start()
         } else {
-            val scaleXSpring = SpringAnimation(view, DynamicAnimation.SCALE_X, 0.9f).apply {
-                this.spring.stiffness = stiffness * 1.5f
-                this.spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+            val scaleXSpring = SpringAnimation(view, DynamicAnimation.SCALE_X, 0.9f)
+            scaleXSpring.spring.stiffness = stiffness * 1.5f
+            scaleXSpring.spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+            scaleXSpring.addEndListener { _, canceled, _, _ ->
+                if (!canceled) untrackSpring(view, scaleXSpring)
             }
-            val scaleYSpring = SpringAnimation(view, DynamicAnimation.SCALE_Y, 0.9f).apply {
-                this.spring.stiffness = stiffness * 1.5f
-                this.spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+            val scaleYSpring = SpringAnimation(view, DynamicAnimation.SCALE_Y, 0.9f)
+            scaleYSpring.spring.stiffness = stiffness * 1.5f
+            scaleYSpring.spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+            scaleYSpring.addEndListener { _, canceled, _, _ ->
+                if (!canceled) untrackSpring(view, scaleYSpring)
             }
+            trackSpring(view, scaleXSpring)
+            trackSpring(view, scaleYSpring)
             scaleXSpring.start()
             scaleYSpring.start()
         }
@@ -171,7 +189,7 @@ object SpringAnimator {
 
     private fun cancelExisting(view: View) {
         view.animate().cancel()
-        activeSprings.remove(view)?.cancel()
+        activeSprings.remove(view)?.forEach { it.cancel() }
     }
 
     fun scalePulse(view: View) {

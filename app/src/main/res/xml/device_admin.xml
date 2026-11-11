@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-policies>
-        <!-- setKeyguardDisabled(): allow the Black Screen tool to turn the
-             screen off without showing the lock screen on wake. -->
+        <!-- force-lock backs DevicePolicyManager.lockNow(): allow the Lock
+             Screen tool to lock the device immediately. (It does not back
+             setKeyguardDisabled(), which takes no uses-policy.) -->
         <force-lock />
-        <!-- lockNow(): allow the Lock Screen tool to lock the device
-             immediately via DevicePolicyManager. -->
     </uses-policies>
 </device-admin>

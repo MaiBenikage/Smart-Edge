@@ -88,7 +88,7 @@ class SidePanelView @JvmOverloads constructor(
     private val springRotation: SpringAnimation = SpringAnimation(binding.btnClose, SpringAnimation.ROTATION)
 
     private fun getFinalScaleFactor(): Float {
-        return context.getAutoScalingFactor() * panelPrefs.scaleFactor
+        return panelPrefs.scaleFactor
     }
 
     private val updateHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -112,11 +112,12 @@ class SidePanelView @JvmOverloads constructor(
     //   [0] = anchored rawY on ACTION_DOWN
     //   [1] = last rawY at which onStep fired (delta is computed relative to this)
     //   [2] = start rawY for tap-vs-drag classification on ACTION_UP
-    private val volumeDragState = FloatArray(3)
-    private val brightnessDragState = FloatArray(3)
-    // Accumulated vertical travel (px) between emitted units for the drag buttons,
-    // mirroring the edge-slide gesture's pixelsPerUnit accumulation.
-    private var accumulatedDragPx = 0f
+    //   [3] = accumulated vertical travel (px) between emitted units.
+    //         Per-button on purpose: the volume and brightness buttons must
+    //         not share one accumulator, or a half-unit left over on one
+    //         button would leak into the other button's next drag.
+    private val volumeDragState = FloatArray(4)
+    private val brightnessDragState = FloatArray(4)
 
     // Dedicated handler + transient indicator used by the drag buttons. Distinct
     // from [updateHandler] / [updateRunnable] (which drive the periodic system-info
@@ -226,7 +227,6 @@ class SidePanelView @JvmOverloads constructor(
                 when (toolId) {
                     "smartedge.tool.volume_up" -> {
                         adjustVolumeByStep(direction)
-                        showVolumeIndicator()
                     }
                     "smartedge.tool.brightness_up" -> {
                         adjustBrightnessByPercent(direction)
@@ -437,7 +437,6 @@ class SidePanelView @JvmOverloads constructor(
                     // edge-slide); the drag distance per unit adapts to the
                     // phone's media step count.
                     adjustVolumeByStep(direction)
-                    showVolumeIndicator()
                 }
             )
         }
@@ -519,49 +518,7 @@ class SidePanelView @JvmOverloads constructor(
         val screenHeightDp = screenHeightPx / displayMetrics.density
 
         // Subtract estimated height of other UI elements (paddings, tools, close button)
-        // Top Padding (12) + Bottom Padding (4) + Tools Margin (4) + Close Btn (48) = 68dp
-        var nonAppHeightDp = 68f
-
-        val isGameMode = isGameMode()
-        val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
-
-        if (panelPrefs.showTools && navigationStack.isEmpty()) {
-            val enabledTools: List<Boolean> = listOf(
-                // Order MUST match getToolCellList()
-                panelPrefs.showPowerMenu,
-                panelPrefs.showVolumeKeys,
-                panelPrefs.showBrightnessKeys,
-                panelPrefs.showScreenshotTool,
-                panelPrefs.showBlackScreenTool,
-                panelPrefs.showLockScreenTool,
-                panelPrefs.showContentPickerTool
-            )
-            val enabledCount = enabledTools.count { it }
-            val hasStandardTools = enabledCount > 0
-
-            // Only allocate height for tools section if something is actually
-            // visible (either standard tools or SysInfo). This prevents
-            // compressing the RecyclerView when the tools container is GONE
-            // (e.g., all individual tools disabled but showTools master ON).
-            if (hasStandardTools || showSysInfoEffective) {
-                // In 2-col mode two tools share a single GridLayout row.
-                // Actual cell height: 32dp button + 2dp gap + ~12dp label + 4dp margin ≈ 50dp
-                val perToolRowDp = 76f
-
-                if (hasStandardTools) {
-                    // Divider: 1dp line + 8dp bottom margin = 9dp
-                    nonAppHeightDp += 9f
-                    val toolRows = if (currentCols == 2) {
-                        (enabledCount + 1) / 2  // ceil division
-                    } else {
-                        enabledCount
-                    }
-                    nonAppHeightDp += perToolRowDp * toolRows
-                }
-
-                if (showSysInfoEffective) nonAppHeightDp += 30f
-            }
-        }
+        val nonAppHeightDp = computeNonAppHeightDp()
 
         // Apps / Recent split: when the Recent section is visible the two
         // lists share one height budget — the height they would have
@@ -582,11 +539,14 @@ class SidePanelView @JvmOverloads constructor(
             nonAppHeightDp = nonAppHeightDp,
             recentChromeDp = recentChromeDp
         )
-        // Maximum allowed height for RV to keep panel within screen (with 24dp safety margin)
-        val targetRvHeightDp = splitHeights?.first
+        // Maximum allowed height for RV to keep panel within screen (with 24dp safety margin).
+        // The lower clamp mirrors the split path's 56dp floor (one partial
+        // row): without it a 0/negative panelMaxHeight collapses the list
+        // to 0dp, while the split path never goes below 56dp.
+        val targetRvHeightDp = (splitHeights?.first
             ?: panelPrefs.panelMaxHeight.toFloat().coerceAtMost(
                 (screenHeightDp - nonAppHeightDp - 24).coerceAtLeast(100f)
-            )
+            )).coerceAtLeast(AppsRecentSplit.MIN_LIST_HEIGHT_DP)
         // Apply the recent list's share of the budget here as well, so the
         // two heights can never fight: updateSideLayout() is the single
         // source of truth for both heights, and applyRecentMaxHeight()
@@ -697,6 +657,13 @@ class SidePanelView @JvmOverloads constructor(
         // guarantees neither receives a degenerate value, regardless of what
         // FloatingPanelService / SavedInstanceState data pass in.
         val safe = cols.coerceIn(1, 2)
+        // Preserve scroll across the span-count reflow — but only when no
+        // round-trip save is already pending. openPicker saves first and
+        // closePicker restores; a save here would overwrite its snapshot
+        // with the picker's own scrolled position and the close restore
+        // would then return to the picker position, not the pre-picker one.
+        val ownSave = savedAppsScroll == null && savedRecentScroll == null
+        if (ownSave) saveListScrollStates()
         currentCols = safe
         adapter.setColumns(safe)
         (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = safe
@@ -709,6 +676,7 @@ class SidePanelView @JvmOverloads constructor(
         (binding.rvRecentApps.layoutManager as? GridLayoutManager)?.spanCount = safe
         syncToolsGridColumns()
         updateSideLayout()
+        if (ownSave) restoreListScrollStates()
     }
 
     /**
@@ -747,7 +715,8 @@ class SidePanelView @JvmOverloads constructor(
                     val count = adapter.itemCount
                     if (lm != null && count > 0) {
                         lm.scrollToPositionWithOffset(
-                            apps.position.coerceIn(0, count - 1), apps.top
+                            apps.position.coerceIn(0, count - 1),
+                            clampScrollTop(apps.top)
                         )
                     }
                 }
@@ -757,7 +726,8 @@ class SidePanelView @JvmOverloads constructor(
                     val count = recentAdapter.itemCount
                     if (lm != null && count > 0) {
                         lm.scrollToPositionWithOffset(
-                            recent.position.coerceIn(0, count - 1), recent.top
+                            recent.position.coerceIn(0, count - 1),
+                            clampScrollTop(recent.top)
                         )
                     }
                 }
@@ -775,6 +745,20 @@ class SidePanelView @JvmOverloads constructor(
         val pos = lm.findFirstVisibleItemPosition()
         if (pos == androidx.recyclerview.widget.RecyclerView.NO_POSITION) return null
         return ListScrollState(pos, lm.findViewByPosition(pos)?.top ?: 0)
+    }
+
+    /**
+     * Clamp a restored scroll top offset to [-itemHeight, 0]. The top of
+     * the first visible item is 0 when it is fully visible and negative
+     * while it is partially scrolled off the top; anything outside that
+     * range (a stale persisted pref, or a snapshot taken under a different
+     * column count) would jump the list to a wrong position.
+     * Item height here is the grid cell height (40dp icon + ~8sp label +
+     * vertical padding ≈ 68dp) shared by both lists.
+     */
+    private fun clampScrollTop(top: Int): Int {
+        val itemHeightPx = (68 * resources.displayMetrics.density).toInt()
+        return top.coerceIn(-itemHeightPx, 0)
     }
 
     fun setEditButtonVisible(visible: Boolean) {
@@ -821,7 +805,7 @@ class SidePanelView @JvmOverloads constructor(
                     val count = adapter.itemCount
                     val pos = panelPrefs.lastSidebarScrollPos.coerceIn(0, (count - 1).coerceAtLeast(0))
                     if (lm != null && count > 0) {
-                        lm.scrollToPositionWithOffset(pos, panelPrefs.lastSidebarScrollTop)
+                        lm.scrollToPositionWithOffset(pos, clampScrollTop(panelPrefs.lastSidebarScrollTop))
                     }
                     binding.rvPanelApps.post { isRestoringScroll = false }
                 }
@@ -839,27 +823,52 @@ class SidePanelView @JvmOverloads constructor(
      * Update the "Recent" section. Called by the host service alongside
      * [setApps]; hidden when the feature is off, when inside a folder, or
      * when there is no recorded history yet.
+     *
+     * [sidebarApps] is the list just handed to [setApps] (the service's
+     * own copy — including the Tools folder button and any
+     * notification-prepended apps). It is passed in explicitly instead of
+     * reading `adapter.currentList`, because submitList() commits
+     * asynchronously: if setApps() hasn't committed yet, currentList is
+     * the stale list and the exclusion misses apps that were just added
+     * (or wrongly excludes apps that were just removed), so the Recent
+     * section can duplicate the sidebar.
      */
-    fun setRecentApps(apps: List<AppInfo>) {
+    fun setRecentApps(apps: List<AppInfo>, sidebarApps: List<AppInfo>) {
         // Defence in depth for the no-duplication rule: the service already
         // excludes sidebar apps before the recent-count limit, but any
         // future caller of setRecentApps gets the same guarantee here.
-        // The sidebar list is adapter.currentList (set by setApps, which
-        // refreshApps() always calls first).
         val filteredApps = apps.filter {
-            it.packageName !in RecentAppsManager.excludedPackagesFor(adapter.currentList)
+            it.packageName !in RecentAppsManager.excludedPackagesFor(sidebarApps)
         }
         val visible = panelPrefs.recentEnabled &&
             navigationStack.isEmpty() &&
             filteredApps.isNotEmpty()
         val list = if (visible) filteredApps else emptyList()
         binding.layoutRecentSection.visibility = if (visible) View.VISIBLE else View.GONE
+        // Preserve the recent list's scroll position across the refresh:
+        // submitList() resets it to the top otherwise. Kept in a local
+        // snapshot (not the shared save/restore fields) so it can't
+        // clobber a picker round-trip save in progress.
+        val recentScroll = scrollStateOf(binding.rvRecentApps)
         // submitList() commits asynchronously — size the list AND re-budget
         // the main list height in the commit callback so recentListHeightDp()
         // reads the new item count, not the stale one.
         recentAdapter.submitList(list) {
             applyRecentMaxHeight()
             updateSideLayout()
+            if (recentScroll != null) {
+                binding.rvRecentApps.post {
+                    val lm = binding.rvRecentApps.layoutManager
+                        as? androidx.recyclerview.widget.LinearLayoutManager
+                    val count = recentAdapter.itemCount
+                    if (lm != null && count > 0) {
+                        lm.scrollToPositionWithOffset(
+                            recentScroll.position.coerceIn(0, count - 1),
+                            clampScrollTop(recentScroll.top)
+                        )
+                    }
+                }
+            }
         }
         updateSideLayout()
     }
@@ -922,6 +931,39 @@ class SidePanelView @JvmOverloads constructor(
      * @param recentChromeDp recent divider+header (28dp) + separator height,
      * or 0 when the section is hidden.
      */
+    /**
+     * Height (dp) of everything in the panel except the two lists — chrome
+     * that updateSideLayout() subtracts before splitting the remaining
+     * budget between the app list and the recent list. Shared by
+     * updateSideLayout() and the separator drag so both use the same
+     * budget: the drag must map 100% of its travel to the split budget,
+     * not to the lists' measured heights (which shrink to content when a
+     * list is short, making the same drag move the percent too far).
+     */
+    private fun computeNonAppHeightDp(): Float {
+        // The height math lives in ToolsLayout (pure, unit-tested) so the
+        // test suite calls the real implementation instead of a mirror.
+        val isGameMode = isGameMode()
+        val showSysInfoEffective = panelPrefs.showSysInfo || isGameMode
+        val tools = ToolsLayout.ToolsVisibility(
+            // Order MUST match getToolCellList()
+            showPower = panelPrefs.showPowerMenu,
+            showVolume = panelPrefs.showVolumeKeys,
+            showBrightness = panelPrefs.showBrightnessKeys,
+            showScreenshot = panelPrefs.showScreenshotTool,
+            showBlackScreen = panelPrefs.showBlackScreenTool,
+            showLockScreen = panelPrefs.showLockScreenTool,
+            showContentPicker = panelPrefs.showContentPickerTool
+        )
+        return ToolsLayout.nonAppHeightDp(
+            tools = tools,
+            showTools = panelPrefs.showTools,
+            inFolder = navigationStack.isNotEmpty(),
+            gridCols = currentCols,
+            showSysInfo = showSysInfoEffective
+        )
+    }
+
     private fun splitHeightsDp(
         screenHeightDp: Float,
         nonAppHeightDp: Float,
@@ -963,26 +1005,20 @@ class SidePanelView @JvmOverloads constructor(
                 if (binding.layoutRecentSection.visibility != View.VISIBLE) return false
                 val displayMetrics = resources.displayMetrics
                 val screenHeightDp = displayMetrics.heightPixels / displayMetrics.density
-                // Reconstruct the budget inputs updateSideLayout() uses.
-                // nonAppHeightDp here is approximated from the current
-                // measured heights: the budget in px is simply the two
-                // lists' current heights, which updateSideLayout() set from
-                // the same split — robust even if chrome changed since.
-                val currentBudgetPx = binding.rvPanelApps.height +
-                    binding.rvRecentApps.height
-                if (currentBudgetPx <= 0) {
-                    // Lists not laid out yet (e.g. drag during first frame):
-                    // fall back to the dp budget calculation.
-                    val split = splitHeightsDp(
-                        screenHeightDp = screenHeightDp,
-                        nonAppHeightDp = 68f,
-                        recentChromeDp = 28f + SEPARATOR_HEIGHT_DP
-                    ) ?: return false
-                    separatorDragStartBudgetPx =
-                        ((split.first + split.second) * displayMetrics.density).toInt()
-                } else {
-                    separatorDragStartBudgetPx = currentBudgetPx
-                }
+                // The drag budget is the split budget updateSideLayout()
+                // uses (same inputs: computeNonAppHeightDp +
+                // recentChromeDp), NOT the lists' measured heights: a short
+                // list shrinks to its content, so the measured sum is
+                // smaller than the budget and the same drag would move the
+                // percent too far. This also works before first layout.
+                val split = splitHeightsDp(
+                    screenHeightDp = screenHeightDp,
+                    nonAppHeightDp = computeNonAppHeightDp(),
+                    recentChromeDp = 28f + SEPARATOR_HEIGHT_DP
+                ) ?: return false
+                separatorDragStartBudgetPx =
+                    ((split.first + split.second) * displayMetrics.density).toInt()
+                if (separatorDragStartBudgetPx <= 0) return false
                 separatorDragStartY = event.rawY
                 separatorDragStartSplit = currentSplitPercent()
                 dragSplitPercent = separatorDragStartSplit
@@ -1039,6 +1075,10 @@ class SidePanelView @JvmOverloads constructor(
     fun updateStyles() {
         if (!isPickerOpenInternal) {
             val isGameMode = isGameMode()
+            // Preserve scroll across the span-count reflow (same own-save
+            // guard as setColumns: never clobber a pending round-trip save).
+            val ownSave = savedAppsScroll == null && savedRecentScroll == null
+            if (ownSave) saveListScrollStates()
             currentCols = (if (isGameMode) 2 else panelPrefs.panelColumns).coerceIn(1, 2)
             (binding.rvPanelApps.layoutManager as? GridLayoutManager)?.spanCount = currentCols
             adapter.setColumns(currentCols)
@@ -1053,6 +1093,7 @@ class SidePanelView @JvmOverloads constructor(
             // missing in 2-column mode.
             syncToolsGridColumns()
             updateSideLayout()
+            if (ownSave) restoreListScrollStates()
             // Belt-and-suspenders: post a second pass after the current frame
             // layout pass settles, so OEM GridLayout forks get refreshed specs.
             // Removed post{} second-pass: the clear-and-re-add strategy in
@@ -1286,12 +1327,10 @@ class SidePanelView @JvmOverloads constructor(
         } catch (e: Exception) {}
     }
 
-    // 1% step accumulator for brightness, shared with the edge-slide path
-    // (FloatingPanelService): 1% of brightness is 2.55 of 255 levels, so
-    // sub-level percentages accumulate until they make a whole level.
     // Volume no longer accumulates — one drag tick is exactly one hardware
-    // media step (see adjustVolumeByStep and VolumeStepMath).
-    private val brightnessStepAccumulator = PercentStepAccumulator()
+    // media step (see adjustVolumeByStep and VolumeStepMath). Brightness
+    // still accumulates 1% steps, in the shared accumulator (see
+    // PanelPreferences.brightnessStepAccumulator).
 
     /** Live media-volume step count for this phone (e.g. 160, 15, 7). */
     private fun mediaMaxSteps(): Int {
@@ -1313,7 +1352,10 @@ class SidePanelView @JvmOverloads constructor(
     private fun adjustVolumeByStep(steps: Int) {
         if (steps == 0) return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        MediaVolumeApplier.apply(audioManager, steps)
+        // The indicator is refreshed by the callback, not by the callers:
+        // the shell fallback (if needed) lands on a background thread, and
+        // the indicator must show the volume after it lands, not before.
+        MediaVolumeApplier.apply(audioManager, steps) { showVolumeIndicator() }
     }
 
     /**
@@ -1325,16 +1367,21 @@ class SidePanelView @JvmOverloads constructor(
     private fun adjustBrightnessByPercent(deltaPercent: Int) {
         try {
             if (!android.provider.Settings.System.canWrite(context)) {
-                android.widget.Toast.makeText(
-                    context,
-                    context.getString(R.string.toast_write_settings_required),
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-                val intent = Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                    data = android.net.Uri.parse("package:${context.packageName}")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Throttle the prompt (see FloatingPanelService.adjustBrightness):
+                // every brightness tick while the permission is missing would
+                // otherwise re-launch the settings screen.
+                if (panelPrefs.shouldPromptWriteSettings()) {
+                    android.widget.Toast.makeText(
+                        context,
+                        context.getString(R.string.toast_write_settings_required),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
                 }
-                context.startActivity(intent)
                 return
             }
             val cResolver = context.contentResolver
@@ -1349,12 +1396,17 @@ class SidePanelView @JvmOverloads constructor(
                 125
             )
             // 1% = 2.55 levels on the 0..255 scale; the fractional part
-            // accumulates in brightnessStepAccumulator until it makes a
-            // whole level, so the applied change averages exactly
-            // deltaPercent percent points.
-            val units = brightnessStepAccumulator.add(deltaPercent, MAX_BRIGHTNESS)
+            // accumulates in the shared brightnessStepAccumulator (see
+            // PanelPreferences) until it makes a whole level, so the applied
+            // change averages exactly deltaPercent percent points.
+            val units = panelPrefs.brightnessStepAccumulator.add(deltaPercent, MAX_BRIGHTNESS)
             if (units == 0) return
             val brightness = (current + units).coerceIn(0, MAX_BRIGHTNESS)
+            // Refund the steps the clamp swallowed (see FloatingPanelService
+            // .adjustBrightness): percent dragged against the 0/255 stop
+            // must not be silently consumed.
+            val unlanded = units - (brightness - current)
+            if (unlanded != 0) panelPrefs.brightnessStepAccumulator.refund(unlanded, MAX_BRIGHTNESS)
             android.provider.Settings.System.putInt(
                 cResolver,
                 android.provider.Settings.System.SCREEN_BRIGHTNESS,
@@ -1431,6 +1483,7 @@ class SidePanelView @JvmOverloads constructor(
                 dragState[0] = event.rawY
                 dragState[1] = event.rawY
                 dragState[2] = event.rawY
+                dragState[3] = 0f
                 view.setTag(tagKey, false)
                 // Cancel any previous arm callback.
                 (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
@@ -1470,21 +1523,26 @@ class SidePanelView @JvmOverloads constructor(
                 }
                 // Armed: accumulate vertical travel and emit whole units, exactly
                 // like the edge-slide gesture (EdgeHandleView). A fast flick can
-                // produce multiple units in one event.
+                // produce multiple units in one event. The accumulator lives in
+                // this button's own dragState[3], so the two buttons can't
+                // leak leftover travel into each other.
+                // The button also visually tracks the finger (±60dp) so the
+                // drag feels connected; it springs back on UP/CANCEL.
+                view.translationY = (event.rawY - dragState[2]).coerceIn(-60f * density, 60f * density)
                 val dy = dragState[1] - event.rawY
                 dragState[1] = event.rawY
-                accumulatedDragPx += dy
-                val absAccum = Math.abs(accumulatedDragPx)
+                dragState[3] += dy
+                val absAccum = Math.abs(dragState[3])
                 if (absAccum >= pixelsPerUnit) {
                     val units = (absAccum / pixelsPerUnit).toInt().coerceAtLeast(1)
-                    val direction = if (accumulatedDragPx > 0f) +1 else -1
+                    val direction = if (dragState[3] > 0f) +1 else -1
                     repeat(units) { onStep(direction) }
-                    accumulatedDragPx -= direction * units * pixelsPerUnit
+                    dragState[3] -= direction * units * pixelsPerUnit
                 }
                 true
             }
             android.view.MotionEvent.ACTION_UP -> {
-                view.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
+                view.animate().translationY(0f).scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
                 val armed = view.getTag(tagKey) as? Boolean ?: false
                 val totalTravel = Math.abs(event.rawY - dragState[2])
@@ -1492,14 +1550,14 @@ class SidePanelView @JvmOverloads constructor(
                     onTap()
                 }
                 view.setTag(tagKey, false)
-                accumulatedDragPx = 0f
+                dragState[3] = 0f
                 true
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
-                view.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
+                view.animate().translationY(0f).scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 (view.getTag(tagKey + 1) as? Runnable)?.let { view.removeCallbacks(it) }
                 view.setTag(tagKey, false)
-                accumulatedDragPx = 0f
+                dragState[3] = 0f
                 true
             }
             else -> false

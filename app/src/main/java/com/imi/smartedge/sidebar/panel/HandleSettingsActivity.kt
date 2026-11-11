@@ -28,6 +28,22 @@ class HandleSettingsActivity : AppCompatActivity() {
         
         loadCurrentSettings()
         setupListeners()
+        handleDeepLink()
+    }
+
+    private fun handleDeepLink() {
+        val targetId = intent.getStringExtra(SettingsMainActivity.EXTRA_SCROLL_TO) ?: return
+        val viewId = resources.getIdentifier(targetId, "id", packageName)
+        if (viewId != 0) {
+            val targetView = findViewById<View>(viewId)
+            targetView?.post {
+                val rect = android.graphics.Rect()
+                targetView.getDrawingRect(rect)
+                binding.root.offsetDescendantRectToMyCoords(targetView, rect)
+                binding.handleScrollView.smoothScrollTo(0, rect.top - 200)
+                targetView.highlightView()
+            }
+        }
     }
 
     private fun loadCurrentSettings() {

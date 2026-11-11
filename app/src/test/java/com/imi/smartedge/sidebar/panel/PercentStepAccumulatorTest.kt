@@ -176,4 +176,31 @@ class PercentStepAccumulatorTest {
             assertTrue(kotlin.math.abs(acc.pendingPercent()) < oneStep + 0.001)
         }
     }
+
+    @Test
+    fun `scale change does not emit a spurious jump`() {
+        // A10: the total percent is scale-independent, but the steps
+        // already handed out are in the old scale's units. Without the
+        // rebase, 50% at scale 15 (7 steps) then +1% at scale 255
+        // returned 123 levels in one call. With the rebase the second
+        // call returns just the new percent's worth (3 levels).
+        val acc = PercentStepAccumulator()
+        assertEquals(7, acc.add(50, 15))
+        assertEquals(3, acc.add(1, 255))
+        // Reaching 100% at the new scale emits the remaining levels:
+        // 100% of 255 is 255 levels, 130 already accounted for, so 125.
+        assertEquals(125, acc.add(49, 255))
+    }
+
+    @Test
+    fun `scale change keeps the remainder valid`() {
+        // 50% at scale 15, then the scale changes to 255: the pending
+        // remainder (0.5% of a step) carries over instead of being lost
+        // or double-counted.
+        val acc = PercentStepAccumulator()
+        acc.add(50, 15) // 7 steps, 0.5% of a 15-step device pending (50% = 7.5 steps)
+        // One more percent at the new scale: 51% of 255 = 130 levels total.
+        val steps = acc.add(1, 255)
+        assertTrue("second call returns a small step count, got $steps", steps in 0..5)
+    }
 }

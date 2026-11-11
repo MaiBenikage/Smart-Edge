@@ -58,6 +58,7 @@ class FloatingPanelService : Service() {
     private var screenshotPrevAlphas: List<Float>? = null
     private val screenshotRestoreRunnable = Runnable { restoreScreenshotUi() }
     private var savedBrightness: Int = 0
+    private var savedBrightnessFloat: Float? = null
     private var savedBrightnessMode: Int = android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
     /** Original screen-off timeout (ms) saved before true screen-off, restored on exit. */
     private var savedScreenOffTimeout: Int = -1
@@ -120,13 +121,23 @@ class FloatingPanelService : Service() {
 
             // If it was removed, purge all references to this package.
             if (action == Intent.ACTION_PACKAGE_REMOVED && !intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) {
-                panelPrefs.removeApp(packageName)
-                // Drop intent-URI pins that target the uninstalled package (parseUri, not substring).
-                val remaining = panelPrefs.getPanelApps().filterNot { id ->
-                    id.startsWith("intent:") && repository.intentUriTargetsPackage(id, packageName)
-                }
-                if (remaining.size != panelPrefs.getPanelApps().size) {
-                    panelPrefs.setPanelApps(remaining)
+                // One read, one write, under the shared panel-apps lock:
+                // the old code read getPanelApps() twice (once for the
+                // filter, once for the size check) outside the lock, so a
+                // concurrent edit between the two reads could make the size
+                // check pass against a stale list and the write clobber it.
+                // (synchronized is re-entrant, so removeApp/setPanelApps
+                // taking the same lock inside is safe.)
+                synchronized(PanelPreferences.PANEL_APPS_LOCK) {
+                    panelPrefs.removeApp(packageName)
+                    // Drop intent-URI pins that target the uninstalled package (parseUri, not substring).
+                    val current = panelPrefs.getPanelApps()
+                    val remaining = current.filterNot { id ->
+                        id.startsWith("intent:") && repository.intentUriTargetsPackage(id, packageName)
+                    }
+                    if (remaining.size != current.size) {
+                        panelPrefs.setPanelApps(remaining)
+                    }
                 }
                 panelPrefs.setGameApps(panelPrefs.getGameApps().filterNot { it == packageName })
                 panelPrefs.setFullscreenWhitelist(
@@ -207,18 +218,22 @@ class FloatingPanelService : Service() {
         // Shizuku binder dies at runtime. A localized Snackbar (with Toast fallback
         // if no anchor View exists yet) is now surfaced instead of the old plain toast.
         AutomationManager.refresh()
-        AutomationManager.onEngineLost = {
-            if (panelPrefs.useAutomationForGestures) {
-                showEngineLostSnackbar()
-                addEdgeHandle()
-            }
-        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             TileService.requestListeningState(this, android.content.ComponentName(this, PanelTileService::class.java))
         }
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         panelPrefs = PanelPreferences(this)
+        // The engine-lost callback reads panelPrefs, so it must be assigned
+        // AFTER panelPrefs exists: if the engine dies between service start
+        // and this line, the callback would read an uninitialised lateinit
+        // and crash the service instead of showing the Snackbar.
+        AutomationManager.onEngineLost = {
+            if (panelPrefs.useAutomationForGestures) {
+                showEngineLostSnackbar()
+                addEdgeHandle()
+            }
+        }
         // Audit L1: provision the shared repository BEFORE initSidePanel() calls
         // refreshApps() — otherwise the launch would NPE on repository.getPanelApps().
         repository = AppRepository(this)
@@ -487,10 +502,14 @@ class FloatingPanelService : Service() {
                 startService(intent)
             } catch (e: SecurityException) {
                 Log.e(TAG, "startService(PanelAccessibilityService) denied; falling back to AutomationManager.takeScreenshot()", e)
-                try {
-                    AutomationManager.takeScreenshot()
-                } catch (e2: Exception) {
-                    Log.e(TAG, "Automation fallback also failed", e2)
+                // Never block the main thread on a shell call (it can take
+                // seconds on a cold engine probe); see ActionDispatcher.
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        AutomationManager.takeScreenshot()
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "Automation fallback also failed", e2)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to dispatch screenshot intent", e)
@@ -595,11 +614,16 @@ class FloatingPanelService : Service() {
                 startService(intent)
             } catch (e2: SecurityException) {
                 Log.e(TAG, "startService denied for lock; trying AutomationManager", e2)
-                try {
-                    AutomationManager.performLockScreen()
-                } catch (e3: Exception) {
-                    Log.e(TAG, "Automation lock fallback failed", e3)
-                    showIndicator(getString(R.string.toast_lock_screen_failed))
+                // Never block the main thread on a shell call (it can take
+                // seconds on a cold engine probe); see ActionDispatcher.
+                // The failure indicator must be posted back to the main thread.
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        AutomationManager.performLockScreen()
+                    } catch (e3: Exception) {
+                        Log.e(TAG, "Automation lock fallback failed", e3)
+                        handler.post { showIndicator(getString(R.string.toast_lock_screen_failed)) }
+                    }
                 }
             } catch (e2: Exception) {
                 Log.e(TAG, "Accessibility lock fallback failed", e2)
@@ -1012,13 +1036,35 @@ class FloatingPanelService : Service() {
                             it
                         )
                     } catch (_: Exception) {}
-                }} else null
+                }} else null,
+                // Capture the pre-dim float so dismiss can restore it (A2):
+                // on Android 12+ the system slider follows the float, not
+                // the int, so restoring only the int leaves the device dim.
+                readFloatBrightness = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    {
+                        val intBrightness = android.provider.Settings.System.getInt(
+                            resolver,
+                            android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                            125
+                        )
+                        try {
+                            android.provider.Settings.System.getFloat(
+                                resolver,
+                                "screen_brightness_float",
+                                intBrightness / 255f
+                            )
+                        } catch (_: Exception) {
+                            intBrightness / 255f
+                        }
+                    }
+                } else null
             )
             savedBrightnessMode = if (snapshot.autoMode)
                 android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
             else
                 android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
             savedBrightness = snapshot.brightness
+            savedBrightnessFloat = snapshot.floatBrightness
 
             // 4. Wake lock strategy — two modes:
             //    - True screen-off (device admin active + pref enabled):
@@ -1153,11 +1199,25 @@ class FloatingPanelService : Service() {
             handler.postDelayed({
                 blackScreenOverlay?.let { overlay ->
                     blackScreenOverlayParams?.let { params ->
-                        windowManager.addView(overlay, params)
-                        // Ensure the overlay owns focus so Back is delivered here.
-                        overlay.isFocusableInTouchMode = true
-                        overlay.requestFocus()
-                        hideSystemBarsForOverlay(overlay)
+                        try {
+                            windowManager.addView(overlay, params)
+                            // Ensure the overlay owns focus so Back is delivered here.
+                            overlay.isFocusableInTouchMode = true
+                            overlay.requestFocus()
+                            hideSystemBarsForOverlay(overlay)
+                        } catch (e: Exception) {
+                            // addView runs on a delay, outside the outer
+                            // try/catch: a failure here (e.g. the overlay
+                            // permission was revoked after activation) used
+                            // to leave the device dimmed at minimum
+                            // brightness with a wake lock held and no
+                            // overlay. Tear the session down — that restores
+                            // brightness, releases the wake lock and clears
+                            // the overlay — and report the failure.
+                            Log.e(TAG, "Failed to add black screen overlay", e)
+                            deactivateBlackScreen()
+                            showIndicator(getString(R.string.toast_black_screen_failed))
+                        }
                     }
                 }
             }, BLACK_SCREEN_OVERLAY_DELAY_MS)
@@ -1243,7 +1303,8 @@ class FloatingPanelService : Service() {
             restoreBrightness(
                 snapshot = BrightnessSnapshot(
                     autoMode = savedBrightnessMode == android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC,
-                    brightness = savedBrightness
+                    brightness = savedBrightness,
+                    floatBrightness = savedBrightnessFloat
                 ),
                 setBrightness = { value ->
                     if (canWrite) {
@@ -1263,7 +1324,24 @@ class FloatingPanelService : Service() {
                             else android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
                         )
                     }
-                }
+                },
+                setFloatBrightness = if (canWrite && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { value ->
+                    try {
+                        android.provider.Settings.System.putFloat(
+                            resolver,
+                            "screen_brightness_float",
+                            value
+                        )
+                    } catch (_: Exception) {
+                        try {
+                            android.provider.Settings.System.putString(
+                                resolver,
+                                "screen_brightness_float",
+                                value.toString()
+                            )
+                        } catch (_: Exception) {}
+                    }
+                } else null
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to restore brightness", e)
@@ -1308,13 +1386,17 @@ class FloatingPanelService : Service() {
         // Drop screenshot-restore state so it doesn't pin Views across restarts.
         screenshotHideViews = null
         screenshotPrevAlphas = null
-        // Round-13 audit M2: also nil out the indicator TextView reference.
-        // Even though `removeView(rootLayout)` removes the FrameLayout and its
-        // children from WindowManager, the Kotlin property here still holds a
-        // hard reference to the TextView object, which transitively anchors
-        // the View internals (mContext, mAttachInfo, mListenerInfo). Across
-        // service restarts that pile up. The fade-runnable cancellation above
-        // removes the timing path; this drops the memory anchor.
+        // Remove the standalone indicator overlay if it is still attached
+        // (avoids WindowLeaked when the service dies while it is visible).
+        // Round-13 audit M2: also nil out the TextView reference — the
+        // property holds a hard reference to the View object, which
+        // transitively anchors the View internals (mContext, mAttachInfo,
+        // mListenerInfo). Across service restarts that pile up. The
+        // fade-runnable cancellation above removes the timing path; this
+        // drops the memory anchor.
+        indicatorText?.let { tv ->
+            try { if (tv.isAttachedToWindow) windowManager.removeView(tv) } catch (e: Exception) {}
+        }
         indicatorFadeRunnable = null
         indicatorText = null
         // Audit L2: cancel the AppRepository's preload scope BEFORE tearing
@@ -1486,17 +1568,63 @@ class FloatingPanelService : Service() {
         }
     }
 
-    private fun addEdgeHandle(forceRecreate: Boolean = false) {
-        val anyTriggerEnabled = panelPrefs.gesturesEnabled || 
-                                panelPrefs.tapToOpen || 
-                                panelPrefs.doubleTapToOpen || 
-                                panelPrefs.tripleTapToOpen
+    /**
+     * Edge-handle window height in px. Pill visible: the configured handle
+     * height. Pill hidden: 1.5x that height — the invisible edge strip is
+     * still a touch target, but it must not span 60% of the screen. The
+     * create path used 1.5x and the update path used 60% of screen height,
+     * so the handle silently changed size after any preference edit; one
+     * formula (the first-run 1.5x) is used by both paths now.
+     */
+    private fun handleHeightPx(isPillVisible: Boolean): Int {
+        return if (isPillVisible) dpToPx(panelPrefs.handleHeight)
+        else dpToPx((panelPrefs.handleHeight * 1.5f).toInt())
+    }
 
+    /**
+     * Single source of truth for whether the edge handle may be shown.
+     * Combines every policy that gates it: at least one trigger enabled,
+     * not landscape when landscape is disabled, home-only when not on the
+     * launcher, and an active engine (Accessibility or Automation).
+     * Used by [addEdgeHandle]'s creation gate and by
+     * [syncHandleVisibility]; previously each call site re-derived a
+     * subset, so closePanel could resurrect the handle in a state where
+     * addEdgeHandle would refuse to create it.
+     */
+    private fun shouldShowHandle(): Boolean {
+        val anyTriggerEnabled = panelPrefs.gesturesEnabled ||
+            panelPrefs.tapToOpen ||
+            panelPrefs.doubleTapToOpen ||
+            panelPrefs.tripleTapToOpen
+        if (!anyTriggerEnabled) return false
+        val isLandscape = resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        if (isLandscape && !panelPrefs.showInLandscape) return false
+        if (panelPrefs.onlyOnHome && !isCurrentPackageLauncher()) return false
         // --- MANDATORY ENGINE CHECK ---
         // If neither Accessibility is ON nor Native Automation is POSSIBLE, we must NOT show the handle.
-        val hasActiveEngine = isAccessibilityServiceEnabled() || (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible())
+        return isAccessibilityServiceEnabled() ||
+            (panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible())
+    }
 
-        if (!anyTriggerEnabled || (panelPrefs.onlyOnHome && !isCurrentPackageLauncher()) || !hasActiveEngine) {
+    /**
+     * Re-apply the handle policy to the existing handle view. Shows it when
+     * the policy allows, removes it from WindowManager when it doesn't (a
+     * merely GONE window could still intercept edge touches). Call this
+     * instead of setting `edgeHandleView.visibility = VISIBLE` directly.
+     */
+    private fun syncHandleVisibility() {
+        val handle = edgeHandleView ?: return
+        if (shouldShowHandle()) {
+            handle.visibility = View.VISIBLE
+        } else {
+            removeView(handle)
+            edgeHandleView = null
+        }
+    }
+
+    private fun addEdgeHandle(forceRecreate: Boolean = false) {
+        if (!shouldShowHandle()) {
             removeView(edgeHandleView)
             edgeHandleView = null
             return
@@ -1517,8 +1645,7 @@ class FloatingPanelService : Service() {
                 val density = resources.displayMetrics.density
                 val screenH = resources.displayMetrics.heightPixels
                 val safeMargin = (10 * density).toInt()
-                val h = if (isPillVisible) (panelPrefs.handleHeight * density).toInt()
-                        else (screenH * 0.60f).toInt()
+                val h = handleHeightPx(isPillVisible)
                 val maxOffset = (screenH / 2) - (h / 2) - safeMargin
                 val requestedOffset = (panelPrefs.handleVerticalOffset * density).toInt()
 
@@ -1574,8 +1701,7 @@ class FloatingPanelService : Service() {
         }
 
         val handleWidth = panelPrefs.handleWidth // Use user-defined width
-        val handleHeight = if (isPillVisible) dpToPx(panelPrefs.handleHeight) 
-                           else dpToPx((panelPrefs.handleHeight * 1.5f).toInt())
+        val handleHeight = handleHeightPx(isPillVisible)
 
         // Fix: Use FLAG_LAYOUT_NO_LIMITS carefully or ensure GRAVITY_CENTER doesn't overflow
         val params = WindowManager.LayoutParams(
@@ -1738,11 +1864,12 @@ class FloatingPanelService : Service() {
         pickerPanelView = AppPickerPanelView(this).apply {
             // Audit U4 — drain any in-progress edit BEFORE tearing the picker
             // down. Without this, tapping outside or swiping-down closed the
-            // picker with the EditText rows intact but `editingItemId` still
-            // populated. The next session would then log an indexing -1 error
-            // when the ghost item was looked up. Saving on close also catches
-            // the case where the user filled a valid title/URL but didn't tap
-            // DONE — without the explicit save the row was silently lost.
+            // picker with the EditText rows intact and a draft custom item
+            // still in progress. The next session would then log an indexing
+            // -1 error when the ghost item was looked up. Draining on close
+            // also catches the case where the user filled a valid title/URL
+            // but didn't tap DONE — without the explicit save the row was
+            // silently lost.
             onClose = { pickerPanelView?.let { picker ->
     picker.commitPendingEdits()
     if (picker.isEditMode) {
@@ -2026,7 +2153,7 @@ class FloatingPanelService : Service() {
             rootLayout?.takeIf { it.parent != null }?.let { rl ->
                 try { windowManager.removeViewImmediate(rl) } catch (e: Exception) {}
             }
-            edgeHandleView?.visibility = View.VISIBLE
+            syncHandleVisibility()
             sidePanelView?.animatePickerToggle(false)
             
             if (!panelPrefs.serviceEnabled) {
@@ -2043,7 +2170,7 @@ class FloatingPanelService : Service() {
             rootLayout?.takeIf { it.parent != null }?.let { rl ->
                 try { windowManager.removeView(rl) } catch (e: Exception) {}
             }
-            edgeHandleView?.visibility = View.VISIBLE
+            syncHandleVisibility()
             return
         }
 
@@ -2059,7 +2186,7 @@ class FloatingPanelService : Service() {
             rootLayout?.takeIf { it.parent != null }?.let { rl ->
                 try { windowManager.removeView(rl) } catch (e: Exception) {}
             }
-            edgeHandleView?.visibility = View.VISIBLE
+            syncHandleVisibility()
             if (!panelPrefs.serviceEnabled) {
                 stopSelf()
             }
@@ -2078,7 +2205,7 @@ class FloatingPanelService : Service() {
                 rootLayout?.takeIf { it.parent != null }?.let { rl ->
                     try { windowManager.removeView(rl) } catch (e: Exception) {}
                 }
-                edgeHandleView?.visibility = View.VISIBLE
+                syncHandleVisibility()
                 panel.animatePickerToggle(false)
 
                 // If service is NOT enabled in prefs, stop it now (Test mode over)
@@ -2288,7 +2415,7 @@ class FloatingPanelService : Service() {
             } else {
                 emptyList()
             }
-            sidePanelView?.setRecentApps(recentApps)
+            sidePanelView?.setRecentApps(recentApps, apps)
         }
     }
 
@@ -2347,13 +2474,6 @@ class FloatingPanelService : Service() {
 
     private var indicatorText: android.widget.TextView? = null
     private var indicatorFadeRunnable: Runnable? = null
-
-    // 1% step accumulator for brightness, shared with the tools drag path
-    // (SidePanelView): 1% of brightness is 2.55 of 255 levels, so sub-level
-    // percentages accumulate until they make a whole level. Volume no longer
-    // accumulates — one gesture tick is exactly one hardware media step
-    // (see adjustVolume and VolumeStepMath).
-    private val brightnessStepAccumulator = PercentStepAccumulator()
 
     /**
      * Hides the status and navigation bars for an overlay window. On API 30+
@@ -2415,29 +2535,39 @@ class FloatingPanelService : Service() {
     fun adjustVolume(steps: Int) {
         if (steps == 0) return
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        MediaVolumeApplier.apply(audioManager, steps)
-        val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-        val percent = if (max > 0) (current * 100) / max else 0
-        showIndicator(getString(R.string.indicator_volume_percent, percent))
+        // The indicator is refreshed by the callback, not here: the shell
+        // fallback (if needed) lands on a background thread, and the
+        // indicator must show the volume after it lands, not before.
+        MediaVolumeApplier.apply(audioManager, steps) {
+            val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val percent = if (max > 0) (current * 100) / max else 0
+            showIndicator(getString(R.string.indicator_volume_percent, percent))
+        }
     }
 
     /**
      * Change screen brightness by [deltaPercent] percent points (sign =
      * direction). One percent point per call; 1% = 2.55 levels on the 0..255
-     * scale, so the fractional part accumulates in
-     * [brightnessStepAccumulator] until it makes a whole level.
+     * scale, so the fractional part accumulates in the shared
+     * [PanelPreferences.brightnessStepAccumulator] until it makes a whole level.
      */
     fun adjustBrightness(deltaPercent: Int) {
         if (deltaPercent == 0) return
         try {
             if (!android.provider.Settings.System.canWrite(this)) {
-                android.widget.Toast.makeText(this, getString(R.string.toast_write_settings_required), android.widget.Toast.LENGTH_SHORT).show()
-                val intent = Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                    data = android.net.Uri.parse("package:$packageName")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Throttle the prompt: without this, every brightness tick
+                // while the permission is missing re-launches the settings
+                // screen (and stacks a Toast per tick). Once per minute is
+                // enough — the user already saw it.
+                if (panelPrefs.shouldPromptWriteSettings()) {
+                    android.widget.Toast.makeText(this, getString(R.string.toast_write_settings_required), android.widget.Toast.LENGTH_SHORT).show()
+                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                        data = android.net.Uri.parse("package:$packageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
                 }
-                startActivity(intent)
                 return
             }
 
@@ -2449,9 +2579,16 @@ class FloatingPanelService : Service() {
 
             // 2. Update standard int brightness (0-255)
             var brightness = android.provider.Settings.System.getInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, 125)
-            val units = brightnessStepAccumulator.add(deltaPercent, 255)
+            val units = panelPrefs.brightnessStepAccumulator.add(deltaPercent, 255)
             if (units != 0) {
+                val before = brightness
                 brightness = (brightness + units).coerceIn(0, 255)
+                // Refund the steps the clamp swallowed: without this, percent
+                // dragged against the 0/255 stop is silently consumed and the
+                // user must re-accumulate it before the brightness moves
+                // again (a dead zone at both ends of the range).
+                val unlanded = units - (brightness - before)
+                if (unlanded != 0) panelPrefs.brightnessStepAccumulator.refund(unlanded, 255)
                 android.provider.Settings.System.putInt(cResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, brightness)
 
                 // 3. Update modern float brightness for slider sync on Android 10+
@@ -2478,50 +2615,80 @@ class FloatingPanelService : Service() {
         }
     }
 
-    private fun showIndicator(text: String) {
-        val root = rootLayout
-        if (root != null) {
-            if (indicatorText == null) {
-                val density = resources.displayMetrics.density
-
-                indicatorText = android.widget.TextView(this).apply {
-                    setTextColor(android.graphics.Color.WHITE)
-                    textSize = 14f
-                    setPadding((16 * density).toInt(), (10 * density).toInt(), (16 * density).toInt(), (10 * density).toInt())
-                    gravity = android.view.Gravity.CENTER
-
-                    background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(android.graphics.Color.parseColor("#E6303030"))
-                        cornerRadius = 24f * density
-                    }
-
-                    layoutParams = android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
-                        bottomMargin = (90 * density).toInt()
-                    }
-                    elevation = 8f * density
-                }
-                root.addView(indicatorText)
-            }
-
-            indicatorText?.text = text
-            indicatorText?.visibility = View.VISIBLE
-            indicatorText?.alpha = 1f
-            indicatorText?.animate()?.cancel()
-
-            indicatorFadeRunnable?.let { handler.removeCallbacks(it) }
-            indicatorFadeRunnable = Runnable {
-                indicatorText?.animate()
-                    ?.alpha(0f)
-                    ?.setDuration(INDICATOR_FADE_DURATION_MS)
-                    ?.withEndAction { indicatorText?.visibility = View.GONE }
-                    ?.start()
-            }
-            handler.postDelayed(indicatorFadeRunnable!!, INDICATOR_SHOW_DURATION_MS)
+    /**
+     * The indicator lives in its own standalone overlay window (like
+     * showConfirmOverlay), NOT in rootLayout: the panel is closed during the
+     * indicator's primary use case (edge-slide volume/brightness), when
+     * rootLayout is detached or null, so a rootLayout child would be
+     * invisible. The view is created once and kept attached (GONE when idle)
+     * so rapid ticks don't churn addView/removeView. Returns true when the
+     * overlay is attached and ready to show text.
+     */
+    private fun ensureIndicatorOverlay(): Boolean {
+        val existing = indicatorText
+        if (existing != null && existing.isAttachedToWindow) return true
+        if (existing != null) {
+            // Detached without the field being cleared (defensive): drop it
+            // and recreate, rather than writing into a detached view.
+            indicatorText = null
         }
+        val density = resources.displayMetrics.density
+        indicatorText = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 14f
+            setPadding((16 * density).toInt(), (10 * density).toInt(), (16 * density).toInt(), (10 * density).toInt())
+            gravity = android.view.Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.parseColor("#E6303030"))
+                cornerRadius = 24f * density
+            }
+            elevation = 8f * density
+            visibility = View.GONE
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+            // WindowManager.LayoutParams has no bottomMargin; use y offset
+            // (negative = upward from the BOTTOM gravity anchor).
+            y = -(90 * density).toInt()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        return try {
+            windowManager.addView(indicatorText, params)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add indicator overlay", e)
+            indicatorText = null
+            false
+        }
+    }
+
+    private fun showIndicator(text: String) {
+        if (!ensureIndicatorOverlay()) return
+
+        indicatorText?.text = text
+        indicatorText?.visibility = View.VISIBLE
+        indicatorText?.alpha = 1f
+        indicatorText?.animate()?.cancel()
+
+        indicatorFadeRunnable?.let { handler.removeCallbacks(it) }
+        indicatorFadeRunnable = Runnable {
+            indicatorText?.animate()
+                ?.alpha(0f)
+                ?.setDuration(INDICATOR_FADE_DURATION_MS)
+                ?.withEndAction { indicatorText?.visibility = View.GONE }
+                ?.start()
+        }
+        handler.postDelayed(indicatorFadeRunnable!!, INDICATOR_SHOW_DURATION_MS)
     }
 
     /**
@@ -2532,7 +2699,10 @@ class FloatingPanelService : Service() {
      */
     private fun showEngineLostSnackbar() {
         val msg = getString(R.string.engine_lost_msg)
-        val anchor = rootLayout ?: edgeHandleView
+        // The anchor must be attached to a window: rootLayout is non-null
+        // but detached while the panel is closed, and a Snackbar anchored
+        // to a detached view is never shown.
+        val anchor = rootLayout?.takeIf { it.isAttachedToWindow } ?: edgeHandleView?.takeIf { it.isAttachedToWindow }
         if (anchor != null) {
             com.google.android.material.snackbar.Snackbar.make(
                 anchor,

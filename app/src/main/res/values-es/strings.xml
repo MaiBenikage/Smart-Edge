@@ -24,7 +24,7 @@
     <string name="section_home_screen">Pantalla de Inicio</string>
     <string name="section_layout_tuning">Ajuste de Diseño</string>
     <string name="section_advanced_options">Opciones Avanzadas</string>
-    
+
     <string name="app_theme">Tema de la App</string>
     <string name="theme_follow_system">Seguir el Sistema</string>
     <string name="ui_style_theme">Estilo de Interfaz</string>
@@ -32,7 +32,7 @@
     <string name="theme_hyperos">HyperOS (Cristal)</string>
     <string name="theme_realme">Realme UI</string>
     <string name="theme_rich">Rich UI (Resplandor)</string>
-    
+
     <string name="blur_title">Desenfoque Glassmorphic</string>
     <string name="blur_desc">Puede causar lag en dispositivos básicos (Android 12+)</string>
     <string name="blur_intensity">Intensidad del desenfoque</string>
@@ -42,40 +42,40 @@
     <string name="icon_pack">Pack de Iconos</string>
     <string name="icon_pack_default">Predeterminado</string>
     <string name="icon_scale">Escala de Iconos</string>
-    
+
     <string name="custom_accent_title">Usar color de acento personalizado</string>
     <string name="accent_color">Color de Acento</string>
     <string name="panel_bg_color">Fondo del Panel</string>
     <string name="btn_reset_ui_colors">Restablecer Colores UI</string>
-    
+
     <string name="service_button_style">Estilo del Botón de Inicio</string>
     <string name="button_style_power">Icono de encendido moderno</string>
     <string name="button_style_logo">Logotipo clásico</string>
-    
+
     <string name="panel_opacity">Opacidad del Panel</string>
     <string name="corner_radius">Radio de Esquinas</string>
     <string name="sidebar_max_height">Altura Máx Barra Lateral</string>
     <string name="picker_max_height">Altura Máx de Edición</string>
-    
+
     <string name="visible_pill">Tirador de Píldora Visible</string>
     <string name="visible_pill_desc">Muestra un indicador visual en el borde</string>
     <string name="pill_color">Color de la Píldora</string>
     <string name="pill_thickness">Grosor de la Píldora</string>
     <string name="touch_area_width">Ancho del área táctil</string>
     <string name="handle_height">Altura del tirador</string>
-    
+
     <string name="edge_gestures">Gestos de deslizamiento</string>
     <string name="edge_sensitivity">Sensibilidad de deslizamiento</string>
     <string name="tap_gestures">Gestos táctiles</string>
     <string name="tap_gestures_desc">Añadir acciones al tocar el tirador</string>
     <string name="haptic_feedback">Respuesta Háptica</string>
-    
+
     <string name="edge_seek_title">Control de borde (Deslizar)</string>
     <string name="edge_seek_desc">Desliza sobre el tirador para ajustes rápidos</string>
     <string name="slide_brightness">Deslizar Brillo</string>
     <string name="slide_volume">Deslizar Volumen</string>
     <string name="seek_sensitivity">Sensibilidad de ajuste</string>
-    
+
     <string name="automation_title">Automatización (Root/Shizuku)</string>
     <string name="automation_desc">Usa llamadas de sistema para Atrás, Inicio, etc.</string>
     <string name="fullscreen_protection">Protección de Pantalla Completa</string>
@@ -87,15 +87,15 @@
     <string name="main_service_title">Servicio de Barra Lateral</string>
     <string name="main_service_stopped">El servicio está detenido</string>
     <string name="main_test_sidebar">Probar Barra Lateral</string>
-    
+
     <string name="alert_battery_title">Mejorar Estabilidad</string>
     <string name="alert_battery_desc">Excluye Smart Edge de la optimización de batería para evitar que el sistema lo cierre en segundo plano.</string>
     <string name="alert_battery_btn">Permitir uso en segundo plano</string>
-    
+
     <string name="alert_permission_title">Permiso Requerido</string>
     <string name="alert_permission_desc">Por favor, permite "Mostrar sobre otras aplicaciones" para usar la barra lateral.</string>
     <string name="alert_permission_btn">Conceder ahora</string>
-    
+
     <string name="main_logs_title">Registros de Actividad</string>
     <string name="main_settings_btn">Ajustes Avanzados</string>
     <string name="main_how_to_use">Cómo usar</string>
@@ -108,7 +108,7 @@
     <string name="enable_notch_gestures">Activar Gestos en el Notch</string>
     <string name="notch_gestures_desc">Añadir gestos táctiles al área del notch/agujero de la cámara</string>
     <string name="notch_tap_gestures">Gestos Táctiles en el Notch</string>
-    
+
     <string name="action_flashlight">Linterna</string>
     <string name="action_camera">Cámara</string>
     <string name="action_rotation">Alternar Rotación Automática</string>
@@ -118,7 +118,7 @@
     <string name="indicator_flashlight_off">Linterna APAGADA</string>
     <string name="indicator_rotation_on">Rotación AUTO ACTIVA</string>
     <string name="indicator_rotation_off">Rotación AUTO DESACTIVA</string>
-    
+
     <string name="status_service_active">El servicio está activo</string>
     <string name="status_automation_stopped">Automatización detenida</string>
     <string name="apps_selected_singular">1 aplicación seleccionada</string>
@@ -137,12 +137,12 @@
     <string name="btn_reset">Restablecer</string>
     <string name="toast_reset_success">Ajustes restablecidos con éxito</string>
     <string name="toast_browser_error">No se pudo abrir el navegador</string>
-    
+
     <string name="manage_apps_desc">Elige qué aplicaciones aparecen en el panel</string>
     <string name="view_repo_title">Ver Repositorio</string>
     <string name="view_repo_desc">Ver el código fuente en GitHub</string>
     <string name="reset_defaults_desc">Restaurar todo al estado de fábrica</string>
-    
+
     <string name="search_settings_hint">Buscar Ajustes…</string>
     <string name="main_menu_appearance_desc">Establecer modo oscuro, color y escala</string>
     <string name="main_menu_interaction_desc">Gestos, vibración y lado del panel</string>
@@ -210,13 +210,13 @@
 
     <string name="tap_gestures_summary">Toque: %1$s, 2x: %2$s, 3x: %3$s, Hold: %4$s</string>
     <string name="apps_selected_none">0 aplicaciones seleccionadas</string>
-    
+
     <string name="anim_feel_calm">Tranquilo (Lento)</string>
     <string name="anim_feel_balanced">Equilibrado (Predet.)</string>
     <string name="anim_feel_snappy">Rápido</string>
     <string name="anim_feel_instant">Instantáneo</string>
     <string name="anim_feel_disabled">Desactivado</string>
-    
+
     <string name="dialog_automation_title">Automatización No Disponible</string>
     <string name="dialog_automation_msg">Se requiere Root o Shizuku para esta función. Por favor, configura primero \'Automatización del Sistema\'.</string>
     <string name="btn_setup">Configurar</string>
@@ -224,24 +224,25 @@
     <string name="please_wait_apps">Por favor espera mientras se cargan las apps.</string>
     <string name="hint_search_apps">Buscar aplicaciones…</string>
     <string name="btn_save">Guardar</string>
-    
+
     <string name="picker_title_hide">Apps para ocultar barra</string>
     <string name="picker_title_game">Apps de Modo Juego</string>
     <string name="picker_title_favorite">Seleccionar App Favorita</string>
-    
+
     <string name="toast_fav_app_unset">App favorita no establecida</string>
     <string name="toast_app_not_found">App no encontrada</string>
     <string name="btn_fix">CORREGIR</string>
-    
+
     <string name="toast_shortcut_sent">Solicitud enviada. Revisa tu pantalla de inicio.</string>
     <string name="toast_launcher_no_shortcut">El lanzador no admite accesos directos</string>
     <string name="toast_shortcut_added">Acceso directo añadido</string>
     <string name="label_toggle_sidebar">Alternar Barra Lateral</string>
-    
+
     <string name="label_native_gesture">Gesto Nativo</string>
 
     <string name="action_none">Desactivado</string>
     <string name="action_launcher">Lanzador</string>
+    <string name="action_favorite_app">Favorita: %1$s</string>
     <string name="action_screenshot">Captura</string>
     <string name="action_last_app">Última App</string>
     <string name="action_back">Atrás</string>
@@ -288,6 +289,7 @@
     <string name="indicator_auto_brightness_on">Brillo automático ACTIVADO</string>
     <string name="indicator_auto_brightness_off">Brillo automático DESACTIVADO</string>
     <string name="toast_lock_screen_failed">No se puede bloquear la pantalla en este dispositivo</string>
+    <string name="toast_device_admin_failed">No se pudo activar el administrador del dispositivo</string>
     <string name="toast_write_settings_required">Se requiere permiso de escritura de ajustes del sistema</string>
     <string name="toast_ui_colors_restored">Colores de UI restaurados</string>
     <string name="toast_accent_locked_origin">El color de acento está bloqueado en el tema OriginOS</string>
@@ -549,4 +551,6 @@
     <string name="dialog_recent_history_size_title">Tamaño del historial</string>
     <string name="dialog_recent_max_count_title">Apps a mostrar</string>
     <string name="section_recent_apps">Apps recientes</string>
+    <string name="apps_recent_separator_desc">Arrastra hacia arriba o hacia abajo para ajustar el espacio de la lista de aplicaciones y la lista de recientes</string>
+    <string name="indicator_apps_recent_split">Aplicaciones %1$d%% · Recientes %2$d%%</string>
 </resources>

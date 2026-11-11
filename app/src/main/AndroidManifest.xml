@@ -106,11 +106,6 @@
             android:theme="@style/Theme.SidePanel.M3" />
 
         <activity
-            android:name=".SettingsActivity"
-            android:label="@string/settings_title"
-            android:theme="@style/Theme.SidePanel.M3" />
-
-        <activity
             android:name=".MiscellaneousSettingsActivity"
             android:label="Miscellaneous"
             android:theme="@style/Theme.SidePanel.M3" />
@@ -118,7 +113,13 @@
         <activity
             android:name=".IconPackActivity"
             android:label="Select Icon Pack"
-            android:theme="@style/Theme.SidePanel" />
+            android:theme="@style/Theme.SidePanel.M3" />
+
+        <activity
+            android:name=".AppPickerActivity"
+            android:label="@string/add_apps"
+            android:theme="@style/Theme.SidePanel.M3"
+            android:exported="false" />
 
         <activity
             android:name=".TextActionsSettingsActivity"

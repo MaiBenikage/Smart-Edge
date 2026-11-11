@@ -155,54 +155,67 @@ class TextActionsSettingsActivity : AppCompatActivity() {
             switchEditableOnly.isChecked = it.editableOnly
             switchEnabled.isChecked = it.enabled
             applyVisibility(it.type)
-        } ?: applyVisibility(types[0])
+        } ?: run {
+            // A new action defaults to enabled: the layout has no
+            // android:checked, so without this it was created disabled and
+            // never appeared in the ProcessText chooser until toggled.
+            switchEnabled.isChecked = true
+            applyVisibility(types[0])
+        }
 
-        MaterialAlertDialogBuilder(this)
+        // Validate BEFORE dismissing: MaterialAlertDialogBuilder's positive
+        // button dismisses the dialog regardless of what its handler does,
+        // so validating inside setPositiveButton{} lost the user's edit on
+        // the first failed check. Pass a null listener, then override the
+        // button after show() and dismiss only once validation passes.
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(if (existing == null) R.string.text_actions_add_title else R.string.text_actions_edit_title)
             .setView(view)
-            .setPositiveButton(R.string.text_actions_save) { _, _ ->
-                val name = etName.text.toString().trim()
-                if (name.isEmpty()) {
-                    Toast.makeText(this, R.string.text_actions_name_required, Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                val type = types[spinnerType.selectedItemPosition]
-                val urlTemplate = etUrl.text.toString().trim()
-                val targetPackage = etPackage.text.toString().trim()
-                val intentAction = etIntentAction.text.toString().trim()
-                when (type) {
-                    ActionType.OPEN_URL -> if (urlTemplate.isEmpty()) {
-                        Toast.makeText(this, R.string.text_actions_url_required, Toast.LENGTH_SHORT).show()
-                        return@setPositiveButton
-                    }
-                    ActionType.LAUNCH_APP -> if (targetPackage.isEmpty()) {
-                        Toast.makeText(this, R.string.text_actions_package_required, Toast.LENGTH_SHORT).show()
-                        return@setPositiveButton
-                    }
-                    ActionType.CUSTOM_INTENT -> if (intentAction.isEmpty()) {
-                        Toast.makeText(this, R.string.text_actions_intent_action_required, Toast.LENGTH_SHORT).show()
-                        return@setPositiveButton
-                    }
-                    else -> {}
-                }
-                val action = TextAction(
-                    id = existing?.id ?: java.util.UUID.randomUUID().toString(),
-                    name = name,
-                    type = type,
-                    enabled = switchEnabled.isChecked,
-                    urlTemplate = urlTemplate,
-                    targetPackage = targetPackage,
-                    customIntentAction = intentAction,
-                    customIntentData = etIntentData.text.toString().trim(),
-                    replaceTransform = transforms[spinnerTransform.selectedItemPosition],
-                    editableOnly = switchEditableOnly.isChecked
-                )
-                if (existing == null) panelPrefs.addTextAction(action)
-                else panelPrefs.updateTextAction(action)
-                refreshList()
-            }
+            .setPositiveButton(R.string.text_actions_save, null)
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val name = etName.text.toString().trim()
+            if (name.isEmpty()) {
+                Toast.makeText(this, R.string.text_actions_name_required, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val type = types[spinnerType.selectedItemPosition]
+            val urlTemplate = etUrl.text.toString().trim()
+            val targetPackage = etPackage.text.toString().trim()
+            val intentAction = etIntentAction.text.toString().trim()
+            when (type) {
+                ActionType.OPEN_URL -> if (urlTemplate.isEmpty()) {
+                    Toast.makeText(this, R.string.text_actions_url_required, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                ActionType.LAUNCH_APP -> if (targetPackage.isEmpty()) {
+                    Toast.makeText(this, R.string.text_actions_package_required, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                ActionType.CUSTOM_INTENT -> if (intentAction.isEmpty()) {
+                    Toast.makeText(this, R.string.text_actions_intent_action_required, Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                else -> {}
+            }
+            val action = TextAction(
+                id = existing?.id ?: java.util.UUID.randomUUID().toString(),
+                name = name,
+                type = type,
+                enabled = switchEnabled.isChecked,
+                urlTemplate = urlTemplate,
+                targetPackage = targetPackage,
+                customIntentAction = intentAction,
+                customIntentData = etIntentData.text.toString().trim(),
+                replaceTransform = transforms[spinnerTransform.selectedItemPosition],
+                editableOnly = switchEditableOnly.isChecked
+            )
+            if (existing == null) panelPrefs.addTextAction(action)
+            else panelPrefs.updateTextAction(action)
+            refreshList()
+            dialog.dismiss()
+        }
     }
 
     private fun typeLabel(type: ActionType): String = when (type) {

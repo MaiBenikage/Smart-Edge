@@ -11,7 +11,14 @@ data class BrightnessSnapshot(
     /** true = auto-brightness was on, false = manual mode was on. */
     val autoMode: Boolean,
     /** The SCREEN_BRIGHTNESS int value [0..255] before activation. */
-    val brightness: Int
+    val brightness: Int,
+    /**
+     * The `screen_brightness_float` value before activation (null when the
+     * float key is unavailable, e.g. below API 31). The system slider on
+     * Android 12+ shows the float, not the int — so restoring only the int
+     * leaves the effective brightness at the dimmed 0.0f.
+     */
+    val floatBrightness: Float? = null
 )
 
 /**
@@ -27,6 +34,8 @@ data class BrightnessSnapshot(
  * @param setAutoMode    writes `true` (auto) or `false` (manual).
  * @param setBrightness  writes the brightness int [0..255].
  * @param setFloatBrightness  optional API 31+ float brightness write.
+ * @param readFloatBrightness optional API 31+ float brightness read, so the
+ *   pre-dim float can be restored (see [restoreBrightness]).
  * @return a [BrightnessSnapshot] that can be passed to [restoreBrightness].
  */
 fun saveAndDimBrightness(
@@ -34,11 +43,13 @@ fun saveAndDimBrightness(
     readBrightness: () -> Int,
     setAutoMode: (Boolean) -> Unit,
     setBrightness: (Int) -> Unit,
-    setFloatBrightness: ((Float) -> Unit)? = null
+    setFloatBrightness: ((Float) -> Unit)? = null,
+    readFloatBrightness: (() -> Float)? = null
 ): BrightnessSnapshot {
     val saved = BrightnessSnapshot(
         autoMode = readAutoMode(),
-        brightness = readBrightness()
+        brightness = readBrightness(),
+        floatBrightness = readFloatBrightness?.invoke()
     )
     // Disable auto mode
     setAutoMode(false)
@@ -55,13 +66,20 @@ fun saveAndDimBrightness(
  * @param snapshot    the previously saved state.
  * @param setBrightness  writes the brightness int [0..255].
  * @param setAutoMode    writes `true` (auto) or `false` (manual).
+ * @param setFloatBrightness  optional API 31+ float brightness write; invoked
+ *   only when the snapshot carries a float (see [BrightnessSnapshot]).
  */
 fun restoreBrightness(
     snapshot: BrightnessSnapshot,
     setBrightness: (Int) -> Unit,
-    setAutoMode: (Boolean) -> Unit
+    setAutoMode: (Boolean) -> Unit,
+    setFloatBrightness: ((Float) -> Unit)? = null
 ) {
     // Clamp to valid range
     setBrightness(snapshot.brightness.coerceIn(1, 255))
     setAutoMode(snapshot.autoMode)
+    // The float is what the system slider (and the effective brightness on
+    // Android 12+) actually follows. Restoring only the int leaves the
+    // device at the dimmed 0.0f after Black Screen dismisses.
+    snapshot.floatBrightness?.let { setFloatBrightness?.invoke(it) }
 }

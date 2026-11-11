@@ -5,7 +5,6 @@ import androidx.core.os.LocaleListCompat
 import java.util.Locale
 
 object LocaleHelper {
-    private const val SELECTED_LANGUAGE = "Locale.Helper.Selected.Language"
 
     fun onAttach(context: Context): Context {
         // LocaleListCompat.getDefault()[0] is null-safe on API 24+ (minSdk = 26),
@@ -39,14 +38,16 @@ object LocaleHelper {
         // written to one file while PanelPreferences.appLanguage read another —
         // settings export/import (which only covers side_panel_prefs) silently
         // lost the language. Unify on the main prefs file so backups carry it.
+        // The key is the shared PanelPreferences.KEY_APP_LANGUAGE const — the
+        // literal used to be duplicated here and in PanelPreferences.
         val preferences = context.getSharedPreferences(PanelPreferences.PREFS_NAME, Context.MODE_PRIVATE)
-        return preferences.getString(SELECTED_LANGUAGE, defaultLanguage)
+        return preferences.getString(PanelPreferences.KEY_APP_LANGUAGE, defaultLanguage)
     }
 
     private fun persist(context: Context, language: String?) {
         val preferences = context.getSharedPreferences(PanelPreferences.PREFS_NAME, Context.MODE_PRIVATE)
         val editor = preferences.edit()
-        editor.putString(SELECTED_LANGUAGE, language)
+        editor.putString(PanelPreferences.KEY_APP_LANGUAGE, language)
         editor.apply()
     }
 

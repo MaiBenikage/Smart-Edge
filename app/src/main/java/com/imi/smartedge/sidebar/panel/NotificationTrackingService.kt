@@ -111,10 +111,14 @@ class NotificationTrackingService : NotificationListenerService() {
             val current = mutableSetOf<String>()
             val sbns = try { getActiveNotifications() } catch (e: Exception) { null }
 
-            if (sbns != null) {
-                for (sbn in sbns) {
-                    sbn.packageName?.let { current.add(it) }
-                }
+            // A failed read is not "zero notifications": getActiveNotifications
+            // can throw (e.g. the listener was just unbound), and treating
+            // that as an empty set would wipe the tracked set and fire a
+            // spurious "all notifications cleared" update.
+            if (sbns == null) return
+
+            for (sbn in sbns) {
+                sbn.packageName?.let { current.add(it) }
             }
 
             if (notificationPackages != current) {

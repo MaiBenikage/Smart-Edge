@@ -26,24 +26,49 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SecureSettingsDialog : BottomSheetDialogFragment() {
 
-    private var onPermissionGranted: (() -> Unit)? = null
     private lateinit var tvStatus: TextView
     private lateinit var tvAutoStatus: TextView
 
+    // Theme colors (resolved from the app theme, not hardcoded dark
+    // values): the sheet must follow Light/Dark/System like the rest of
+    // the app. Resolved lazily — requireContext() isn't available until
+    // the fragment is attached.
+    private val surfaceColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorSurface)
+    private val onSurfaceColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnSurface)
+    private val onSurfaceVariantColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
+    private val outlineColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOutline)
+    private val surfaceContainerColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorSurfaceContainer)
+
+    /** Last automation state seen by refreshUI: the grant result + dismiss fire only on a false -> true transition. */
+    private var lastAutomationPossible: Boolean? = null
+
     private val shizukuListener = rikka.shizuku.Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == 1001 && grantResult == PackageManager.PERMISSION_GRANTED) {
-            try {
-                val packageName = requireContext().packageName
-                val sh = "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
-                val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null)
-                process.waitFor()
-            } catch (e: Exception) {}
-            activity?.runOnUiThread { refreshUI() }
+            // The Shizuku permission grant runs on the main thread — the
+            // blocking `pm grant` must not run here (it froze the sheet).
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val packageName = requireContext().packageName
+                    val sh = "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
+                    val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null)
+                    process.waitFor()
+                } catch (e: Exception) {}
+                withContext(Dispatchers.Main) { refreshUI() }
+            }
         }
     }
 
@@ -64,12 +89,32 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
     companion object {
         const val TAG = "SecureSettingsDialog"
 
-        fun show(context: Context, onPermissionGranted: () -> Unit) {
-            val dialog = SecureSettingsDialog()
-            dialog.onPermissionGranted = onPermissionGranted
-            (context as? androidx.fragment.app.FragmentActivity)?.let {
-                dialog.show(it.supportFragmentManager, TAG)
+        /**
+         * Fragment-result key for the automation-granted event. Reported
+         * via setFragmentResult (not a callback field): a plain field is
+         * lost when the FragmentManager recreates the dialog on rotation,
+         * so granting after a rotation never flipped the caller's switch.
+         * Hosts register in onCreate via [registerResultListener] so a
+         * recreated host picks up a pending result.
+         */
+        const val REQUEST_KEY = "SecureSettingsDialogResult"
+
+        fun registerResultListener(activity: androidx.fragment.app.FragmentActivity, onPermissionGranted: () -> Unit) {
+            activity.supportFragmentManager.setFragmentResultListener(REQUEST_KEY, activity) { _, _ ->
+                onPermissionGranted()
             }
+        }
+
+        fun registerResultListener(fragment: androidx.fragment.app.Fragment, onPermissionGranted: () -> Unit) {
+            fragment.parentFragmentManager.setFragmentResultListener(REQUEST_KEY, fragment) { _, _ ->
+                onPermissionGranted()
+            }
+        }
+
+        fun show(context: Context) {
+            val activity = context as? androidx.fragment.app.FragmentActivity
+                ?: throw IllegalArgumentException("SecureSettingsDialog.show requires a FragmentActivity context")
+            SecureSettingsDialog().show(activity.supportFragmentManager, TAG)
         }
     }
 
@@ -102,7 +147,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 8 * density
-                setColor(Color.parseColor("#33FFFFFF"))
+                setColor(outlineColor)
             }
         }
         root.addView(handle)
@@ -119,7 +164,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
 
         val iconBg = FrameLayout(ctx).apply {
             val size = (48 * density).toInt()
-            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = (16 * density).toInt() }   
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = (16 * density).toInt() }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 14 * density
@@ -142,15 +187,15 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         val tvTitle = TextView(ctx).apply {
             text = getString(R.string.dialog_native_gesture_engine)
             textSize = 20f
-            setTextColor(Color.WHITE)
+            setTextColor(onSurfaceColor)
             typeface = Typeface.DEFAULT_BOLD
         }
-        
+
         val isGranted = ctx.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
         tvStatus = TextView(ctx).apply {
             text = if (isGranted) getString(R.string.permission_granted_status) else getString(R.string.permission_missing_status)
             textSize = 12f
-            setTextColor(if (isGranted) Color.parseColor("#00FF00") else Color.parseColor("#99FFFFFF"))
+            setTextColor(if (isGranted) Color.parseColor("#00FF00") else onSurfaceVariantColor)
             if (isGranted) typeface = Typeface.DEFAULT_BOLD
         }
         titleCol.addView(tvTitle)
@@ -166,7 +211,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             text = autoStatus
             textSize = 11f
             val isAutoActive = AutomationManager.isAutomationPossible()
-            setTextColor(if (isAutoActive) Color.parseColor("#00FF00") else Color.parseColor("#B3FFFFFF"))      
+            setTextColor(if (isAutoActive) Color.parseColor("#00FF00") else onSurfaceVariantColor)
             if (isAutoActive) typeface = Typeface.DEFAULT_BOLD
             setPadding(0, (2 * density).toInt(), 0, 0)
         }
@@ -177,7 +222,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         val tvDesc = TextView(ctx).apply {
             text = getString(R.string.dialog_native_gesture_engine_desc)
             textSize = 14f
-            setTextColor(Color.parseColor("#B3FFFFFF"))
+            setTextColor(onSurfaceVariantColor)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -190,7 +235,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * density).toInt()).apply {
                 bottomMargin = (24 * density).toInt()
             }
-            setBackgroundColor(Color.parseColor("#1AFFFFFF"))
+            setBackgroundColor(surfaceContainerColor)
         })
 
         // Audit S2: explanatory banner for WRITE_SECURE_SETTINGS. ADB-routed,
@@ -199,7 +244,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         val tvExplainer = TextView(ctx).apply {
             text = getString(R.string.write_secure_settings_explainer)
             textSize = 11f
-            setTextColor(Color.parseColor("#B3FFFFFF"))
+            setTextColor(onSurfaceVariantColor)
             setLineSpacing(0f, 1.15f)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -213,30 +258,39 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         // Shizuku Row
         root.addView(createAutomationRow(ctx, density, "Shizuku", "Wireless ADB automation",
             onGrant = {
-                try {
-                    if (rikka.shizuku.Shizuku.pingBinder()) {
-                        if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) { 
-                            val sh = "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
-                            val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null) 
-                            process.waitFor()
-                            refreshUI()
-                        } else {
-                            rikka.shizuku.Shizuku.requestPermission(1001)
+                // Blocking `pm grant` runs on Dispatchers.IO: this is a
+                // button callback (main thread) and waitFor() froze the sheet.
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        if (rikka.shizuku.Shizuku.pingBinder()) {
+                            if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                                val sh = "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"
+                                val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null)
+                                process.waitFor()
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    rikka.shizuku.Shizuku.requestPermission(1001)
+                                }
+                                return@launch
+                            }
                         }
-                    }
-                } catch (e: Exception) {}
+                    } catch (e: Exception) {}
+                    withContext(Dispatchers.Main) { refreshUI() }
+                }
             },
             onRevoke = {
-                try {
-                    if (rikka.shizuku.Shizuku.pingBinder()) {
-                        if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) { 
-                            val sh = "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"
-                            val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null) 
-                            process.waitFor()
-                            refreshUI()
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        if (rikka.shizuku.Shizuku.pingBinder()) {
+                            if (rikka.shizuku.Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                                val sh = "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"
+                                val process = rikka.shizuku.Shizuku.newProcess(arrayOf("sh", "-c", sh), null, null)
+                                process.waitFor()
+                            }
                         }
-                    }
-                } catch (e: Exception) {}
+                    } catch (e: Exception) {}
+                    withContext(Dispatchers.Main) { refreshUI() }
+                }
             }
         ))
 
@@ -245,20 +299,26 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             onGrant = {
                 AutomationManager.requestRootPermission { success ->
                     if (success) {
-                        try {
-                            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"))
-                            p.waitFor()
-                            activity?.runOnUiThread { refreshUI() }
-                        } catch (e: Exception) {}
+                        // Blocking `pm grant` runs on Dispatchers.IO: the
+                        // requestRootPermission callback is on the main thread.
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm grant $packageName android.permission.WRITE_SECURE_SETTINGS"))
+                                p.waitFor()
+                            } catch (e: Exception) {}
+                            withContext(Dispatchers.Main) { refreshUI() }
+                        }
                     }
                 }
             },
             onRevoke = {
-                try {
-                    val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"))
-                    p.waitFor()
-                    activity?.runOnUiThread { refreshUI() }
-                } catch (e: Exception) {}
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "pm revoke $packageName android.permission.WRITE_SECURE_SETTINGS"))
+                        p.waitFor()
+                    } catch (e: Exception) {}
+                    withContext(Dispatchers.Main) { refreshUI() }
+                }
             }
         ))
 
@@ -275,7 +335,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         val adbTitle = TextView(ctx).apply {
             text = getString(R.string.dialog_manual_setup_adb_upper)
             textSize = 11f
-            setTextColor(Color.parseColor("#66FFFFFF"))
+            setTextColor(onSurfaceVariantColor)
             typeface = Typeface.DEFAULT_BOLD
             letterSpacing = 0.1f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -305,13 +365,13 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         val adbBox = TextView(ctx).apply {
             text = adbCommand
             textSize = 10f
-            setTextColor(Color.parseColor("#E6FFFFFF"))
+            setTextColor(onSurfaceColor)
             typeface = Typeface.MONOSPACE
             setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 12 * density
-                setColor(Color.parseColor("#1AFFFFFF"))
+                setColor(surfaceContainerColor)
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -328,7 +388,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         // Close Button
         val btnClose = Button(ctx).apply {
             text = ctx.getString(android.R.string.ok)
-            setTextColor(Color.WHITE)
+            setTextColor(onSurfaceColor)
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
@@ -371,13 +431,13 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         textCol.addView(TextView(ctx).apply {
             text = title
             textSize = 16f
-            setTextColor(Color.WHITE)
+            setTextColor(onSurfaceColor)
             typeface = Typeface.DEFAULT_BOLD
         })
         textCol.addView(TextView(ctx).apply {
             text = subtitle
             textSize = 12f
-            setTextColor(Color.parseColor("#99FFFFFF"))
+            setTextColor(onSurfaceVariantColor)
         })
         row.addView(textCol)
 
@@ -392,7 +452,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
                 setStroke((1 * density).toInt(), Color.parseColor("#FF5252"))
                 setColor(Color.TRANSPARENT)
             }
-            layoutParams = LinearLayout.LayoutParams((80 * density).toInt(), (38 * density).toInt()).apply {    
+            layoutParams = LinearLayout.LayoutParams((80 * density).toInt(), (38 * density).toInt()).apply {
                 marginEnd = (12 * density).toInt()
             }
             setOnClickListener { onRevoke() }
@@ -419,13 +479,13 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
 
     private fun refreshUI() {
         if (!::tvStatus.isInitialized || !::tvAutoStatus.isInitialized) return
-        
+
         val ctx = requireContext()
         val isGranted = ctx.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
         tvStatus.text = if (isGranted) getString(R.string.permission_granted_status) else getString(R.string.permission_missing_status)
-        tvStatus.setTextColor(if (isGranted) Color.parseColor("#00FF00") else Color.parseColor("#99FFFFFF"))
+        tvStatus.setTextColor(if (isGranted) Color.parseColor("#00FF00") else onSurfaceVariantColor)
         tvStatus.typeface = if (isGranted) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        
+
         val isAutomationPossible = AutomationManager.isAutomationPossible()
         tvAutoStatus.text = if (isAutomationPossible) {
             when {
@@ -436,13 +496,24 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         } else {
             "Engine: Service Not Running"
         }
-        tvAutoStatus.setTextColor(if (isAutomationPossible) Color.parseColor("#00FF00") else Color.parseColor("#B3FFFFFF"))
+        tvAutoStatus.setTextColor(if (isAutomationPossible) Color.parseColor("#00FF00") else onSurfaceVariantColor)
         tvAutoStatus.typeface = if (isAutomationPossible) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        
+
         if (isAutomationPossible) {
-            onPermissionGranted?.invoke()
+            // Report the grant + dismiss, but only on a false -> true
+            // transition: the first refreshUI call just records the
+            // baseline, so opening the sheet when automation is already
+            // possible neither fires a spurious result nor dismisses it.
+            // Previously refreshUI() fired the callback but never
+            // dismissed, so after a successful grant the user had to
+            // notice the status change and tap Close themselves.
+            if (lastAutomationPossible == false) {
+                setFragmentResult(REQUEST_KEY, android.os.Bundle.EMPTY)
+                dismiss()
+            }
         }
-        
+        lastAutomationPossible = isAutomationPossible
+
         // Notify background service to re-evaluate engine status
         applyOnly()
     }
@@ -459,7 +530,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
     override fun onCreateDialog(savedInstanceState: Bundle?): android.app.Dialog {
         val dialog = super.onCreateDialog(savedInstanceState) as BottomSheetDialog
         dialog.setOnShowListener {
-            val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)   
+            val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
             bottomSheet?.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 val density = resources.displayMetrics.density
@@ -468,7 +539,7 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
                     24 * density, 24 * density,
                     0f, 0f, 0f, 0f
                 )
-                setColor(Color.parseColor("#1F2732"))
+                setColor(surfaceColor)
             }
         }
         return dialog

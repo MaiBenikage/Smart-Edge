@@ -48,8 +48,7 @@ class ToolsSettingsActivity : AppCompatActivity() {
 
     private fun loadCurrentSettings() {
         binding.featureToolsMaster.isChecked = panelPrefs.showTools
-        binding.layoutToolsSubOptions.alpha = if (panelPrefs.showTools) 1.0f else 0.5f
-        binding.layoutToolsSubOptions.isEnabled = panelPrefs.showTools
+        setSubOptionsEnabled(panelPrefs.showTools)
 
         binding.featureSysInfo.isChecked = panelPrefs.showSysInfo
         binding.featurePowerMenu.isChecked = panelPrefs.showPowerMenu
@@ -63,6 +62,25 @@ class ToolsSettingsActivity : AppCompatActivity() {
         // Device admin: reflect the REAL admin-active state (not just the pref),
         // so the switch truthfully shows whether Screen-Off-without-Lock works.
         binding.featureDeviceAdmin.isChecked = isDeviceAdminActive()
+    }
+
+    /**
+     * Enable/disable the dashboard-item switches. ViewGroup.setEnabled()
+     * does NOT propagate to children, so setting it on the container only
+     * greyed the section out while every switch inside stayed fully
+     * tappable (toggling prefs and firing service refreshes). Each switch
+     * gets its own isEnabled; the container alpha is the visual dim.
+     */
+    private fun setSubOptionsEnabled(enabled: Boolean) {
+        binding.layoutToolsSubOptions.alpha = if (enabled) 1.0f else 0.5f
+        binding.featureSysInfo.isEnabled = enabled
+        binding.featurePowerMenu.isEnabled = enabled
+        binding.featureVolumeKeys.isEnabled = enabled
+        binding.featureBrightnessKeys.isEnabled = enabled
+        binding.featureScreenshot.isEnabled = enabled
+        binding.featureBlackScreen.isEnabled = enabled
+        binding.featureLockScreen.isEnabled = enabled
+        binding.featureContentPicker.isEnabled = enabled
     }
 
     private fun isDeviceAdminActive(): Boolean {
@@ -86,15 +104,14 @@ class ToolsSettingsActivity : AppCompatActivity() {
             }
             startActivity(intent)
         } catch (e: Exception) {
-            android.widget.Toast.makeText(this, R.string.xml_device_admin_desc, android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(this, R.string.toast_device_admin_failed, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun setupListeners() {
         binding.featureToolsMaster.setOnCheckedChangeListener { _, isChecked ->
             panelPrefs.showTools = isChecked
-            binding.layoutToolsSubOptions.alpha = if (isChecked) 1.0f else 0.5f
-            binding.layoutToolsSubOptions.isEnabled = isChecked
+            setSubOptionsEnabled(isChecked)
             applyOnly()
         }
 

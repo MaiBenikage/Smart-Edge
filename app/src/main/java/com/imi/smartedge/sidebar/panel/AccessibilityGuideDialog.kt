@@ -19,14 +19,30 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
  */
 class AccessibilityGuideDialog : BottomSheetDialogFragment() {
 
+    // Theme colors (resolved from the app theme, not hardcoded dark
+    // values): the sheet must follow Light/Dark/System like the rest of
+    // the app. Resolved lazily — requireContext() isn't available until
+    // the fragment is attached.
+    private val surfaceColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorSurface)
+    private val onSurfaceColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnSurface)
+    private val onSurfaceVariantColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
+    private val outlineColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorOutline)
+    private val surfaceContainerColor: Int
+        get() = requireContext().resolveThemeColor(com.google.android.material.R.attr.colorSurfaceContainer)
+
     companion object {
         const val TAG = "AccessibilityGuideDialog"
 
         fun newInstance() = AccessibilityGuideDialog()
 
-        // OEM detection helpers
-        private fun manufacturer() = Build.MANUFACTURER.lowercase()
-        private fun brand() = Build.BRAND.lowercase()
+        // OEM detection helpers (Locale.ROOT: "XIAOMI".lowercase() in a
+        // Turkish locale is "xıaomı" and fails contains("xiaomi")).
+        private fun manufacturer() = Build.MANUFACTURER.lowercase(java.util.Locale.ROOT)
+        private fun brand() = Build.BRAND.lowercase(java.util.Locale.ROOT)
 
         private fun isMiui(): Boolean {
             return try {
@@ -49,8 +65,9 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                     b.contains("realme") || b.contains("oneplus")
         }
         private fun isVivo(): Boolean {
-            val m = manufacturer(); val b = brand()
-            return m.contains("vivo") || b.contains("vivo")
+            // Manufacturer only: brand() is the same value for Vivo
+            // devices, so the `|| b.contains("vivo")` disjunct was redundant.
+            return manufacturer().contains("vivo")
         }
         private fun isHuawei(): Boolean {
             val m = manufacturer(); val b = brand()
@@ -152,6 +169,15 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         val ctx = requireContext()
         val density = ctx.resources.displayMetrics.density
 
+        // Fragment-result listener for the secure-settings dialog:
+        // registered here (not in the click handler) so a recreated
+        // fragment after rotation still receives the grant.
+        SecureSettingsDialog.registerResultListener(this) {
+            if (AutomationManager.isAutomationPossible()) {
+                PanelPreferences(ctx).useAutomationForGestures = true
+            }
+        }
+
         val guide = detectGuide()
 
         val root = LinearLayout(ctx).apply {
@@ -173,7 +199,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = 8 * density
-                setColor(android.graphics.Color.parseColor("#33FFFFFF"))
+                setColor(outlineColor)
             }
         }
         root.addView(handle)
@@ -223,13 +249,13 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         val tvTitle = TextView(ctx).apply {
             text = getString(R.string.dialog_enable_accessibility)
             textSize = 18f
-            setTextColor(android.graphics.Color.WHITE)
+            setTextColor(onSurfaceColor)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
         val tvSubtitle = TextView(ctx).apply {
             text = getString(R.string.dialog_steps_for, guide.title, guide.subtitle)
             textSize = 12f
-            setTextColor(android.graphics.Color.parseColor("#99FFFFFF"))
+            setTextColor(onSurfaceVariantColor)
         }
         titleCol.addView(tvTitle)
         titleCol.addView(tvSubtitle)
@@ -243,7 +269,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
             )
             lp.bottomMargin = (20 * density).toInt()
             layoutParams = lp
-            setBackgroundColor(android.graphics.Color.parseColor("#1AFFFFFF"))
+            setBackgroundColor(surfaceContainerColor)
         }
         root.addView(divider)
 
@@ -280,7 +306,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
             val tvStep = TextView(ctx).apply {
                 text = stepText
                 textSize = 14f
-                setTextColor(android.graphics.Color.parseColor("#E6FFFFFF"))
+                setTextColor(onSurfaceColor)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
 
@@ -299,7 +325,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         // "Open Settings" button
         val btnOpen = Button(ctx).apply {
             text = getString(R.string.dialog_open_accessibility_settings)
-            setTextColor(android.graphics.Color.WHITE)
+            setTextColor(onSurfaceColor)
             textSize = 15f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             background = android.graphics.drawable.GradientDrawable().apply {
@@ -339,12 +365,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
             lp.topMargin = (12 * density).toInt()
             layoutParams = lp
             setOnClickListener {
-                SecureSettingsDialog.show(ctx) {
-                    // Update preference if automation becomes possible
-                    if (AutomationManager.isAutomationPossible()) {
-                        PanelPreferences(ctx).useAutomationForGestures = true
-                    }
-                }
+                SecureSettingsDialog.show(ctx)
                 dismiss()
             }
         }
@@ -353,7 +374,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
         val tvNote = TextView(ctx).apply {
             text = getString(R.string.dialog_automation_vs_a11y_msg)
             textSize = 11f
-            setTextColor(android.graphics.Color.parseColor("#66FFFFFF"))
+            setTextColor(onSurfaceVariantColor)
             gravity = android.view.Gravity.CENTER
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -393,7 +414,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                     24 * density, 24 * density,
                     0f, 0f, 0f, 0f
                 )
-                setColor(android.graphics.Color.parseColor("#1F2732"))
+                setColor(surfaceColor)
             }
         }
 

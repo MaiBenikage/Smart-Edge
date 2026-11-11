@@ -34,6 +34,9 @@ class AppPickerActivity : AppCompatActivity() {
     private lateinit var pickerAdapter: AppPickerAdapter
     private lateinit var repository: AppRepository
     private var allApps: List<AppInfo> = emptyList()
+    /** Search debounce (200ms, like the floating picker). */
+    private val searchHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var searchDebounceRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,7 +60,14 @@ class AppPickerActivity : AppCompatActivity() {
                         getString(R.string.panel_apps_limit_reached, PanelPreferences.MAX_PANEL_APPS),
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
-                    filterApps(binding.searchView.query?.toString().orEmpty())
+                    // Rebind this row directly: the checkbox widget is
+                    // already visually checked (the tap checked it) but
+                    // the add failed, so no data changed — DiffUtil would
+                    // report no content change and onBindViewHolder would
+                    // never run to reset it. notifyItemChanged forces the
+                    // rebind, which reads the live prefs state (unchecked).
+                    val pos = pickerAdapter.currentList.indexOfFirst { it.identifier == app.identifier }
+                    if (pos >= 0) pickerAdapter.notifyItemChanged(pos)
                 }
             } else {
                 panelPrefs.removeApp(app.identifier)
@@ -69,11 +79,15 @@ class AppPickerActivity : AppCompatActivity() {
             adapter = pickerAdapter
         }
 
-        // Search
+        // Search — debounced 200ms like the floating picker, so fast
+        // typing doesn't submitList (and re-run DiffUtil) per keystroke.
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?) = false
             override fun onQueryTextChange(newText: String?): Boolean {
-                filterApps(newText.orEmpty())
+                searchDebounceRunnable?.let { searchHandler.removeCallbacks(it) }
+                val runnable = Runnable { filterApps(newText.orEmpty()) }
+                searchDebounceRunnable = runnable
+                searchHandler.postDelayed(runnable, 200L)
                 return true
             }
         })
@@ -85,10 +99,10 @@ class AppPickerActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Force rebind so Glide picks up new icon pack if it changed
-        if (::pickerAdapter.isInitialized) {
-            pickerAdapter.notifyDataSetChanged()
-        }
+        // Reload (not just rebind): installs/uninstalls while this picker
+        // was open never appeared before, because loadApps() only ran in
+        // onCreate. getAllApps() is uncached, so this is always fresh.
+        loadApps()
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -102,14 +116,17 @@ class AppPickerActivity : AppCompatActivity() {
                 repository.getAllApps()
             }
             allApps = apps
-            pickerAdapter.submitList(apps)
+            // Submit copies with isInPanel synced from prefs, so the
+            // checkbox reflects external panel changes (not just the state
+            // captured when the list was first loaded).
+            pickerAdapter.submitList(apps.map { it.copy(isInPanel = panelPrefs.isInPanel(it.identifier)) })
         }
     }
 
     private fun filterApps(query: String) {
         val filtered = if (query.isBlank()) allApps
         else allApps.filter { it.appName.contains(query, ignoreCase = true) }
-        pickerAdapter.submitList(filtered)
+        pickerAdapter.submitList(filtered.map { it.copy(isInPanel = panelPrefs.isInPanel(it.identifier)) })
     }
 
     // ── Inner Adapter ────────────────────────────────────────────────────────
@@ -173,5 +190,9 @@ class AppPickerActivity : AppCompatActivity() {
 
 private object Diff : DiffUtil.ItemCallback<AppInfo>() {
     override fun areItemsTheSame(o: AppInfo, n: AppInfo) = o.identifier == n.identifier
-    override fun areContentsTheSame(o: AppInfo, n: AppInfo) = o.appName == n.appName
+    // Include the live panel state: without it, DiffUtil reports no
+    // content change when an app is added/removed elsewhere, and the
+    // checkbox never updates without a scroll/resume.
+    override fun areContentsTheSame(o: AppInfo, n: AppInfo) =
+        o.appName == n.appName && o.isInPanel == n.isInPanel
 }

@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private fun registerPinnedShortcut() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val shortcutManager = getSystemService(android.content.pm.ShortcutManager::class.java)
-            
+
             val toggleIntent = Intent(this, ToggleActivity::class.java).apply {
                 action = ToggleActivity.ACTION_TOGGLE
             }
@@ -73,7 +73,15 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
                 .build()
 
             try {
-                shortcutManager.dynamicShortcuts = listOf(shortcut)
+                // Preserve any other dynamic shortcuts instead of
+                // replacing the whole list: the old code wiped every
+                // other dynamic shortcut on every launch.
+                val existing = try {
+                    shortcutManager.dynamicShortcuts
+                } catch (_: Exception) {
+                    emptyList()
+                }.filter { it.id != "toggle_sidebar" }
+                shortcutManager.dynamicShortcuts = existing + shortcut
             } catch (e: Exception) {
                 Log.e("MainActivity", "Failed to set dynamic shortcuts", e)
             }
@@ -83,7 +91,7 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private fun setupListeners() {
         binding.btnGrantPermission.setOnClickListener { requestOverlayPermission() }
         binding.btnIgnoreBattery.setOnClickListener { requestIgnoreBatteryOptimization() }
-        
+
         val toggleListener = View.OnClickListener { togglePanel() }
         binding.btnStartStop.setOnClickListener(toggleListener)
         binding.btnStartStopClassic.setOnClickListener(toggleListener)
@@ -154,14 +162,14 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
         val isEnabled = panelPrefs.serviceEnabled
         val isAccessibilityEnabled = isAccessibilityServiceEnabled()
         val automationActive = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
-        
+
         val typedValue = android.util.TypedValue()
-        
+
         if (isEnabled && (isAccessibilityEnabled || automationActive)) {
             // Service is fully ACTIVE (Green)
             binding.btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
             binding.btnStartStop.setIconTintResource(android.R.color.white)
-            
+
             binding.btnStartStopClassic.text = getString(R.string.btn_stop)
             binding.btnStartStopClassic.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#2ECC71"))
             binding.btnStartStopClassic.setTextColor(Color.WHITE)
@@ -180,7 +188,7 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
             // Preference is ON, but Accessibility is MISSING (Yellow warning)
             binding.btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#F1C40F"))
             binding.btnStartStop.setIconTintResource(android.R.color.white)
-            
+
             binding.btnStartStopClassic.text = getString(R.string.btn_fix)
             binding.btnStartStopClassic.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#F1C40F"))
             binding.btnStartStopClassic.setTextColor(Color.WHITE)
@@ -192,7 +200,7 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
             // Service is STOPPED (Slate)
             binding.btnStartStop.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#475569"))
             binding.btnStartStop.setIconTintResource(com.google.android.material.R.color.material_dynamic_neutral90)
-            
+
             binding.btnStartStopClassic.text = getString(R.string.btn_start)
             binding.btnStartStopClassic.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#475569"))
             binding.btnStartStopClassic.setTextColor(Color.WHITE)
@@ -202,8 +210,8 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
             binding.tvStatus.setTextColor(typedValue.data)
             binding.statusDot.imageTintList = android.content.res.ColorStateList.valueOf(typedValue.data)
         }
-        
-        binding.btnStartStop.text = "" 
+
+        binding.btnStartStop.text = ""
     }
 
     // ── Permission ────────────────────────────────────────────────────────────
@@ -211,7 +219,7 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private fun showLogsDialog() {
         val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
         val time = sdf.format(java.util.Date())
-        
+
         val logBuilder = StringBuilder()
         logBuilder.append("[$time] Log Session Started\n")
         logBuilder.append("[$time] Device: ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE})\n")
@@ -313,7 +321,7 @@ private fun requestOverlayPermission() {
     private fun updatePermissionUI() {
         val granted = hasOverlayPermission()
         val standardBatteryIgnored = isIgnoringBatteryOptimizations()
-        
+
         // Show/Hide Activity Logs button based on user preference
         binding.btnShowLogs.visibility = if (panelPrefs.showLogs) View.VISIBLE else View.GONE
 
@@ -323,31 +331,30 @@ private fun requestOverlayPermission() {
 
         binding.cardPermission.visibility = if (granted) View.GONE else View.VISIBLE
         binding.cardBatteryOptimization.visibility = if (batteryCardVisible) View.VISIBLE else View.GONE
-        
+
         binding.btnStartStop.isEnabled = granted
         binding.btnStartStopClassic.isEnabled = granted
 
         // Show Android 13 sideload note for users who can't find the permission toggle
-        if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            binding.tvSideloadNote.visibility = View.VISIBLE
+        binding.tvSideloadNote.visibility = if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            View.VISIBLE
+        } else {
+            View.GONE
         }
     }
 
     // ── Service Toggle ────────────────────────────────────────────────────────
 
-    private fun togglePanel() {
-        val activeBtn = if (panelPrefs.homeButtonStyle == PanelPreferences.STYLE_POWER) 
-            binding.btnStartStop else binding.btnStartStopClassic
-            
-        // Haptic feedback for tactile feel
-        activeBtn.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
-        
-        // Scale animation
-        SpringAnimator.scalePulse(activeBtn)
-
+    /**
+     * Shared engine guard for the two toggle entry points ([togglePanel]
+     * and [triggerPanelToggle]): overlay permission plus an automation
+     * engine (accessibility service or native automation). Returns false
+     * — after routing the user to fix it — when the panel can't start.
+     */
+    private fun ensureEngineReady(): Boolean {
         if (!hasOverlayPermission()) {
             requestOverlayPermission()
-            return
+            return false
         }
 
         val automationEnabled = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
@@ -356,10 +363,24 @@ private fun requestOverlayPermission() {
             // who ALSO had Native Gesture enabled but the engine missing read this
             // as a contradiction. New copy explicitly names both engine options so
             // the user understands they can route through Root/Shizuku instead.
-            binding.root.showModernToast(getString(R.string.accessibility_or_native_gesture_tip), com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+            binding.root.showModernToast(getString(R.string.accessibility_or_native_gesture_tip), Snackbar.LENGTH_LONG)
             openAccessibilitySettings()
-            return
+            return false
         }
+        return true
+    }
+
+    private fun togglePanel() {
+        val activeBtn = if (panelPrefs.homeButtonStyle == PanelPreferences.STYLE_POWER)
+            binding.btnStartStop else binding.btnStartStopClassic
+
+        // Haptic feedback for tactile feel
+        activeBtn.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+
+        // Scale animation
+        SpringAnimator.scalePulse(activeBtn)
+
+        if (!ensureEngineReady()) return
 
         // Use centralized logic
         panelPrefs.toggleService(this)
@@ -368,23 +389,13 @@ private fun requestOverlayPermission() {
     }
 
     private fun triggerPanelToggle() {
-        if (!hasOverlayPermission()) {
-            requestOverlayPermission()
-            return
-        }
-        
-        val automationEnabled = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
-        if (!automationEnabled && !isAccessibilityServiceEnabled()) {
-            binding.root.showModernToast(getString(R.string.accessibility_or_native_gesture_tip), Snackbar.LENGTH_LONG)
-            openAccessibilitySettings()
-            return
-        }
+        if (!ensureEngineReady()) return
 
         binding.root.showModernToast(getString(R.string.toast_opening_sidebar))
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_OPEN
         }
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

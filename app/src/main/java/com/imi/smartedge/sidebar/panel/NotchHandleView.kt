@@ -117,9 +117,12 @@ class NotchHandleView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                val dx = Math.abs(event.x - width / 2)
-                val dy = Math.abs(event.y - height / 2)
-                if (dx > width || dy > height) {
+                // Cancel the long-press if the finger leaves the view's
+                // bounds. (The old check compared the distance from centre
+                // against the full width/height, which can never be true for
+                // local coordinates — a finger could slide arbitrarily far
+                // off the notch and the long-press still fired.)
+                if (event.x < 0 || event.x > width || event.y < 0 || event.y > height) {
                     handler.removeCallbacks(longPressRunnable)
                 }
                 return true
@@ -131,6 +134,14 @@ class NotchHandleView @JvmOverloads constructor(
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // Mirror EdgeHandleView: a detach mid-touch (service stop, rotation,
+        // panel re-add) must not let a pending tap/long-press fire on a dead
+        // view. The runnables are only removed in ACTION_UP/CANCEL otherwise.
+        handler.removeCallbacksAndMessages(null)
     }
 
     override fun onDraw(canvas: android.graphics.Canvas) {

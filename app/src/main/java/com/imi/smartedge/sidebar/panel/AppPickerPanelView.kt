@@ -94,15 +94,14 @@ class AppPickerPanelView @JvmOverloads constructor(
 
     private var activeTab: PickerTab = PickerTab.APPS
     private val expandedPackages = linkedSetOf<String>()
-    private var editingItemId: String? = null
     // Per-item editing state for custom tab
     private var editingCustomId: String? = null
 
     // In-progress edit cache, keyed by item id. A TextWatcher on each
     // CustomRow's etTitle/etContent writes here on every keystroke so that
-    // [saveEditingItem] can recover the user's typed text even when the row
-    // has scrolled offscreen and its ViewHolder has been recycled (in which
-    // case [findViewHolderForAdapterPosition] returns null).
+    // the live custom-item edit flow can recover the user's typed text even
+    // when the row has scrolled offscreen and its ViewHolder has been
+    // recycled (in which case [findViewHolderForAdapterPosition] returns null).
     private val pendingCustomEdits = mutableMapOf<String, Pair<String, String>>()
 
     // Unified lazy data for the APPS / ACTIVITIES / SHORTCUTS tabs: one shared
@@ -194,18 +193,18 @@ class AppPickerPanelView @JvmOverloads constructor(
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        // Hide keyboard on scroll
+        // One scroll listener for both jobs (was two): hide the keyboard
+        // when the user starts dragging, and persist the scroll offset
+        // only when scrolling settles (SCROLL_STATE_IDLE) instead of on
+        // every onScrolled event — the old listener enqueued a
+        // SharedPreferences apply() (a disk-write) per scroll event.
         rvPickerGrid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING && etSearch.hasFocus()) {
                     etSearch.clearFocus()
                     hideKeyboard()
                 }
-            }
-        })
-        rvPickerGrid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
-                if (panelPrefs.rememberScroll) {
+                if (newState == RecyclerView.SCROLL_STATE_IDLE && panelPrefs.rememberScroll) {
                     panelPrefs.lastPickerScroll = rv.computeVerticalScrollOffset()
                 }
             }
@@ -310,6 +309,11 @@ class AppPickerPanelView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        // Persist the final scroll offset even if the picker closes
+        // mid-scroll (before the idle write fires).
+        if (panelPrefs.rememberScroll) {
+            panelPrefs.lastPickerScroll = rvPickerGrid.computeVerticalScrollOffset()
+        }
         searchHandler.removeCallbacks(searchDebounceRunnable)
         notificationChangedListener?.let {
             NotificationTrackingService.removeOnNotificationsChangedListener(it)
@@ -323,11 +327,6 @@ class AppPickerPanelView @JvmOverloads constructor(
             event.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
             if (activeTab == PickerTab.CUSTOM && editingCustomId != null) {
                 cancelCustomItemEdit()
-                return true
-            }
-            if (editingItemId != null) {
-                val saved = saveEditingItem()
-                if (!saved) showInvalidCustomUriToast()
                 return true
             }
             onClose?.invoke()
@@ -369,13 +368,9 @@ class AppPickerPanelView @JvmOverloads constructor(
         // Reset custom editing states on tab switch
         if (newTab == PickerTab.CUSTOM) {
             editingCustomId = null
-            editingItemId = null
         } else {
             // Per-item edit: discard changes
             editingCustomId = null
-            if (editingItemId != null) {
-                saveEditingItem(forceDiscard = true)
-            }
             // Global edit mode: exit without saving sidebar changes
             // (sidebar changes only saved when Done is clicked)
             if (isEditMode) {
@@ -564,17 +559,15 @@ class AppPickerPanelView @JvmOverloads constructor(
         // Compatibility API — refreshes the unified picker cache for the
         // active tab (APPS / ACTIVITIES / SHORTCUTS share one cache).
         if (!forceRefresh && pickerData != null && activeTab == PickerTab.APPS) {
-            // Sync in-panel flags from prefs
-            val panelIds = panelPrefs.getPanelApps().toSet()
-            var changed = false
-            pickerData?.apps?.forEach {
-                val inPanel = panelIds.contains(it.identifier)
-                if (it.isInPanel != inPanel) {
-                    it.isInPanel = inPanel
-                    changed = true
-                }
+            // Sync in-panel flags from prefs for all three lists, on
+            // copies: the cached PickerData is shared with the repository,
+            // so mutating its items in place would also mutate the
+            // adapter's old list and DiffUtil would skip the rebind.
+            val synced = pickerData?.let { syncPanelState(it) }
+            if (synced != pickerData) {
+                pickerData = synced
+                rebuildAndSubmit()
             }
-            if (changed) rebuildAndSubmit()
             return
         }
         when (activeTab) {
@@ -598,20 +591,48 @@ class AppPickerPanelView @JvmOverloads constructor(
     //                                Data loading
     // ====================================================================================
     /**
+     * Return a copy of [data] with isInPanel re-synced from prefs for all
+     * three lists. The repository cache is shared, so the view must not
+     * mutate its items in place: the old code mutated the cached AppInfos
+     * (also the adapter's old list), so DiffUtil saw no change and skipped
+     * the rebind that would show the new check state — and it only synced
+     * the APPS list, leaving ACTIVITIES/SHORTCUTS badges stale.
+     */
+    private fun syncPanelState(data: AppRepository.PickerData): AppRepository.PickerData {
+        val panelIds = panelPrefs.getPanelApps().toSet()
+        return data.copy(
+            apps = data.apps.map { it.copy(isInPanel = panelIds.contains(it.identifier)) },
+            activities = data.activities.map { group ->
+                group.copy(items = group.items.map { it.copy(isInPanel = panelIds.contains(it.identifier)) })
+            },
+            shortcuts = data.shortcuts.map { group ->
+                group.copy(items = group.items.map { it.copy(isInPanel = panelIds.contains(it.identifier)) })
+            }
+        )
+    }
+
+    /** Generation counter for picker loads: only the newest load may touch the header/list. */
+    private var pickerLoadGeneration = 0
+
+    /**
      * Load the unified picker cache (apps + activities + shortcuts, in
      * parallel) and rebuild the current tab. One function, one cache, one
      * refresh path for all three tabs.
      */
     private fun loadPickerData(forceRefresh: Boolean = false) {
-        val originalHeader = tvHeader.text
+        val generation = ++pickerLoadGeneration
         tvHeader.text = context.getString(R.string.loading_apps)
         _scope.launch {
             val data = withContext(Dispatchers.IO) { repository.getPickerData(forceRefresh) }
-            pickerData = data
-            tvHeader.text = originalHeader
-            // Sync panel state and rebuild
-            val panelIds = panelPrefs.getPanelApps().toSet()
-            data.apps.forEach { it.isInPanel = panelIds.contains(it.identifier) }
+            // A newer load superseded this one: don't touch the header or
+            // the list — its coroutine owns them now.
+            if (generation != pickerLoadGeneration) return@launch
+            // Set the correct tab header explicitly instead of restoring
+            // the captured text: a concurrent load captured "Loading…" as
+            // its original header, and restoring it left the header stuck
+            // on "Loading…" after the data had loaded.
+            updateHeaderAndEditButton()
+            pickerData = syncPanelState(data)
             rebuildAndSubmit()
             playStaggeredEntryAnim()
         }
@@ -794,110 +815,6 @@ class AppPickerPanelView @JvmOverloads constructor(
         return true
     }
 
-    /**
-     * Persist the current edit-mode row. Returns true if the edit cleared
-     * (saved, dropped-as-empty, or [forceDiscard] honored), false if rejected
-     * for invalid content (user stays in edit mode to fix it).
-     *
-     * The latest typed text is read from [pendingCustomEdits] first (populated
-     * by TextWatchers on every keystroke), then falls back to the live EditTexts
-     * on the visible ViewHolder, then to the original stored values. This is
-     * what makes the save work for rows that have been scrolled offscreen and
-     * recycled out of the ViewHolder pool.
-     */
-    private fun saveEditingItem(forceDiscard: Boolean = false): Boolean {
-        val id = editingItemId ?: return false
-
-        val cached = pendingCustomEdits[id]
-        val holder = rvPickerGrid.findViewHolderForAdapterPosition(adapter.currentList.indexOfFirst {
-            (it is PickerItem.CustomRow) && it.item.id == id
-        }) as? PickerAdapter.CustomViewHolder
-        val stored = customItems.firstOrNull { it.id == id }
-        val newTitle: String = cached?.first
-            ?: holder?.etTitle?.text?.toString()
-            ?: stored?.title
-            ?: ""
-        val newContent: String = cached?.second
-            ?: holder?.etContent?.text?.toString()
-            ?: stored?.content
-            ?: ""
-
-        val idx = customItems.indexOfFirst { it.id == id }
-        if (idx < 0) {
-            editingItemId = null
-            pendingCustomEdits.remove(id)
-            return false
-        }
-        val original = customItems[idx]
-
-        // Always drop brand-new empty items (the user pressed + ADD then never
-        // typed anything or canceled by switching away).
-        val isEmptyNew = original.title.isBlank() && original.content.isBlank() &&
-            newTitle.isBlank() && newContent.isBlank()
-        if (isEmptyNew) {
-            customItems.removeAt(idx)
-            // Defensive: if a previous build already persisted this empty draft,
-            // drop it from prefs + sidebar too.
-            panelPrefs.removeCustomItem(id)
-            onRemoveCustomItem?.invoke(id)
-            editingItemId = null
-            pendingCustomEdits.remove(id)
-            rebuildAndSubmit()
-            return true
-        }
-
-        // Reject invalid content unless the caller explicitly asked to discard.
-        if (!isValidCustom(newTitle, newContent)) {
-            // Audit L-High: when caller passed forceDiscard=true (typical from
-            // switchTab() / addNewCustomItem()), an invalid URI/text MUST be
-            // dropped — NOT silently saved. The previous logic skipped the
-            // `return false` branch on forceDiscard and fell through to
-            // write the invalid string to SharedPreferences anyway, which
-            // defeated the point of the validation gate.
-            if (forceDiscard) {
-                // Drop invalid drafts completely so they don't linger as Untitled.
-                customItems.removeAt(idx)
-                panelPrefs.removeCustomItem(id)
-                onRemoveCustomItem?.invoke(id)
-                Log.w(
-                    "AppPickerPanelView",
-                    "saveEditingItem force-discarded invalid custom uri (id=$id, content='${newContent.take(64)}')"
-                )
-                editingItemId = null
-                pendingCustomEdits.remove(id)
-                rebuildAndSubmit()
-                return true
-            }
-            Log.w(
-                "AppPickerPanelView",
-                "saveEditingItem rejected: invalid custom uri (id=$id, content='${newContent.take(64)}')"
-            )
-            return false
-        }
-
-        // Detect URL vs intent from the *trimmed* content (best effort) and use the
-        // same trimmed form as the persisted content so read-path consumers see a
-        // canonical string. Pre-trim, leading whitespace or a stray '\n' from a
-        // paste would survive saveEditingItem and defeat downstream
-        // `intentUri.startsWith("intent:")` detection.
-        val trimmedContent = newContent.trim()
-        val isUrl = !trimmedContent.startsWith("intent:")
-        val updated = original.copy(title = newTitle, content = trimmedContent, isUrl = isUrl)
-        customItems[idx] = updated
-        val existed = panelPrefs.getCustomItems().any { it.id == id }
-        if (!existed) {
-            // First successful save of a draft created by + ADD.
-            onAddCustomItem?.invoke(updated)
-        } else if (original.title != newTitle || original.content != newContent || original.isUrl != isUrl) {
-            onUpdateCustomItem?.invoke(updated)
-        } else {
-            panelPrefs.updateCustomItem(updated)
-        }
-        editingItemId = null
-        pendingCustomEdits.remove(id)
-        rebuildAndSubmit()
-        return true
-    }
 
     private fun showInvalidCustomUriToast() {
         android.widget.Toast.makeText(
@@ -950,13 +867,18 @@ class AppPickerPanelView @JvmOverloads constructor(
                     result.add(PickerItem.EmptyState(context.getString(R.string.picker_no_activities_available)))
                 } else {
                     var anyMatches = false
-                    activitiesByPackage.forEach { (pkg, acts) ->
-                        val matching = if (q.isEmpty()) acts else acts.filter { matchesQuery(it.appName, q) }
-                        val expanded = expandedPackages.contains(pkg) || (!q.isEmpty() && matching.isNotEmpty())
-                        if (q.isEmpty() || matching.isNotEmpty() || expandedPackages.contains(pkg)) {
+                    activitiesByPackage.forEach { group ->
+                        val matching = if (q.isEmpty()) group.items else group.items.filter { matchesQuery(it.appName, q) }
+                        val expanded = expandedPackages.contains(group.packageName) || (!q.isEmpty() && matching.isNotEmpty())
+                        if (q.isEmpty() || matching.isNotEmpty() || expandedPackages.contains(group.packageName)) {
                             anyMatches = true
-                            val appName = acts.firstOrNull()?.let { resolveAppLabel(it.packageName) } ?: pkg
-                            result.add(PickerItem.TreeHeader(pkg, appName, acts.size, expanded))
+                            // The header count is the number of children
+                            // actually shown (matching), not the group's
+                            // total: searching for one activity in an app
+                            // with 20 used to read "20" above a single row.
+                            // group.appLabel comes from the repository (no
+                            // main-thread PackageManager call here).
+                            result.add(PickerItem.TreeHeader(group.packageName, group.appLabel, matching.size, expanded))
                             if (expanded) {
                                 matching.forEach { result.add(PickerItem.TreeChild(it)) }
                             }
@@ -976,13 +898,12 @@ class AppPickerPanelView @JvmOverloads constructor(
                     result.add(PickerItem.EmptyState(msg))
                 } else {
                     var anyMatches = false
-                    shortcutsByPackage.forEach { (pkg, scs) ->
-                        val matching = if (q.isEmpty()) scs else scs.filter { matchesQuery(it.appName, q) }
-                        val expanded = expandedPackages.contains(pkg) || (!q.isEmpty() && matching.isNotEmpty())
-                        if (q.isEmpty() || matching.isNotEmpty() || expandedPackages.contains(pkg)) {
+                    shortcutsByPackage.forEach { group ->
+                        val matching = if (q.isEmpty()) group.items else group.items.filter { matchesQuery(it.appName, q) }
+                        val expanded = expandedPackages.contains(group.packageName) || (!q.isEmpty() && matching.isNotEmpty())
+                        if (q.isEmpty() || matching.isNotEmpty() || expandedPackages.contains(group.packageName)) {
                             anyMatches = true
-                            val appName = scs.firstOrNull()?.let { resolveAppLabel(it.packageName) } ?: pkg
-                            result.add(PickerItem.TreeHeader(pkg, appName, scs.size, expanded))
+                            result.add(PickerItem.TreeHeader(group.packageName, group.appLabel, matching.size, expanded))
                             if (expanded) {
                                 matching.forEach { result.add(PickerItem.TreeChild(it)) }
                             }
@@ -1010,15 +931,6 @@ class AppPickerPanelView @JvmOverloads constructor(
             }
         }
         return result
-    }
-
-    private fun resolveAppLabel(packageName: String): String {
-        return try {
-            val ai = context.packageManager.getApplicationInfo(packageName, 0)
-            context.packageManager.getApplicationLabel(ai).toString()
-        } catch (e: Exception) {
-            packageName
-        }
     }
 
     private fun rebuildAndSubmit(onCommit: (() -> Unit)? = null) {
@@ -1181,18 +1093,16 @@ class AppPickerPanelView @JvmOverloads constructor(
             override fun clearView(rv: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
                 super.clearView(rv, viewHolder)
                 // Persist the new order after a drag
-                if (editingItemId == null) {
-                    panelPrefs.reorderCustomItems(customItems)
-                    // Audit L3 — mirror the new custom-list order into the sidebar
-                    // (KEY_PANEL_APPS) so the user sees the same arrangement in both
-                    // surfaces, not in only one of them.
-                    panelPrefs.resyncPanelAppsOrderFromCustomItems(customItems)
-                    // Round-7 U3: notify the host so the sidebar reflects the
-                    // reorder immediately. Without this hook the persisted
-                    // KEY_PANEL_APPS is updated but SidePanelView's adapter
-                    // still sees the old order until a refresh cycle runs.
-                    onCustomItemsReordered?.invoke()
-                }
+                panelPrefs.reorderCustomItems(customItems)
+                // Audit L3 — mirror the new custom-list order into the sidebar
+                // (KEY_PANEL_APPS) so the user sees the same arrangement in both
+                // surfaces, not in only one of them.
+                panelPrefs.resyncPanelAppsOrderFromCustomItems(customItems)
+                // Round-7 U3: notify the host so the sidebar reflects the
+                // reorder immediately. Without this hook the persisted
+                // KEY_PANEL_APPS is updated but SidePanelView's adapter
+                // still sees the old order until a refresh cycle runs.
+                onCustomItemsReordered?.invoke()
             }
         }
     }
@@ -1302,7 +1212,7 @@ class AppPickerPanelView @JvmOverloads constructor(
         // (single source of truth — the layout XML is no longer overridden
         // with conflicting per-theme values).
         private fun bindApp(holder: AppViewHolder, app: AppInfo, isChild: Boolean) {
-            val scale = context.getAutoScalingFactor() * panelPrefs.scaleFactor
+            val scale = panelPrefs.scaleFactor
             val iconPx = (context.dpToPx(PICKER_ICON_DP) * scale).toInt()
 
             holder.ivIcon.layoutParams.let { lp ->
@@ -1441,7 +1351,6 @@ class AppPickerPanelView @JvmOverloads constructor(
 
         // --- HEADER ---
         private fun bindHeader(holder: HeaderViewHolder, item: PickerItem.TreeHeader) {
-            val scale = context.getAutoScalingFactor()
             holder.tvName.text = item.appName
             holder.tvCount.text = item.childCount.toString()
             holder.ivChevron.rotation = if (item.isExpanded) 90f else 0f
@@ -1451,7 +1360,7 @@ class AppPickerPanelView @JvmOverloads constructor(
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .placeholder(android.R.drawable.sym_def_app_icon)
                 .error(android.R.drawable.sym_def_app_icon)
-                .override((96 * scale).toInt(), (96 * scale).toInt())
+                .override(96, 96)
                 .into(holder.ivIcon)
             holder.itemView.setOnClickListener { toggleHeaderExpansion(item.packageName) }
         }
@@ -1743,14 +1652,8 @@ class AppPickerPanelView @JvmOverloads constructor(
         const val VT_HEADER = 1
         const val VT_CUSTOM = 2
         const val VT_EMPTY = 3
-        // Length caps to prevent an abusive pref string (custom-item JSON is
-        // persisted to SharedPreferences; ungated text could OOM the read).
-        const val MAX_CUSTOM_TITLE_LEN = 64
-        const val MAX_CUSTOM_CONTENT_LEN = 2048
-        // Allowlist of URI schemes the content may use. Anything else is
-        // rejected on save — e.g. file://, content://, javascript: are blocked.
-        // Power users can still reach those via raw intent:#Intent;… URIs.
-        val ALLOWED_CUSTOM_SCHEMES = listOf("intent:", "http://", "https://")
+        // Length caps + scheme allowlist for custom items now live in
+        // CustomItemValidation (pure, unit-tested); see isValidCustom below.
 
         // UI constants (dp)
         const val SEARCH_CORNER_RADIUS_DP = 22
@@ -1775,40 +1678,27 @@ class AppPickerPanelView @JvmOverloads constructor(
 
     /**
      * Scheme + length validation for a custom URL/intent the user is editing.
-     * Returns true if the inputs are acceptable to persist.
+     * Delegates to [CustomItemValidation] (pure, unit-tested) so the view
+     * and the test exercise the same code.
      */
-    // Audit U1: isValidCustom exposed as `internal` so unit tests in
-    // app/src/test/.../IsValidCustomTest.kt can verify scheme allowlist + length caps
-    // without needing Robolectric or an Activity.
-    internal fun isValidCustom(title: String, content: String): Boolean {
-        if (title.isBlank()) return false
-        if (content.isBlank()) return false
-        if (title.length > MAX_CUSTOM_TITLE_LEN) return false
-        if (content.length > MAX_CUSTOM_CONTENT_LEN) return false
-        val s = content.trim().lowercase()
-        return ALLOWED_CUSTOM_SCHEMES.any { s.startsWith(it) }
-    }
+    internal fun isValidCustom(title: String, content: String): Boolean =
+        CustomItemValidation.isValidCustom(title, content)
 
     /**
      * Audit S2 — expose the picker commit / discard decision so the hosting
      * service can drain pending edits before tearing the picker down.
      *
-     * Wraps `saveEditingItem()` (which itself either saves valid inputs or
-     * drops invalid ones + clears `editingItemId`). We keep the signature
-     * `internal` so the intent stays contained: this is the *only* legitimate
-     * cross-class surface for "I'm about to close the picker" so callers
-     * don't reach into `editingItemId` themselves.
+     * Cancels the in-progress custom-item edit (dropping the draft and
+     * removing any unsaved blank item). We keep the signature `internal` so
+     * the intent stays contained: this is the *only* legitimate cross-class
+     * surface for "I'm about to close the picker".
      */
     internal fun commitPendingEdits() {
-        // Use forceDiscard=true so invalid edits are cleaned up silently rather
-        // than leaving stale pendingCustomEdits and editingItemId state across
-        // picker close/open cycles. The caller (closePicker) is closing the UI
-        // so in-edit feedback would not be visible anyway.
         // Custom tab per-item edit (Modify state): cancel discards the draft and
-        // removes any unsaved blank item — must run before the old editingItemId
-        // path so a stale blank row can't survive picker close.
+        // removes any unsaved blank item so a stale blank row can't survive
+        // picker close. The caller (closePicker) is closing the UI so in-edit
+        // feedback would not be visible anyway.
         if (editingCustomId != null) cancelCustomItemEdit()
-        if (editingItemId != null) saveEditingItem(forceDiscard = true)
     }
 
     /**
@@ -1849,7 +1739,7 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
         override fun onBindViewHolder(h: VH, position: Int) {
             val app = getItem(position)
-            val scale = context.getAutoScalingFactor() * panelPrefs.scaleFactor
+            val scale = panelPrefs.scaleFactor
             val iconSize = (ICON_SIZE_NORMAL_DP * scale).toInt()
             h.ivIcon.layoutParams.let { lp ->
                 lp.width = iconSize; lp.height = iconSize

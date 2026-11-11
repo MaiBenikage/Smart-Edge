@@ -201,16 +201,38 @@ object AutomationManager {
         }
     }
 
+    /**
+     * Shizuku is installed and its binder is alive, but we have not been
+     * granted the Shizuku permission yet. Distinct from
+     * [isShizukuAvailableInternal] (which also requires the grant): the
+     * root-permission flow uses this to offer the Shizuku grant dialog.
+     */
+    private fun isShizukuBinderAlive(): Boolean {
+        return try {
+            Shizuku.pingBinder()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun isRootAvailableInternal(): Boolean {
         return try {
             val process = Runtime.getRuntime().exec("su -c id")
             try {
-                val output = process.inputStream.bufferedReader().use { it.readLine() }
-                // Bounded wait: a hung `su` prompt must never block the probe
-                // (and the refresh coroutine) forever.
+                // Wait with the timeout FIRST: a hung `su` prompt writes
+                // nothing, so reading the stream before the wait would block
+                // forever and defeat the bound — and wedge refreshInFlight,
+                // leaving every later refresh() a no-op (see refresh()).
+                // `su -c id` prints one short line, so there is no
+                // pipe-buffer deadlock risk in waiting before draining.
                 val finished = process.waitFor(EXEC_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
-                if (!finished) process.destroyForcibly()
-                finished && process.exitValue() == 0 && output != null && output.contains("uid=0")
+                if (!finished) {
+                    process.destroyForcibly()
+                    return false
+                }
+                // The process has exited, so the stream is now safe to drain.
+                val output = process.inputStream.bufferedReader().use { it.readLine() }
+                process.exitValue() == 0 && output != null && output.contains("uid=0")
             } finally {
                 closeProcessStreams(process)
             }
@@ -289,9 +311,12 @@ object AutomationManager {
                 .setPositiveButton(R.string.dialog_grant_permission) { _, _ -> requestRootPermission(onResult) }
                 .setNegativeButton(R.string.dialog_not_now) { _, _ -> onResult(false) }
                 .show()
-        } else if (isShizukuAvailableInternal()) {
+        } else if (isShizukuBinderAlive()) {
             // The user has Shizuku installed but hasn't granted us access yet —
             // surface the ADB / dialog route so they can grant via Shizuku app.
+            // (Was `isShizukuAvailableInternal()` here, which also requires
+            // the grant — but the top of this function already returned when
+            // that was true, so the branch could never be reached.)
             com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
                 .setTitle(R.string.dialog_shizuku_detected_title)
                 .setIcon(android.R.drawable.ic_dialog_info)

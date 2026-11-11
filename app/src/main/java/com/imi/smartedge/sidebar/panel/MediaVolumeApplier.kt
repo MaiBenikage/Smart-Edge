@@ -1,7 +1,10 @@
 package com.imi.smartedge.sidebar.panel
 
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import java.util.concurrent.Executors
 
 /**
  * Applies a media-volume change of [steps] whole hardware steps (sign =
@@ -17,33 +20,76 @@ import android.util.Log
  * phone's coarse adjust step.
  *
  * Tries, in order:
- * 1. `setStreamVolume` to the absolute target (exact, one binder call).
- *    Some OEM forks (ColorOS/OxygenOS) reject it for third-party apps
- *    despite MODIFY_AUDIO_SETTINGS — that is the "do not have
- *    setStreamVolume Permission" log — so a SecurityException falls through.
+ * 1. `setStreamVolume` to the absolute target (exact, one binder call),
+ *    verified by reading the volume back. Some OEM forks (ColorOS/OxygenOS)
+ *    reject it for third-party apps despite MODIFY_AUDIO_SETTINGS — that is
+ *    the "do not have setStreamVolume Permission" log — so a
+ *    SecurityException (or a read-back that shows no change) falls through.
  * 2. The privileged shell absolute set
- *    (`cmd media_session volume --stream 3 --set <target>`), also exact.
+ *    (`cmd media_session volume --stream 3 --set <target>`), also exact and
+ *    also verified by read-back. This runs on a single background thread,
+ *    never on the calling (often main/UI) thread: a shell call can block
+ *    for seconds on a cold engine probe, and a volume tick must never freeze
+ *    the touch dispatcher. A single thread also keeps shell sets ordered —
+ *    each sets an absolute target, so out-of-order completion would move
+ *    the volume backwards. The target is re-derived from the live volume
+ *    when the task runs, so queued ticks compose instead of overwriting
+ *    each other.
  * 3. Relative `adjustStreamVolume` as a last resort (coarse on phones whose
- *    adjust step is more than one index).
+ *    adjust step is more than one index). It reads back after every call
+ *    and stops as soon as the target is reached or crossed, or when an
+ *    adjust makes no progress — so it can never overshoot by more than one
+ *    coarse step, and it applies zero adjusts when the volume is already
+ *    there (which also covers a stale read-back from steps 1/2 that
+ *    actually landed).
  *
- * Returns true if the volume reached the target (or was already there).
+ * [onApplied] is invoked exactly once, on the main thread, with whether the
+ * volume reached (or, for the coarse adjust fallback, crossed) the target.
+ * It fires inline for the synchronous paths and when the background shell
+ * work completes for the shell path. The return value is true only when the
+ * volume reached the target synchronously (or was already there); false
+ * means it did not land synchronously or is still pending on the shell.
  */
 object MediaVolumeApplier {
 
     private const val TAG = "MediaVolumeApplier"
 
-    fun apply(audioManager: AudioManager, steps: Int): Boolean {
-        if (steps == 0) return true
-        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        if (max <= 0) return false
-        val before = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        val target = (before + steps).coerceIn(0, max)
-        if (target == before) return true
+    private val shellExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "MediaVolumeApplier-shell").apply { isDaemon = true }
+    }
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-        // 1. Exact absolute set.
+    fun apply(
+        audioManager: AudioManager,
+        steps: Int,
+        onApplied: ((applied: Boolean) -> Unit)? = null
+    ): Boolean {
+        if (steps == 0) {
+            onApplied?.invoke(true)
+            return true
+        }
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (max <= 0) {
+            onApplied?.invoke(false)
+            return false
+        }
+        val before = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val target = MediaVolumeMath.target(before, steps, max)
+        if (target == before) {
+            onApplied?.invoke(true)
+            return true
+        }
+
+        // 1. Exact absolute set, verified by read-back.
         try {
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-            return true
+            if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == target) {
+                onApplied?.invoke(true)
+                return true
+            }
+            // Silent no-op (no throw, no change): fall through to the shell.
+            // A stale read-back is harmless — the shell sets the same
+            // absolute target, and the adjust fallback re-reads before acting.
         } catch (e: SecurityException) {
             // OEM ExtImpl may reject setStreamVolume for third-party apps;
             // fall through to the shell absolute set.
@@ -51,18 +97,66 @@ object MediaVolumeApplier {
             Log.w(TAG, "setStreamVolume failed", e)
         }
 
-        // 2. Exact absolute set via the privileged shell.
-        if (AutomationManager.execute("cmd media_session volume --stream 3 --set $target")) {
-            return true
+        // 2. Exact absolute set via the privileged shell, off the main thread.
+        shellExecutor.execute {
+            var applied = false
+            try {
+                // Re-derive the target from the live volume: queued ticks
+                // must compose (each moves `steps` from wherever the volume
+                // is when this task runs), not overwrite each other.
+                val live = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val liveTarget = MediaVolumeMath.target(live, steps, max)
+                if (liveTarget != live &&
+                    AutomationManager.execute("cmd media_session volume --stream 3 --set $liveTarget")
+                ) {
+                    applied = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == liveTarget
+                } else if (liveTarget == live) {
+                    applied = true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "shell volume set failed", e)
+            }
+            if (!applied) {
+                // 3. Last resort: relative adjust (coarse on some phones).
+                val live = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val liveTarget = MediaVolumeMath.target(live, steps, max)
+                applied = applyByAdjust(audioManager, steps, liveTarget)
+            }
+            val result = applied
+            mainHandler.post { onApplied?.invoke(result) }
         }
+        // Pending: the callback fires when the background work completes.
+        return false
+    }
 
-        // 3. Last resort: relative adjust (coarse on some phones).
+    /**
+     * Last-resort relative adjust. Reads back after every call and stops as
+     * soon as the target is reached or crossed (one adjust can move several
+     * indices on phones with a coarse adjust step), or when an adjust makes
+     * no progress (boundary / no-op adjust). Never applies more adjusts than
+     * requested, and applies zero adjusts when the volume is already there.
+     * The termination rule lives in [MediaVolumeMath] (pure, unit-tested).
+     */
+    private fun applyByAdjust(audioManager: AudioManager, steps: Int, target: Int): Boolean {
         val direction = if (steps > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
         return try {
-            repeat(Math.abs(steps)) {
+            var current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            var ok = false
+            for (i in 0 until Math.abs(steps)) {
+                if (MediaVolumeMath.hasReached(current, target, steps)) {
+                    ok = true
+                    break
+                }
+                val beforeAdjust = current
                 audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
+                current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                if (!MediaVolumeMath.shouldAdjustAgain(current, beforeAdjust, target, steps)) {
+                    ok = MediaVolumeMath.hasReached(current, target, steps)
+                    break
+                }
             }
-            true
+            if (!ok) ok = MediaVolumeMath.hasReached(current, target, steps)
+            ok
         } catch (e: Exception) {
             Log.w(TAG, "adjustStreamVolume failed", e)
             false

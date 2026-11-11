@@ -49,4 +49,16 @@ class VolumeStepMathTest {
         assertEquals(25f, VolumeStepMath.dpPerStep(0, 25f), 0.001f)
         assertEquals(25f, VolumeStepMath.dpPerStep(-3, 25f), 0.001f)
     }
+
+    @Test
+    fun `huge step count floors at 1dp instead of approaching zero`() {
+        // A9: for an absurd maxSteps the raw distance approaches 0, and a
+        // sub-pixel tick distance would make one pixel of movement fire
+        // hundreds of ticks (each a binder call). The result is floored.
+        assertEquals(1f, VolumeStepMath.dpPerStep(10_000, 25f), 0.001f)
+        assertEquals(1f, VolumeStepMath.dpPerStep(100_000, 14f), 0.001f)
+        // Just below the floor the value is still exact.
+        assertEquals(2.5f, VolumeStepMath.dpPerStep(1000, 25f), 0.001f)
+        assertEquals(1.4f, VolumeStepMath.dpPerStep(1000, 14f), 0.001f)
+    }
 }

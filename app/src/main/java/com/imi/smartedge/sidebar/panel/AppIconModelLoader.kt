@@ -31,7 +31,10 @@ data class AppIconRequest(val packageName: String, val appearanceKey: String)
 class AppIconDataFetcher(private val context: Context, private val request: AppIconRequest) : DataFetcher<Drawable> {
     override fun loadData(priority: Priority, callback: DataFetcher.DataCallback<in Drawable>) {
         try {
-            val repository = AppRepository(context)
+            // Shared repository (see AppRepository.shared): a fresh one per
+            // icon load rebuilt the picker cache and icon-pack state for
+            // every single icon in the list.
+            val repository = AppRepository.shared(context)
             val processedIcon = repository.getProcessedIcon(request.packageName, request.appearanceKey)
             
             if (processedIcon == null) {

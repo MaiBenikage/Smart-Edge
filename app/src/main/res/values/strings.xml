@@ -23,7 +23,7 @@
     <string name="section_home_screen">Home Screen</string>
     <string name="section_layout_tuning">Layout Tuning</string>
     <string name="section_advanced_options">Advanced Options</string>
-    
+
     <string name="app_theme">App Theme</string>
     <string name="theme_follow_system">Follow System</string>
     <string name="ui_style_theme">UI Style Theme</string>
@@ -31,7 +31,7 @@
     <string name="theme_hyperos">HyperOS (Glass)</string>
     <string name="theme_realme">Realme UI</string>
     <string name="theme_rich">Rich UI (Glow)</string>
-    
+
     <string name="blur_title">Glassmorphic Blur</string>
     <string name="blur_desc">May cause lag on budget devices (Android 12+ only)</string>
     <string name="blur_intensity">Blur Intensity</string>
@@ -41,40 +41,40 @@
     <string name="icon_pack">Icon Pack</string>
     <string name="icon_pack_default">System Default</string>
     <string name="icon_scale">Icon Scale</string>
-    
+
     <string name="custom_accent_title">Use Custom Accent Color</string>
     <string name="accent_color">Accent Color</string>
     <string name="panel_bg_color">Panel Background</string>
     <string name="btn_reset_ui_colors">Reset UI Colors</string>
-    
+
     <string name="service_button_style">Service Button Style</string>
     <string name="button_style_power">Modern Power Icon</string>
     <string name="button_style_logo">Classic Logo</string>
-    
+
     <string name="panel_opacity">Panel Opacity</string>
     <string name="corner_radius">Corner Radius</string>
     <string name="sidebar_max_height">Sidebar Max Height</string>
     <string name="picker_max_height">Edit Panel Max Height</string>
-    
+
     <string name="visible_pill">Visible Pill Handle</string>
     <string name="visible_pill_desc">Shows a visual indicator at the edge of the screen</string>
     <string name="pill_color">Pill Color</string>
     <string name="pill_thickness">Pill Thickness</string>
     <string name="touch_area_width">Touch Area Width</string>
     <string name="handle_height">Handle Height</string>
-    
+
     <string name="edge_gestures">Edge Swipe Gestures</string>
     <string name="edge_sensitivity">Edge Swipe Sensitivity</string>
     <string name="tap_gestures">Tap Gestures</string>
     <string name="tap_gestures_desc">Add actions to tapping or holding the handle</string>
     <string name="haptic_feedback">Haptic Feedback</string>
-    
+
     <string name="edge_seek_title">Edge Seek (Slide to Adjust)</string>
     <string name="edge_seek_desc">Slide on the handle while the panel is closed</string>
     <string name="slide_brightness">Slide Brightness</string>
     <string name="slide_volume">Slide Volume</string>
     <string name="seek_sensitivity">Seek Sensitivity</string>
-    
+
     <string name="automation_title">System Automation (Root/Shizuku)</string>
     <string name="automation_desc">Use system calls for Back, Home, and Recents</string>
     <string name="fullscreen_protection">Fullscreen Protection</string>
@@ -86,15 +86,15 @@
     <string name="main_service_title">Sidebar Service</string>
     <string name="main_service_stopped">Service is Stopped</string>
     <string name="main_test_sidebar">Open Sidebar</string>
-    
+
     <string name="alert_battery_title">Improve Stability</string>
     <string name="alert_battery_desc">Exclude SidePanel from battery optimization to prevent the system from killing it in the background.</string>
     <string name="alert_battery_btn">Allow Background Use</string>
-    
+
     <string name="alert_permission_title">Permission Required</string>
     <string name="alert_permission_desc">Please allow \'Display over other apps\' to use the sidebar.</string>
     <string name="alert_permission_btn">Grant Now</string>
-    
+
     <string name="main_logs_title">System Activity Logs</string>
     <string name="main_settings_btn">Advanced Settings</string>
     <string name="main_how_to_use">How to use</string>
@@ -107,7 +107,7 @@
     <string name="enable_notch_gestures">Enable Notch Gestures</string>
     <string name="notch_gestures_desc">Add tap gestures to the camera notch/hole-punch area</string>
     <string name="notch_tap_gestures">Notch Tap Gestures</string>
-    
+
     <string name="action_flashlight">Flashlight</string>
     <string name="action_camera">Camera</string>
     <string name="action_rotation">Toggle Auto-Rotation</string>
@@ -119,7 +119,7 @@
     <string name="indicator_rotation_off">Auto-Rotation OFF</string>
     <string name="indicator_black_screen_on">Black Screen ON — press Back to exit</string>
     <string name="indicator_black_screen_off">Black Screen OFF</string>
-    
+
     <string name="status_service_active">Service is Active</string>
     <string name="status_automation_stopped">Automation Stopped</string>
     <string name="apps_selected_singular">1 app selected</string>
@@ -138,12 +138,12 @@
     <string name="btn_reset">Reset</string>
     <string name="toast_reset_success">Settings Reset Successfully</string>
     <string name="toast_browser_error">Could not open browser</string>
-    
+
     <string name="manage_apps_desc">Choose which apps appear in sidebar</string>
     <string name="view_repo_title">View Repository</string>
     <string name="view_repo_desc">Check source code on GitHub</string>
     <string name="reset_defaults_desc">Reset all settings to factory state</string>
-    
+
     <string name="search_settings_hint">Search Settings…</string>
     <string name="main_menu_appearance_desc">Set dark mode, adjust the color and scale</string>
     <string name="main_menu_interaction_desc">Gestures, haptics, side choice</string>
@@ -211,13 +211,13 @@
 
     <string name="tap_gestures_summary">Tap: %1$s, 2x: %2$s, 3x: %3$s, Hold: %4$s</string>
     <string name="apps_selected_none">0 apps selected</string>
-    
+
     <string name="anim_feel_calm">Calm (Slow)</string>
     <string name="anim_feel_balanced">Balanced (Default)</string>
     <string name="anim_feel_snappy">Snappy</string>
     <string name="anim_feel_instant">Instant</string>
     <string name="anim_feel_disabled">Disabled</string>
-    
+
     <string name="dialog_automation_title">Automation Unavailable</string>
     <string name="dialog_automation_msg">Root or Shizuku is required to use this feature. Please set up \'System Automation\' first.</string>
     <string name="btn_setup">Setup</string>
@@ -225,24 +225,25 @@
     <string name="please_wait_apps">Please wait while apps are being loaded.</string>
     <string name="hint_search_apps">Search apps…</string>
     <string name="btn_save">Save</string>
-    
+
     <string name="picker_title_hide">Select Apps to Hide Sidebar</string>
     <string name="picker_title_game">Select Game Mode Apps</string>
     <string name="picker_title_favorite">Select Favorite App</string>
-    
+
     <string name="toast_fav_app_unset">Favorite app not set</string>
     <string name="toast_app_not_found">App not found</string>
     <string name="btn_fix">FIX</string>
-    
+
     <string name="toast_shortcut_sent">Shortcut request sent. Please check your home screen.</string>
     <string name="toast_launcher_no_shortcut">Launcher does not support pinned shortcuts</string>
     <string name="toast_shortcut_added">Shortcut added to home screen</string>
     <string name="label_toggle_sidebar">Toggle Sidebar</string>
-    
+
     <string name="label_native_gesture">Native Gesture</string>
 
     <string name="action_none">Disabled</string>
     <string name="action_launcher">Launcher</string>
+    <string name="action_favorite_app">Favorite: %1$s</string>
     <string name="action_screenshot">Screenshot</string>
     <string name="action_last_app">Last App</string>
     <string name="action_back">Back</string>
@@ -322,6 +323,7 @@
     <string name="indicator_auto_brightness_on">Auto-Brightness ON</string>
     <string name="indicator_auto_brightness_off">Auto-Brightness OFF</string>
     <string name="toast_lock_screen_failed">Unable to lock screen on this device</string>
+    <string name="toast_device_admin_failed">Could not enable device admin</string>
     <string name="toast_write_settings_required">Requires Write System Settings permission</string>
     <string name="toast_ui_colors_restored">UI Colors Restored to Default</string>
     <string name="toast_accent_locked_origin">Accent color is locked for OriginOS theme</string>

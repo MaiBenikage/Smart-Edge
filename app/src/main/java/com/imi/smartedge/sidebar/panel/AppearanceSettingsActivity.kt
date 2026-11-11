@@ -33,10 +33,40 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         setupToolbar()
         loadCurrentSettings()
         setupListeners()
+        // Fragment-result listener for the icon-pack picker: registered
+        // here (not in the click handler) so a recreated activity after
+        // rotation still receives the pick.
+        IconPackPickerDialog.registerResultListener(this) {
+            binding.tvCurrentIconPack.text = panelPrefs.iconPackLabel
+        }
+        handleDeepLink()
+    }
+
+    private fun handleDeepLink() {
+        val targetId = intent.getStringExtra(SettingsMainActivity.EXTRA_SCROLL_TO) ?: return
+        val viewId = resources.getIdentifier(targetId, "id", packageName)
+        if (viewId != 0) {
+            val targetView = findViewById<View>(viewId)
+            targetView?.post {
+                val rect = android.graphics.Rect()
+                targetView.getDrawingRect(rect)
+                binding.root.offsetDescendantRectToMyCoords(targetView, rect)
+                binding.appearanceScrollView.smoothScrollTo(0, rect.top - 200)
+                targetView.highlightView()
+            }
+        }
     }
 
     private fun setupToolbar() {
         binding.toolbar.setNavigationOnClickListener { finish() }
+    }
+
+    private fun parseColorOrDefault(value: String, default: String): Int {
+        return try {
+            Color.parseColor(value)
+        } catch (_: Exception) {
+            Color.parseColor(default)
+        }
     }
 
     private fun loadCurrentSettings() {
@@ -47,7 +77,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         binding.tvRadiusValue.text = getString(R.string.fmt_dp, panelPrefs.panelCornerRadius)
 
         binding.sbIconScale.value = panelPrefs.scaleFactor
-        binding.tvIconScaleValue.text = String.format("%.1fx", panelPrefs.scaleFactor)
+        binding.tvIconScaleValue.text = getString(R.string.fmt_scale_x, panelPrefs.scaleFactor)
 
         binding.sbMaxHeight.value = panelPrefs.panelMaxHeight.toFloat()
         binding.tvMaxHeightValue.text = getString(R.string.fmt_dp, panelPrefs.panelMaxHeight)
@@ -88,8 +118,12 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         
         binding.tvCurrentIconPack.text = panelPrefs.iconPackLabel
 
-        binding.btnPickAccent.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor(panelPrefs.accentColor))
-        binding.btnPickBg.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor(panelPrefs.panelBackgroundColor))
+        // parseColor throws on a corrupt persisted value (e.g. from an old
+        // unvalidated backup import); fall back to the default instead of
+        // crashing on open. Import now validates colours, but a bad value
+        // may already be stored.
+        binding.btnPickAccent.backgroundTintList = android.content.res.ColorStateList.valueOf(parseColorOrDefault(panelPrefs.accentColor, PanelPreferences.DEFAULT_ACCENT_COLOR))
+        binding.btnPickBg.backgroundTintList = android.content.res.ColorStateList.valueOf(parseColorOrDefault(panelPrefs.panelBackgroundColor, PanelPreferences.DEFAULT_PANEL_BG))
 
         binding.tvHomeButtonStyleValue.text = when (panelPrefs.homeButtonStyle) {
             PanelPreferences.STYLE_POWER -> getString(R.string.button_style_power)
@@ -98,31 +132,36 @@ class AppearanceSettingsActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        binding.sbOpacity.addOnChangeListener { _, value, _ ->
+        binding.sbOpacity.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser) return@addOnChangeListener
             panelPrefs.panelOpacity = value.toInt()
             binding.tvOpacityValue.text = getString(R.string.fmt_percent, value.toInt())
             applyOnly()
         }
 
-        binding.sbPanelRadius.addOnChangeListener { _, value, _ ->
+        binding.sbPanelRadius.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser) return@addOnChangeListener
             panelPrefs.panelCornerRadius = value.toInt()
             binding.tvRadiusValue.text = getString(R.string.fmt_dp, value.toInt())
             applyOnly()
         }
 
-        binding.sbIconScale.addOnChangeListener { _, value, _ ->
+        binding.sbIconScale.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser) return@addOnChangeListener
             panelPrefs.scaleFactor = value
-            binding.tvIconScaleValue.text = String.format("%.1fx", value)
+            binding.tvIconScaleValue.text = getString(R.string.fmt_scale_x, value)
             applyOnly()
         }
 
-        binding.sbMaxHeight.addOnChangeListener { _, value, _ ->
+        binding.sbMaxHeight.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser) return@addOnChangeListener
             panelPrefs.panelMaxHeight = value.toInt()
             binding.tvMaxHeightValue.text = getString(R.string.fmt_dp, value.toInt())
             applyOnly()
         }
 
-        binding.sbPickerMaxHeight.addOnChangeListener { _, value, _ ->
+        binding.sbPickerMaxHeight.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser) return@addOnChangeListener
             panelPrefs.pickerMaxHeight = value.toInt()
             binding.tvPickerMaxHeightValue.text = getString(R.string.fmt_dp, value.toInt())
             applyOnly()
@@ -205,6 +244,13 @@ class AppearanceSettingsActivity : AppCompatActivity() {
                 .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
                     panelPrefs.uiTheme = values[which]
                     binding.tvUIStyleValue.text = options[which]
+                    // Picking Origin auto-disables the custom accent (its
+                    // lock): otherwise the switch stays on while the theme
+                    // ignores the accent, and the user can't tell why.
+                    if (values[which] == PanelPreferences.THEME_ORIGIN && panelPrefs.useCustomAccent) {
+                        panelPrefs.useCustomAccent = false
+                        binding.featureCustomAccent.isChecked = false
+                    }
                     applyOnly()
                     dialog.dismiss()
                 }
@@ -241,7 +287,8 @@ class AppearanceSettingsActivity : AppCompatActivity() {
             applyOnly()
         }
 
-        binding.sbBlurAmount.addOnChangeListener { _, value, _ ->
+        binding.sbBlurAmount.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser) return@addOnChangeListener
             panelPrefs.blurAmount = value.toInt()
             binding.tvBlurAmountValue.text = getString(R.string.fmt_number, value.toInt())
             applyOnly()
@@ -273,14 +320,21 @@ class AppearanceSettingsActivity : AppCompatActivity() {
         }
 
         binding.featureCustomAccent.setOnCheckedChangeListener { _, isChecked ->
+            // Origin theme locks custom accents (same lock the colour-pick
+            // buttons enforce): the switch must not turn the pref on under
+            // Origin. Revert the toggle and explain, instead of silently
+            // accepting a pref the theme then ignores.
+            if (isChecked && panelPrefs.uiTheme == PanelPreferences.THEME_ORIGIN) {
+                binding.featureCustomAccent.isChecked = false
+                binding.root.showModernToast(getString(R.string.toast_accent_locked_origin))
+                return@setOnCheckedChangeListener
+            }
             panelPrefs.useCustomAccent = isChecked
             applyOnly()
         }
 
         binding.btnSelectIconPack.setOnClickListener {
-            IconPackPickerDialog.show(this) {
-                binding.tvCurrentIconPack.text = panelPrefs.iconPackLabel
-            }
+            IconPackPickerDialog.show(this)
         }
 
         binding.btnResetUIColors.setOnClickListener {
@@ -295,7 +349,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
                 binding.root.showModernToast(getString(R.string.toast_accent_locked_origin))
                 return@setOnClickListener
             }
-            openColorPicker(Color.parseColor(panelPrefs.accentColor)) { newColor ->
+            openColorPicker(parseColorOrDefault(panelPrefs.accentColor, PanelPreferences.DEFAULT_ACCENT_COLOR)) { newColor ->
                 val hex = String.format("#%06X", (0xFFFFFF and newColor))
                 panelPrefs.accentColor = hex
                 loadCurrentSettings()
@@ -308,7 +362,7 @@ class AppearanceSettingsActivity : AppCompatActivity() {
                 binding.root.showModernToast(getString(R.string.toast_bg_locked_origin))
                 return@setOnClickListener
             }
-            openColorPicker(Color.parseColor(panelPrefs.panelBackgroundColor)) { newColor ->
+            openColorPicker(parseColorOrDefault(panelPrefs.panelBackgroundColor, PanelPreferences.DEFAULT_PANEL_BG)) { newColor ->
                 val hex = String.format("#E6%06X", (0xFFFFFF and newColor))
                 panelPrefs.panelBackgroundColor = hex
                 loadCurrentSettings()

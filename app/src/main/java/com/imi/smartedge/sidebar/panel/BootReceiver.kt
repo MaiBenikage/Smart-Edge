@@ -26,7 +26,7 @@ class BootReceiver : BroadcastReceiver() {
 
         // Check AccessibilityService availability BEFORE flipping serviceEnabled.
         // Otherwise the UI shows "enabled" but the service can't start — inconsistent state.
-        if (!isAccessibilityServiceEnabled(context)) return
+        if (!context.isAccessibilityServiceEnabled()) return
         prefs.serviceEnabled = true
 
         val serviceIntent = Intent(context, FloatingPanelService::class.java)
@@ -37,23 +37,4 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-        if (PanelAccessibilityService.isRunning) return true
-        
-        val enabledServices = android.provider.Settings.Secure.getString(
-            context.contentResolver,
-            android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        
-        val colonSplitter = android.text.TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServices)
-        
-        while (colonSplitter.hasNext()) {
-            val componentName = colonSplitter.next()
-            if (componentName.equals("${context.packageName}/${PanelAccessibilityService::class.java.name}", ignoreCase = true)) {
-                return true
-            }
-        }
-        return false
-    }
 }

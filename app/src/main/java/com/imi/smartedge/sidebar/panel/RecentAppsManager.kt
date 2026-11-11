@@ -27,6 +27,15 @@ class RecentAppsManager(context: Context) {
     companion object {
         private const val TAG = "RecentAppsManager"
 
+        /**
+         * Static lock for the history. Every call site constructs a fresh
+         * RecentAppsManager (sidebar click, accessibility tracker, service
+         * refresh), so the old instance-level @Synchronized never actually
+         * serialised two recorders — two concurrent launches could
+         * interleave loadHistory/saveHistory and lose one entry.
+         */
+        private val LOCK = Any()
+
         /** History-size options offered in settings. */
         val HISTORY_SIZE_OPTIONS = intArrayOf(64, 128, 256)
 
@@ -104,36 +113,39 @@ class RecentAppsManager(context: Context) {
      * @param source [SOURCE_CLICK] or [SOURCE_A11Y] — used for duplicate
      * suppression (see [DEBOUNCE_MS]).
      */
-    @Synchronized
     fun recordLaunch(packageName: String, source: String) {
-        val pkg = packageName.trim()
-        if (pkg.isEmpty()) return
-        // Never track our own package.
-        if (pkg == appContext.packageName) return
-        // Respect the user toggle — don't accumulate history nobody asked for.
-        if (!panelPrefs.recentEnabled) return
+        // Static lock (see LOCK): two fresh instances must not interleave
+        // loadHistory/saveHistory and lose a launch.
+        synchronized(LOCK) {
+            val pkg = packageName.trim()
+            if (pkg.isEmpty()) return
+            // Never track our own package.
+            if (pkg == appContext.packageName) return
+            // Respect the user toggle — don't accumulate history nobody asked for.
+            if (!panelPrefs.recentEnabled) return
 
-        val now = System.currentTimeMillis()
-        val lastPkg = panelPrefs.recentLastPackage
-        val lastTime = panelPrefs.recentLastTime
-        val lastSource = panelPrefs.recentLastSource
-        if (pkg == lastPkg && source != lastSource && now - lastTime < DEBOUNCE_MS) return
+            val now = System.currentTimeMillis()
+            val lastPkg = panelPrefs.recentLastPackage
+            val lastTime = panelPrefs.recentLastTime
+            val lastSource = panelPrefs.recentLastSource
+            if (pkg == lastPkg && source != lastSource && now - lastTime < DEBOUNCE_MS) return
 
-        try {
-            val capacity = panelPrefs.recentHistorySize.coerceIn(
-                HISTORY_SIZE_OPTIONS.minOrElse(64),
-                HISTORY_SIZE_OPTIONS.maxOrElse(256)
-            )
-            val history = loadHistory().toMutableList()
-            history.add(pkg)
-            while (history.size > capacity) {
-                history.removeAt(0)
+            try {
+                val capacity = panelPrefs.recentHistorySize.coerceIn(
+                    HISTORY_SIZE_OPTIONS.minOrElse(64),
+                    HISTORY_SIZE_OPTIONS.maxOrElse(256)
+                )
+                val history = loadHistory().toMutableList()
+                history.add(pkg)
+                while (history.size > capacity) {
+                    history.removeAt(0)
+                }
+                // One atomic prefs edit for history + debounce state (was four
+                // separate edits per launch — see PanelPreferences.saveRecentLaunch).
+                panelPrefs.saveRecentLaunch(history, pkg, now, source)
+            } catch (e: Exception) {
+                Log.w(TAG, "recordLaunch failed", e)
             }
-            // One atomic prefs edit for history + debounce state (was four
-            // separate edits per launch — see PanelPreferences.saveRecentLaunch).
-            panelPrefs.saveRecentLaunch(history, pkg, now, source)
-        } catch (e: Exception) {
-            Log.w(TAG, "recordLaunch failed", e)
         }
     }
 
@@ -146,34 +158,38 @@ class RecentAppsManager(context: Context) {
      * @return package names ordered by frequency (most used first), at most
      * [PanelPreferences.recentMaxCount] entries.
      */
-    @Synchronized
     fun getTopPackages(excludedPackages: Set<String> = emptySet()): List<String> {
-        val history = try {
-            loadHistory()
-        } catch (e: Exception) {
-            Log.w(TAG, "getTopPackages failed", e)
-            return emptyList()
+        // Static lock (see LOCK): read under the same lock recordLaunch
+        // writes under, so a concurrent record can't interleave with the
+        // load and produce a half-written history.
+        synchronized(LOCK) {
+            val history = try {
+                loadHistory()
+            } catch (e: Exception) {
+                Log.w(TAG, "getTopPackages failed", e)
+                return emptyList()
+            }
+            if (history.isEmpty()) return emptyList()
+
+            val limit = panelPrefs.recentMaxCount.coerceIn(MIN_RECENT_COUNT, MAX_RECENT_COUNT)
+
+            // Frequency map + last-seen index for stable tie-breaking (more recent wins ties).
+            val counts = LinkedHashMap<String, Int>()
+            val lastSeen = HashMap<String, Int>()
+            history.forEachIndexed { index, pkg ->
+                counts[pkg] = (counts[pkg] ?: 0) + 1
+                lastSeen[pkg] = index
+            }
+
+            return counts.entries
+                .filter { it.key !in excludedPackages }
+                .sortedWith(
+                    compareByDescending<Map.Entry<String, Int>> { it.value }
+                        .thenByDescending { lastSeen[it.key] ?: 0 }
+                )
+                .take(limit)
+                .map { it.key }
         }
-        if (history.isEmpty()) return emptyList()
-
-        val limit = panelPrefs.recentMaxCount.coerceIn(MIN_RECENT_COUNT, MAX_RECENT_COUNT)
-
-        // Frequency map + last-seen index for stable tie-breaking (more recent wins ties).
-        val counts = LinkedHashMap<String, Int>()
-        val lastSeen = HashMap<String, Int>()
-        history.forEachIndexed { index, pkg ->
-            counts[pkg] = (counts[pkg] ?: 0) + 1
-            lastSeen[pkg] = index
-        }
-
-        return counts.entries
-            .filter { it.key !in excludedPackages }
-            .sortedWith(
-                compareByDescending<Map.Entry<String, Int>> { it.value }
-                    .thenByDescending { lastSeen[it.key] ?: 0 }
-            )
-            .take(limit)
-            .map { it.key }
     }
 
     /** Resolve the top packages to displayable [AppInfo] entries. */
@@ -181,7 +197,9 @@ class RecentAppsManager(context: Context) {
         val packages = getTopPackages(excludedPackages)
         if (packages.isEmpty()) return emptyList()
         return try {
-            val repo = AppRepository(appContext)
+            // Shared repository (see AppRepository.shared): allocating a
+            // fresh one per refresh rebuilt the picker cache each time.
+            val repo = AppRepository.shared(appContext)
             // Defensive second filter: getAppsForIdentifiers resolves each
             // package to an AppInfo whose packageName should already be
             // clean, but never let a sidebar app through if resolution
@@ -194,15 +212,16 @@ class RecentAppsManager(context: Context) {
         }
     }
 
-    @Synchronized
     fun clearHistory() {
-        try {
-            saveHistory(emptyList())
-            panelPrefs.recentLastPackage = ""
-            panelPrefs.recentLastTime = 0L
-            panelPrefs.recentLastSource = ""
-        } catch (e: Exception) {
-            Log.w(TAG, "clearHistory failed", e)
+        synchronized(LOCK) {
+            try {
+                saveHistory(emptyList())
+                panelPrefs.recentLastPackage = ""
+                panelPrefs.recentLastTime = 0L
+                panelPrefs.recentLastSource = ""
+            } catch (e: Exception) {
+                Log.w(TAG, "clearHistory failed", e)
+            }
         }
     }
 

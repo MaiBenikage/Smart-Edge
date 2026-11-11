@@ -47,9 +47,20 @@ class PercentStepAccumulator {
      * max, or 255 for brightness).
      *
      * Returns 0 when the accumulated change has not reached one step yet.
+     *
+     * Scale changes are handled by rebasing [stepsApplied] into the new
+     * scale before the new delta is added: the total percent is
+     * scale-independent, but the steps already handed out are in the old
+     * scale's units, so subtracting them from a new-scale total would emit
+     * a spurious jump (e.g. 50% at scale 15 then +1% at scale 255 returned
+     * 123 levels in one call). The remainder therefore stays valid across
+     * a scale change, as the KDoc promises.
      */
     fun add(deltaPercent: Int, fullScaleSteps: Int): Int {
         if (deltaPercent == 0 || fullScaleSteps <= 0) return 0
+        if (lastFullScaleSteps > 0 && fullScaleSteps != lastFullScaleSteps) {
+            stepsApplied = ((totalPercent.toLong() * fullScaleSteps) / 100).toInt()
+        }
         lastFullScaleSteps = fullScaleSteps
         totalPercent += deltaPercent
         // Whole steps for the accumulated percent. Int division truncates

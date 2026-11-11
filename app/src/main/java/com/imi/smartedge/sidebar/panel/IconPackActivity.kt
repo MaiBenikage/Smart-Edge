@@ -37,31 +37,40 @@ class IconPackActivity : AppCompatActivity() {
         val rv = findViewById<RecyclerView>(R.id.rvIconPacks)
         rv.layoutManager = LinearLayoutManager(this)
 
-        val packs = mutableListOf<IconPackInfo>()
-        // Add "None" option
-        val defaultIcon = getDrawable(android.R.drawable.sym_def_app_icon)
-        if (defaultIcon != null) {
-            packs.add(IconPackInfo("none", getString(R.string.icon_pack_default), defaultIcon))
-        }
-        packs.addAll(iconPackManager.getInstalledIconPacks())
+        // Load the pack list off the main thread: getInstalledIconPacks()
+        // runs PackageManager queries (queryIntentActivities + loadLabel /
+        // loadIcon per pack) and used to block onCreate.
+        lifecycleScope.launch {
+            val packs = withContext(Dispatchers.IO) {
+                val list = mutableListOf<IconPackInfo>()
+                // Add "None" option
+                val defaultIcon = getDrawable(android.R.drawable.sym_def_app_icon)
+                if (defaultIcon != null) {
+                    list.add(IconPackInfo("none", getString(R.string.icon_pack_default), defaultIcon))
+                }
+                list.addAll(iconPackManager.getInstalledIconPacks())
+                list
+            }
 
-        rv.adapter = IconPackAdapter(packs, panelPrefs.selectedIconPack) { item ->
-            panelPrefs.selectedIconPack = item.packageName
-            panelPrefs.iconPackLabel = item.label
-            
-            // Notify service to refresh icons immediately.
-            // Glide automatically handles the cache via the unique AppIconRequest key.
-            val intent = android.content.Intent(this@IconPackActivity, FloatingPanelService::class.java).apply {
-                action = FloatingPanelService.ACTION_REFRESH
+            rv.adapter = IconPackAdapter(packs, panelPrefs.selectedIconPack) { item ->
+                panelPrefs.selectedIconPack = item.packageName
+                panelPrefs.iconPackLabel = item.label
+
+                // Notify service to refresh icons immediately.
+                // Glide automatically handles the cache via the unique AppIconRequest key.
+                val intent = android.content.Intent(this@IconPackActivity, FloatingPanelService::class.java).apply {
+                    action = FloatingPanelService.ACTION_REFRESH
+                }
+                try {
+                    startForegroundService(intent)
+                } catch (e: Exception) {
+                    // Service may already be destroyed / background-start restricted.
+                    try { startService(intent) } catch (_: Exception) {}
+                }
+                finish()
             }
-            try {
-                startForegroundService(intent)
-            } catch (e: Exception) {
-                // Service may already be destroyed / background-start restricted.
-                try { startService(intent) } catch (_: Exception) {}
-            }
-            finish()
-        }    }
+        }
+    }
 
     override fun onSupportNavigateUp(): Boolean {
         finish()

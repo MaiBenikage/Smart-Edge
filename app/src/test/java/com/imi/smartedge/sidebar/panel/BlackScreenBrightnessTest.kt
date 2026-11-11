@@ -24,10 +24,11 @@ class BlackScreenBrightnessTest {
         var _brightness: Int = 125,
         var _floatBrightness: Float? = null
     ) {
-        val snapshot: BrightnessSnapshot get() = BrightnessSnapshot(_autoMode, _brightness)
+        val snapshot: BrightnessSnapshot get() = BrightnessSnapshot(_autoMode, _brightness, _floatBrightness)
 
         fun readAutoMode(): Boolean = _autoMode
         fun readBrightness(): Int = _brightness
+        fun readFloatBrightness(): Float = _floatBrightness ?: (_brightness / 255f)
         fun writeAutoMode(v: Boolean) { _autoMode = v }
         fun writeBrightness(v: Int) { _brightness = v }
         fun writeFloatBrightness(v: Float) { _floatBrightness = v }
@@ -268,7 +269,12 @@ class BlackScreenBrightnessTest {
 
     @Test
     fun `round-trip with float fallback`() {
-        val state = FakeBrightnessState(_autoMode = true, _brightness = 150)
+        // A2: on Android 12+ the system slider follows the float, not the
+        // int — so the round-trip must restore the float value too, not
+        // just the int brightness and auto mode. This test used to pass
+        // while the float stayed at 0.0 after restore (restoreBrightness
+        // took no setFloatBrightness parameter); it now asserts the float.
+        val state = FakeBrightnessState(_autoMode = true, _brightness = 150, _floatBrightness = 150 / 255f)
         var floatValue: Float? = null
 
         val saved = saveAndDimBrightness(
@@ -276,20 +282,42 @@ class BlackScreenBrightnessTest {
             readBrightness = state::readBrightness,
             setAutoMode = state::writeAutoMode,
             setBrightness = state::writeBrightness,
-            setFloatBrightness = { f -> floatValue = f }
+            setFloatBrightness = { f -> floatValue = f },
+            readFloatBrightness = state::readFloatBrightness
         )
 
+        assertEquals("float was captured in the snapshot", 150 / 255f, saved.floatBrightness ?: -1f, 0.001f)
         assertEquals("float was set to 0.0", 0.0f, floatValue ?: -1f, 0.001f)
         assertEquals("brightness dimmed", 1, state._brightness)
 
         restoreBrightness(
             snapshot = saved,
             setBrightness = state::writeBrightness,
-            setAutoMode = state::writeAutoMode
+            setAutoMode = state::writeAutoMode,
+            setFloatBrightness = state::writeFloatBrightness
         )
 
         assertEquals("brightness restored", 150, state._brightness)
         assertTrue("auto mode restored", state._autoMode)
+        assertEquals("float brightness restored (not left at 0.0)", 150 / 255f, state._floatBrightness ?: -1f, 0.001f)
+    }
+
+    @Test
+    fun `restore without a float in the snapshot leaves the float alone`() {
+        val state = FakeBrightnessState(_autoMode = true, _brightness = 1, _floatBrightness = 0.0f)
+        var floatWrites = 0
+        val saved = BrightnessSnapshot(autoMode = true, brightness = 180, floatBrightness = null)
+
+        restoreBrightness(
+            snapshot = saved,
+            setBrightness = state::writeBrightness,
+            setAutoMode = state::writeAutoMode,
+            setFloatBrightness = { floatWrites++ }
+        )
+
+        assertEquals("brightness restored", 180, state._brightness)
+        assertEquals("no float write when the snapshot has no float", 0, floatWrites)
+        assertEquals("float untouched", 0.0f, state._floatBrightness ?: -1f, 0.001f)
     }
 
     // ════════════════════════════════════════════════════════════════

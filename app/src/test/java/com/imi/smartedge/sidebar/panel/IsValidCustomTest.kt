@@ -7,30 +7,19 @@ import org.junit.Test
 /**
  * Unit tests for the shared custom-item validation gate used by the app picker.
  *
- * These tests cover the scheme allowlist (`intent:`, `http://`, `https://`) and the
- * length caps (title 64, content 2048) that defend against an attacker pasting a
- * `file://` / `javascript:` URI into a custom widget.
+ * These tests call the real production implementation
+ * ([CustomItemValidation.isValidCustom], which `AppPickerPanelView`
+ * delegates to) — they do not mirror the constants or the check locally.
+ * If production changes the scheme allowlist or the caps, these tests fail.
  *
- * The validation lives as an `internal` static-pure function inside the picker
- * view, so we invoke it via the AppPickerPanelView companion's constants and a
- * tiny static helper. This avoids pulling in Robolectric.
+ * Coverage: the scheme allowlist (`intent:`, `http://`, `https://`) and the
+ * length caps (title 64, content 2048) that defend against an attacker
+ * pasting a `file://` / `javascript:` URI into a custom widget.
  */
 class IsValidCustomTest {
 
-    // Mirror the constants from AppPickerPanelView.companion so we do not depend
-    // on an Android Context or non-test fields. These MUST stay in sync with the
-    // source. Keep asserts close to the constants so a refactor that changes them
-    // fails fast on both sides.
-    private val maxTitleLen = 64
-    private val maxContentLen = 2048
-    private val allowedSchemes = listOf("intent:", "http://", "https://")
-
-    private fun isValid(title: String, content: String): Boolean {
-        if (title.length > maxTitleLen) return false
-        if (content.length > maxContentLen) return false
-        val s = content.trim().lowercase()
-        return allowedSchemes.any { s.startsWith(it) }
-    }
+    private fun isValid(title: String, content: String): Boolean =
+        CustomItemValidation.isValidCustom(title, content)
 
     @Test fun `https URL is accepted`() {
         assertTrue(isValid("Search", "https://example.com"))
@@ -92,5 +81,25 @@ class IsValidCustomTest {
 
     @Test fun `whitespace-only content is rejected`() {
         assertFalse(isValid("Blank", "   \n   "))
+    }
+
+    @Test fun `uppercase INTENT scheme is accepted on a Turkish locale`() {
+        // The old code used locale-sensitive lowercase(): in a Turkish
+        // locale "INTENT:..." lowercases to "ıntent:...", which matches
+        // no allowlisted scheme and wrongly rejects a valid URI. The
+        // production check uses Locale.ROOT, so it must accept it here.
+        val previous = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale("tr", "TR"))
+            assertTrue(isValid("Maps", "INTENT:#Intent;component=com.example/.Main;end"))
+            assertTrue(isValid("Search", "HTTPS://EXAMPLE.COM"))
+        } finally {
+            java.util.Locale.setDefault(previous)
+        }
+    }
+
+    @Test fun `blank title is rejected`() {
+        assertFalse(isValid("", "https://example.com"))
+        assertFalse(isValid("   ", "https://example.com"))
     }
 }

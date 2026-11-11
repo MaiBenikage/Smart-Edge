@@ -15,6 +15,38 @@ class SetupActivity : AppCompatActivity() {
     private lateinit var panelPrefs: PanelPreferences
     private var hasInteractedWithAutoStart = false
 
+    /**
+     * Set while "Grant All" is chaining through the missing permissions:
+     * onResume advances to the next missing step (only when the previous
+     * one was actually granted — if the user declined, the chain stops
+     * instead of looping the same system screen).
+     */
+    private var grantAllInProgress = false
+    private var grantAllLastStep: String? = null
+
+    /**
+     * The delayed "automation unavailable" Snackbar runnable (D18): kept
+     * as a field so it can be cancelled in onDestroy and replaced when
+     * the automation card is tapped again, instead of stacking one
+     * runnable + Snackbar per tap.
+     */
+    private val automationUnavailableRunnable = Runnable {
+        if (!AutomationManager.isAutomationPossible() && !panelPrefs.useAutomationForGestures) {
+            com.google.android.material.snackbar.Snackbar.make(
+                binding.root,
+                R.string.automation_unavailable_tip,
+                com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+            ).setAction(R.string.btn_setup) {
+                SecureSettingsDialog.show(this)
+            }.show()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        binding.root.removeCallbacks(automationUnavailableRunnable)
+    }
+
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -29,17 +61,20 @@ class SetupActivity : AppCompatActivity() {
 
         supportActionBar?.hide()
 
-
+        // Fragment-result listener for the secure-settings dialog:
+        // registered here (not in the click handler) so a recreated
+        // activity after rotation still receives the grant.
+        SecureSettingsDialog.registerResultListener(this) { updateUI() }
 
         binding.cardOverlay.setOnClickListener { requestOverlayPermission() }
         binding.cardAccessibility.setOnClickListener { requestAccessibilityPermission() }
         binding.cardBattery.setOnClickListener { requestIgnoreBatteryOptimization() }
-        binding.cardAutoStart.setOnClickListener { 
+        binding.cardAutoStart.setOnClickListener {
             hasInteractedWithAutoStart = true
-            requestAutoStartPermission() 
+            requestAutoStartPermission()
         }
         binding.cardNotifications.setOnClickListener { requestNotificationAccess() }
-        
+
         binding.cardAutomation.setOnClickListener {
             AutomationManager.checkRootAndRequestPermission(this) { success ->
                 runOnUiThread {
@@ -47,42 +82,34 @@ class SetupActivity : AppCompatActivity() {
                         panelPrefs.useAutomationForGestures = true
                         updateUI()
                     } else {
-                        SecureSettingsDialog.show(this) {
-                            updateUI()
-                        }
+                        SecureSettingsDialog.show(this)
                         // Audit U3: without this follow-up the user dismisses the
                         // ADB-grant dialog and gets no signal about what to do
                         // next. After a 1.5s grace period (dialog open time), if
                         // automation still hasn't come up, surface an actionable
                         // Snackbar that re-opens the dialog if the user taps.
-                        binding.root.postDelayed({
-                            if (!AutomationManager.isAutomationPossible() && !panelPrefs.useAutomationForGestures) {
-                                com.google.android.material.snackbar.Snackbar.make(
-                                    binding.root,
-                                    R.string.automation_unavailable_tip,
-                                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-                                ).setAction(R.string.btn_setup) {
-                                    SecureSettingsDialog.show(this) { updateUI() }
-                                }.show()
-                            }
-                        }, 1500)
+                        // The runnable is a field (cancelled in onDestroy and
+                        // replaced on re-tap) so repeated taps don't stack
+                        // multiple Snackbars.
+                        binding.root.removeCallbacks(automationUnavailableRunnable)
+                        binding.root.postDelayed(automationUnavailableRunnable, 1500)
                     }
                 }
             }
         }
-        
+
         binding.btnGrantAll.setOnClickListener {
-            if (!hasOverlayPermission()) {
-                requestOverlayPermission()
-            } else if (!isAccessibilityServiceEnabled()) {
-                requestAccessibilityPermission()
-            } else if (!isNotificationAccessEnabled()) {
-                requestNotificationAccess()
-            } else if (!isIgnoringBatteryOptimizations()) {
-                requestIgnoreBatteryOptimization()
-            } else if (!hasInteractedWithAutoStart) {
-                hasInteractedWithAutoStart = true
-                requestAutoStartPermission()
+            // "Grant All" chains through the missing permissions: each tap
+            // used to request only the next one (else-if chain), so the
+            // button needed up to 5 taps. Now it starts the chain and
+            // onResume advances it as each permission lands.
+            grantAllInProgress = true
+            val next = nextMissingGrantStep()
+            if (next == null) {
+                grantAllInProgress = false
+            } else {
+                grantAllLastStep = next.first
+                next.second()
             }
         }
 
@@ -99,6 +126,39 @@ class SetupActivity : AppCompatActivity() {
         // so cardAutomation reflects the current engine instead of a stale cached value.
         AutomationManager.refresh()
         updateUI()
+        // Advance a "Grant All" chain: only when the previous step was
+        // actually granted (the next missing step changed). If the user
+        // declined/cancelled, the same step is still missing — stop the
+        // chain instead of looping the same system screen.
+        if (grantAllInProgress) {
+            val next = nextMissingGrantStep()
+            when {
+                next == null -> grantAllInProgress = false
+                next.first != grantAllLastStep -> {
+                    grantAllLastStep = next.first
+                    next.second()
+                }
+                else -> grantAllInProgress = false
+            }
+        }
+    }
+
+    /**
+     * First still-missing setup step (in request order), with the action
+     * that requests it. Notification access is intentionally NOT in the
+     * chain: the feature defaults off and Continue doesn't require it.
+     */
+    private fun nextMissingGrantStep(): Pair<String, () -> Unit>? {
+        return when {
+            !hasOverlayPermission() -> "overlay" to ::requestOverlayPermission
+            !isAccessibilityServiceEnabled() -> "accessibility" to ::requestAccessibilityPermission
+            !isIgnoringBatteryOptimizations() -> "battery" to ::requestIgnoreBatteryOptimization
+            !hasInteractedWithAutoStart -> "autostart" to {
+                hasInteractedWithAutoStart = true
+                requestAutoStartPermission()
+            }
+            else -> null
+        }
     }
 
     private fun updateUI() {
@@ -109,11 +169,11 @@ class SetupActivity : AppCompatActivity() {
         val hasNotifications = isNotificationAccessEnabled()
         val hasAutomation = panelPrefs.useAutomationForGestures && AutomationManager.isAutomationPossible()
 
-        updateCardState(binding.cardOverlay, binding.actionOverlay, hasOverlay)
-        updateCardState(binding.cardAccessibility, binding.actionAccessibility, hasAccessibility)
-        updateCardState(binding.cardBattery, binding.actionBattery, hasBattery)
-        updateCardState(binding.cardNotifications, binding.actionNotifications, hasNotifications)
-        
+        updateCardState(binding.cardOverlay, binding.actionOverlay, binding.titleOverlay, binding.descOverlay, hasOverlay)
+        updateCardState(binding.cardAccessibility, binding.actionAccessibility, binding.titleAccessibility, binding.descAccessibility, hasAccessibility)
+        updateCardState(binding.cardBattery, binding.actionBattery, binding.titleBattery, binding.descBattery, hasBattery)
+        updateCardState(binding.cardNotifications, binding.actionNotifications, binding.titleNotifications, binding.descNotifications, hasNotifications)
+
         // Update Native Gesture Label with status
         val status = when {
             AutomationManager.isRootAvailable() -> " (Root)"
@@ -121,14 +181,14 @@ class SetupActivity : AppCompatActivity() {
             else -> ""
         }
         binding.titleAutomation.text = getString(R.string.setup_native_gesture_status, status)
-        updateCardState(binding.cardAutomation, binding.actionAutomation, hasAutomation)
-        
+        updateCardState(binding.cardAutomation, binding.actionAutomation, binding.titleAutomation, binding.descAutomation, hasAutomation)
+
         // Auto-start is hard to detect on most OEMs, but we can detect on MIUI
-        updateCardState(binding.cardAutoStart, binding.actionAutoStart, hasAutoStart)
+        updateCardState(binding.cardAutoStart, binding.actionAutoStart, binding.titleAutoStart, binding.descAutoStart, hasAutoStart)
 
         val requiredGranted = hasOverlay && (hasAccessibility || hasAutomation)
         binding.btnContinue.isEnabled = requiredGranted
-        
+
         val typedValue = android.util.TypedValue()
         if (requiredGranted) {
             binding.btnContinue.alpha = 1.0f
@@ -140,10 +200,14 @@ class SetupActivity : AppCompatActivity() {
         } else {
             binding.btnContinue.alpha = 0.3f // "Blurred" / Faded effect
         }
-        
-        val allGranted = requiredGranted && hasBattery && hasAutoStart && hasNotifications
+
+        // Notification access is optional (the feature defaults off and
+        // Continue doesn't require it), so it no longer blocks "All
+        // granted". Auto-start is excluded too when it can't be detected
+        // on this OEM (see hasAutoStartPermission).
+        val allGranted = requiredGranted && hasBattery && (hasAutoStart || !isAutoStartDetectable())
         binding.btnGrantAll.isEnabled = !allGranted
-        
+
         if (allGranted) {
             binding.btnGrantAll.text = getString(R.string.setup_all_granted)
             binding.btnGrantAll.alpha = 0.5f
@@ -183,33 +247,40 @@ class SetupActivity : AppCompatActivity() {
         return when {
             MIUIUtils.isMIUI() -> MIUIUtils.isAutoStartEnabled(this)
             VivoUtils.isVivo() -> VivoUtils.isAutoStartEnabled(this)
-            else -> hasInteractedWithAutoStart
+            // Undetectable OEMs: never report granted from a mere tap.
+            // The old fallback returned hasInteractedWithAutoStart, so
+            // one tap on the card faked a green check on phones where
+            // autostart can't be enabled or detected at all.
+            else -> false
         }
     }
+
+    /** True when auto-start can actually be detected on this OEM (MIUI/Vivo). */
+    private fun isAutoStartDetectable(): Boolean = MIUIUtils.isMIUI() || VivoUtils.isVivo()
 
     private fun updateCardState(
         card: com.google.android.material.card.MaterialCardView,
         action: android.widget.ImageView,
+        title: android.widget.TextView?,
+        desc: android.widget.TextView?,
         isGranted: Boolean
     ) {
         val typedValue = android.util.TypedValue()
-        
-        // Find the title and description to dim them individually instead of the whole card
-        val container = card.getChildAt(0) as? android.view.ViewGroup
-        val textContainer = container?.getChildAt(1) as? android.view.ViewGroup
-        val title = textContainer?.getChildAt(0) as? android.widget.TextView
-        val desc = textContainer?.getChildAt(1) as? android.widget.TextView
-        
+
+        // Dim the title/description individually (by view, not by
+        // positional child index — a layout reorder used to silently stop
+        // the dimming because getChildAt(0)/getChildAt(1) no longer
+        // pointed at the title/description).
         if (isGranted) {
             theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceContainerHigh, typedValue, true)
             card.setCardBackgroundColor(typedValue.data)
-            
+
             action.setImageResource(android.R.drawable.checkbox_on_background)
             action.imageTintList = android.content.res.ColorStateList.valueOf(
                 android.graphics.Color.parseColor("#00FF00") // ELECTRIC GREEN
             )
             // Allow clicking to toggle even when granted for internal preferences
-            card.isClickable = card.id == binding.cardAutoStart.id || 
+            card.isClickable = card.id == binding.cardAutoStart.id ||
                              card.id == binding.cardAutomation.id
             card.alpha = 1.0f // Keep full opacity for the card
             title?.alpha = 1.0f // Set to normal

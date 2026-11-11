@@ -112,6 +112,38 @@ class PanelAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         isRunning = true
+        // B4: onUnbind stops the panel service without clearing
+        // serviceEnabled (see onUnbind), so a transient unbind/rebind — or
+        // the user re-enabling accessibility — left the sidebar stopped
+        // while the tile and prefs still claimed it was running. Restart
+        // the panel here when the user still wants it.
+        ensurePanelRunning()
+    }
+
+    override fun onRebind(intent: Intent?) {
+        super.onRebind(intent)
+        isRunning = true
+        ensurePanelRunning()
+    }
+
+    /**
+     * Restart the panel service when accessibility (re)connects and the
+     * user still has the sidebar enabled. Starting an already-running
+     * service is a no-op, so calling this from both onServiceConnected
+     * and onRebind is safe.
+     */
+    private fun ensurePanelRunning() {
+        if (!::panelPrefs.isInitialized || !panelPrefs.serviceEnabled) return
+        try {
+            val intent = Intent(this, FloatingPanelService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restart panel service on a11y connect", e)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -351,7 +383,11 @@ class PanelAccessibilityService : AccessibilityService() {
             action = FloatingPanelService.ACTION_STOP_RUNTIME
         }
         startService(stopIntent)
-        return super.onUnbind(intent)
+        // Return true so onRebind is called if the system rebinds us: a
+        // transient unbind (e.g. an accessibility-service restart) then
+        // restarts the panel via ensurePanelRunning() instead of leaving
+        // the sidebar stopped with no restart path (B4).
+        return true
     }
 
     override fun onDestroy() {

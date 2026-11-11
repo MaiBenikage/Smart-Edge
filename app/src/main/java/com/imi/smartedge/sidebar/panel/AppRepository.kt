@@ -33,8 +33,21 @@ class AppRepository(context: Context) {
     // parent (no cancellation tracking vs. the host service lifetime).
     private val iconPreloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    @Volatile private var activitiesCache: List<Pair<String, List<AppInfo>>>? = null
+    @Volatile private var activitiesCache: List<PickerGroup>? = null
     @Volatile private var activitiesCacheAtMs: Long = 0L
+
+    /**
+     * One package's picker group: its activities or shortcuts, plus the
+     * display label the repository already resolved (via PackageManager)
+     * while building the group. Carrying the label here means the picker
+     * view never has to call `getApplicationInfo()` on the main thread
+     * per group header (see resolveAppLabel, now deleted).
+     */
+    data class PickerGroup(
+        val packageName: String,
+        val appLabel: String,
+        val items: List<AppInfo>
+    )
 
     /**
      * Unified picker cache for the APPS / ACTIVITIES / SHORTCUTS tabs.
@@ -44,8 +57,8 @@ class AppRepository(context: Context) {
      */
     data class PickerData(
         val apps: List<AppInfo>,
-        val activities: List<Pair<String, List<AppInfo>>>,
-        val shortcuts: List<Pair<String, List<AppInfo>>>,
+        val activities: List<PickerGroup>,
+        val shortcuts: List<PickerGroup>,
         val loadedAtMs: Long
     )
 
@@ -70,12 +83,31 @@ class AppRepository(context: Context) {
      * a second concurrent caller waits, then hits the freshly filled
      * cache instead of duplicating the scans.
      */
+    /**
+     * Refresh the icon/theme key on a cached [PickerData] without
+     * re-running the scans. The cache-hit paths used to return the cached
+     * items wholesale, so an icon-pack or theme change didn't show in the
+     * picker until the 60 s TTL lapsed. The copy is cheap (data-class
+     * copies, no I/O) and the cache itself is left untouched.
+     */
+    private fun refreshAppearanceKey(data: PickerData, appearanceKey: String): PickerData {
+        return data.copy(
+            apps = data.apps.map { it.copy(appearanceKey = appearanceKey) },
+            activities = data.activities.map { group ->
+                group.copy(items = group.items.map { it.copy(appearanceKey = appearanceKey) })
+            },
+            shortcuts = data.shortcuts.map { group ->
+                group.copy(items = group.items.map { it.copy(appearanceKey = appearanceKey) })
+            }
+        )
+    }
+
     suspend fun getPickerData(forceRefresh: Boolean = false): PickerData {
         val cached = pickerCache
         if (!forceRefresh && cached != null &&
             android.os.SystemClock.uptimeMillis() - cached.loadedAtMs < ACTIVITIES_CACHE_TTL_MS
         ) {
-            return cached
+            return refreshAppearanceKey(cached, panelPrefs.appearanceKey)
         }
         return pickerMutex.withLock {
             // Re-check under the lock: another caller may have filled the
@@ -84,7 +116,7 @@ class AppRepository(context: Context) {
             if (!forceRefresh && fresh != null &&
                 android.os.SystemClock.uptimeMillis() - fresh.loadedAtMs < ACTIVITIES_CACHE_TTL_MS
             ) {
-                return@withLock fresh
+                return@withLock refreshAppearanceKey(fresh, panelPrefs.appearanceKey)
             }
             if (forceRefresh) {
                 // getActivitiesByPackage() has its own 60s TTL cache — a forced
@@ -107,12 +139,15 @@ class AppRepository(context: Context) {
         }
     }
 
-    /** Drop only the unified picker cache (keeps icon-preload jobs alive). */
+    /** Drop the unified picker cache AND the activities sub-cache, so an
+     * invalidate really is an invalidate: previously only `pickerCache`
+     * was nulled and the ACTIVITIES tab kept serving the stale
+     * `activitiesCache` until its 60 s TTL lapsed. */
     fun clearPickerCache() {
         pickerCache = null
+        activitiesCache = null
+        activitiesCacheAtMs = 0L
     }
-    
-    @Volatile private var labelsBackfillAttempted = false
 
     // Audit L3: cancel any in-flight icon preload jobs. Called from FloatingPanelService.onDestroy
     // so we don't leak a SupervisorJob past the service lifetime.
@@ -159,6 +194,34 @@ class AppRepository(context: Context) {
         fun clearSystemIconCache() {
             iconCache.evictAll()
         }
+
+        /**
+         * Process-wide shared instance. AppRepository keeps only the
+         * application context (never an Activity), so sharing is
+         * leak-free. Call sites that used to allocate a fresh repository
+         * per call (RecentAppsManager.getTopRecentApps, every
+         * AppIconDataFetcher.loadData) now share this one instead of
+         * rebuilding the picker cache and icon-pack state on every call.
+         */
+        @Volatile
+        private var sharedInstance: AppRepository? = null
+
+        fun shared(context: Context): AppRepository {
+            return sharedInstance ?: synchronized(this) {
+                sharedInstance ?: AppRepository(context.applicationContext)
+                    .also { sharedInstance = it }
+            }
+        }
+
+        /**
+         * The label backfill is one-shot per *process*, not per instance:
+         * it was an instance field, so every new AppRepository (new
+         * picker/service lifetime) repeated the two full PM scans whenever
+         * any pinned intent: label was unfillable (e.g. target app
+         * uninstalled but pin kept). Static, so the scans run at most once.
+         */
+        @Volatile
+        private var labelsBackfillAttempted = false
     }
 
     /**
@@ -251,8 +314,21 @@ class AppRepository(context: Context) {
         }
 
         val panelIdentifiers = panelPrefs.getPanelApps().toSet()
+        val appearanceKey = panelPrefs.appearanceKey
 
-        val list = packageManager.queryIntentActivities(intent, 0)
+        // A transient PackageManager failure (e.g. system-server
+        // RemoteException) used to crash the picker/service instead of
+        // degrading to an empty list. It runs as an async child inside
+        // getPickerData()'s coroutineScope, so a throw also cancelled the
+        // sibling activities/shortcuts scans.
+        val resolved = try {
+            packageManager.queryIntentActivities(intent, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "getAllApps query failed", e)
+            return@withContext emptyList()
+        }
+
+        val list = resolved
             .distinctBy { it.activityInfo.packageName }
             .map { resolveInfo ->
                 val pkg = resolveInfo.activityInfo.packageName
@@ -261,16 +337,20 @@ class AppRepository(context: Context) {
                         appName = resolveInfo.loadLabel(packageManager).toString(),
                         isInPanel = panelIdentifiers.contains(pkg),
                         type = AppInfo.Type.APP,
-                        appearanceKey = panelPrefs.appearanceKey
+                        appearanceKey = appearanceKey
                     )
             }
             .toMutableList()
 
-        // Add Pseudo Shortcuts
+        // Add Pseudo Shortcuts — both of them: the resolver
+        // (getAppsForIdentifiers) handles one_hand and reboot, so the
+        // picker should list both instead of hiding Power Menu.
         val oneHandPkg = "smartedge.shortcut.one_hand"
-        list.add(AppInfo(oneHandPkg, "One-Handed Mode", panelIdentifiers.contains(oneHandPkg), AppInfo.Type.SHORTCUT))
+        list.add(AppInfo(oneHandPkg, "One-Handed Mode", panelIdentifiers.contains(oneHandPkg), AppInfo.Type.SHORTCUT, appearanceKey = appearanceKey))
+        val rebootPkg = "smartedge.shortcut.reboot"
+        list.add(AppInfo(rebootPkg, "Power Menu", panelIdentifiers.contains(rebootPkg), AppInfo.Type.SHORTCUT, appearanceKey = appearanceKey))
         
-        val sortedList = list.sortedBy { it.appName.lowercase() }
+        val sortedList = list.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) }
 
         // Aggressively pre-load icons into the memory cache in the background
         iconPreloadScope.launch {
@@ -283,60 +363,6 @@ class AppRepository(context: Context) {
     }
 
     /**
-     * Returns ALL exported activities for each installed app.
-     */
-    suspend fun getAllActivities(): List<AppInfo> = withContext(Dispatchers.IO) {
-        val panelIdentifiers = panelPrefs.getPanelApps().toSet()
-        val allActivities = mutableListOf<AppInfo>()
-
-        try {
-            val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.GET_ACTIVITIES.toLong()))
-            } else {
-                packageManager.getInstalledPackages(PackageManager.GET_ACTIVITIES)
-            }
-
-            for (pkg in packages) {
-                val activities = pkg.activities ?: continue
-                for (act in activities) {
-                    try {
-                        if (!act.exported || !act.enabled) continue
-                        
-                        // Construct a URI for this specific activity
-                        val intent = android.content.Intent().apply {
-                            setClassName(pkg.packageName, act.name)
-                        }
-                        val uri = intent.toUri(android.content.Intent.URI_INTENT_SCHEME)
-                        
-                        allActivities.add(AppInfo(
-                            packageName = pkg.packageName,
-                            appName = act.loadLabel(packageManager).toString().takeIf { it.isNotBlank() } ?: act.name.substringAfterLast("."),
-                            isInPanel = panelIdentifiers.contains(uri),
-                            type = AppInfo.Type.ACTIVITY,
-                            intentUri = uri,
-                            activityName = act.name,
-                            appearanceKey = panelPrefs.appearanceKey
-                        ))
-                    } catch (e: Exception) {
-                        continue
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        val sortedList = allActivities.sortedBy { it.appName.lowercase() }
-
-        // Aggressively pre-load icons into the memory cache in the background
-        iconPreloadScope.launch {
-            sortedList.take(50).forEach { appInfo ->
-                getProcessedIcon(appInfo.packageName, appInfo.appearanceKey ?: "")
-            }
-        }
-
-        return@withContext sortedList
-    }    /**
      * Resolves a list of identifiers into AppInfo objects.
      */
     suspend fun getAppsForIdentifiers(identifiers: List<String>): List<AppInfo> = withContext(Dispatchers.IO) {
@@ -451,13 +477,23 @@ class AppRepository(context: Context) {
      * `intentUri` is what callers should use as the unique identifier (matching the
      * `intent:` prefix handled by [getAppsForIdentifiers]).
      */
-    suspend fun getActivitiesByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
+    suspend fun getActivitiesByPackage(): List<PickerGroup> = withContext(Dispatchers.IO) {
+        // Same clock as the picker TTL (uptimeMillis): a wall-clock jump
+        // backwards used to make this cache never expire, forwards made it
+        // expire instantly. Hoisted here so the cache-hit path and
+        // addActivity() share one read (C24).
+        val now = android.os.SystemClock.uptimeMillis()
+        val appearanceKey = panelPrefs.appearanceKey
         activitiesCache?.let { cached ->
             if (now - activitiesCacheAtMs < ACTIVITIES_CACHE_TTL_MS) {
                 val panelIdsCached = panelPrefs.getPanelApps().toSet()
-                return@withContext cached.map { (pkg, list) ->
-                    pkg to list.map { it.copy(isInPanel = panelIdsCached.contains(it.identifier)) }
+                return@withContext cached.map { group ->
+                    group.copy(items = group.items.map {
+                        it.copy(
+                            isInPanel = panelIdsCached.contains(it.identifier),
+                            appearanceKey = appearanceKey
+                        )
+                    })
                 }
             }
         }
@@ -475,7 +511,7 @@ class AppRepository(context: Context) {
                 type = AppInfo.Type.ACTIVITY,
                 intentUri = uri,
                 activityName = activityName,
-                appearanceKey = panelPrefs.appearanceKey
+                appearanceKey = appearanceKey
             )
         }
 
@@ -569,13 +605,12 @@ class AppRepository(context: Context) {
                     val ai = packageManager.getApplicationInfo(pkgName, 0)
                     packageManager.getApplicationLabel(ai).toString()
                 } catch (_: Exception) { pkgName }
-                Triple(pkgName, actsMap.values.sortedBy { it.appName.lowercase() }, appLabel)
+                PickerGroup(pkgName, appLabel, actsMap.values.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) })
             }
-            .sortedBy { it.third.lowercase() }
-            .map { (pkg, acts, _) -> pkg to acts }
+            .sortedBy { it.appLabel.lowercase(java.util.Locale.ROOT) }
             .also {
                 activitiesCache = it
-                activitiesCacheAtMs = System.currentTimeMillis()
+                activitiesCacheAtMs = android.os.SystemClock.uptimeMillis()
             }
     }
 
@@ -599,7 +634,7 @@ class AppRepository(context: Context) {
      * Both paths require API 25+ ([Build.VERSION_CODES.N_MR1]).
      * Sort order: groups by app label, items within a group by label.
      */
-    suspend fun getShortcutsByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
+    suspend fun getShortcutsByPackage(): List<PickerGroup> = withContext(Dispatchers.IO) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return@withContext emptyList()
 
         // (1) Public path: static shortcuts via manifest meta-data. No permission.
@@ -631,10 +666,9 @@ class AppRepository(context: Context) {
                         packageManager.getApplicationInfo(pkgName, 0)
                     ).toString()
                 } catch (e: Exception) { pkgName }
-                Triple(pkgName, scs.sortedBy { it.appName.lowercase() }, appLabel)
+                PickerGroup(pkgName, appLabel, scs.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) })
             }
-            .sortedBy { it.third.lowercase() }
-            .map { (pkg, scs, _) -> pkg to scs }
+            .sortedBy { it.appLabel.lowercase(java.util.Locale.ROOT) }
     }
 
     /**
@@ -643,6 +677,7 @@ class AppRepository(context: Context) {
      * tag). [PackageManager.getResourcesForApplication] requires no special permission.
      */
     private suspend fun getStaticShortcutsByPackage(): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
+        val appearanceKey = panelPrefs.appearanceKey
         val result = mutableListOf<Pair<String, List<AppInfo>>>()
         try {
             // Round-17: must include GET_ACTIVITIES so pkg.activities is non-null.
@@ -682,8 +717,11 @@ class AppRepository(context: Context) {
                         outer@ for (act in pkg.activities ?: emptyArray()) {
                             val md = act.metaData ?: continue
                             for (key in shortcutMetaKeys) {
-                                xmlResId = md.getInt(key, 0)
-                                if (xmlResId > 0) break
+                                val resId = md.getInt(key, 0)
+                                if (resId > 0) {
+                                    xmlResId = resId
+                                    break@outer
+                                }
                             }
                         }
                     }
@@ -716,6 +754,7 @@ class AppRepository(context: Context) {
     private suspend fun getLiveShortcutsByPackage(
         launcherApps: android.content.pm.LauncherApps
     ): List<Pair<String, List<AppInfo>>> = withContext(Dispatchers.IO) {
+        val appearanceKey = panelPrefs.appearanceKey
         val panelIds = panelPrefs.getPanelApps().toSet()
         val user = android.os.Process.myUserHandle()
         val result = mutableListOf<Pair<String, List<AppInfo>>>()
@@ -755,7 +794,7 @@ class AppRepository(context: Context) {
                             type = AppInfo.Type.SHORTCUT,
                             intentUri = uri,
                             activityName = sc.id,
-                            appearanceKey = panelPrefs.appearanceKey
+                            appearanceKey = appearanceKey
                         )
                     }
                     if (items.isNotEmpty()) {
@@ -872,7 +911,7 @@ class AppRepository(context: Context) {
                                             type = AppInfo.Type.SHORTCUT,
                                             intentUri = uri,
                                             activityName = currentShortcutId,
-                                            appearanceKey = panelPrefs.appearanceKey
+                                            appearanceKey = appearanceKey
                                         )
                                     )
                                 }
@@ -915,8 +954,8 @@ class AppRepository(context: Context) {
 
         val labelByUri = mutableMapOf<String, String>()
         try {
-            for ((_, items) in getShortcutsByPackage()) {
-                for (sc in items) {
+            for (group in getShortcutsByPackage()) {
+                for (sc in group.items) {
                     val uri = sc.intentUri ?: continue
                     if (sc.appName.isNotBlank()) labelByUri[uri] = sc.appName
                 }
@@ -925,8 +964,8 @@ class AppRepository(context: Context) {
 
         // Also map activity labels from discovery cache / path for activity pins.
         try {
-            for ((_, items) in getActivitiesByPackage()) {
-                for (act in items) {
+            for (group in getActivitiesByPackage()) {
+                for (act in group.items) {
                     val uri = act.intentUri ?: continue
                     if (!labelByUri.containsKey(uri) && act.appName.isNotBlank()) {
                         labelByUri[uri] = act.appName
@@ -936,11 +975,15 @@ class AppRepository(context: Context) {
         } catch (_: Exception) {}
 
         var filled = 0
+        val toWrite = mutableMapOf<String, String>()
         for (id in missing) {
             val label = labelByUri[id] ?: continue
-            panelPrefs.setPanelItemLabel(id, label)
+            toWrite[id] = label
             filled++
         }
+        // One JSON parse + one edit for all filled labels (was one
+        // setPanelItemLabel per id, each re-parsing the whole labels JSON).
+        if (toWrite.isNotEmpty()) panelPrefs.setPanelItemLabels(toWrite)
         filled
     }
 
@@ -978,13 +1021,35 @@ class AppRepository(context: Context) {
         getAppsForIdentifiers(allIdentifiers)
     }
 
+    /**
+     * First five launchable packages, sorted by app label. Used for
+     * first-run sidebar seeding. (Was `distinctBy { packageName }.take(5)`
+     * with no sorting — order was whatever PackageManager returned, so
+     * "top" meant nothing.)
+     */
     suspend fun getTop5Apps(): List<String> = withContext(Dispatchers.IO) {
         val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
             addCategory(android.content.Intent.CATEGORY_LAUNCHER)
         }
-        packageManager.queryIntentActivities(intent, 0)
+        val resolved = try {
+            packageManager.queryIntentActivities(intent, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "getTop5Apps query failed", e)
+            return@withContext emptyList()
+        }
+        resolved
             .distinctBy { it.activityInfo.packageName }
+            .map { ri ->
+                val pkg = ri.activityInfo.packageName
+                val label = try {
+                    ri.loadLabel(packageManager).toString().takeIf { it.isNotBlank() } ?: pkg
+                } catch (_: Exception) {
+                    pkg
+                }
+                pkg to label
+            }
+            .sortedBy { (_, label) -> label.lowercase(java.util.Locale.ROOT) }
             .take(5)
-            .map { it.activityInfo.packageName }
+            .map { (pkg, _) -> pkg }
     }
 }
