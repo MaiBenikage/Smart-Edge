@@ -247,15 +247,10 @@ class SidePanelView @JvmOverloads constructor(
             // the picker in edit mode (true).
             onAddClick = { onAddClick?.invoke(true) },
             onAppLaunched = { onClose?.invoke() },
-            onFolderClick = { folderId ->
-                // Leave edit mode when a folder opens: dragging inside a
-                // folder would save the folder's contents as the pinned
-                // list, and the Add button must not show inside a folder.
-                adapter.setShowAddButton(false)
-                navigationStack.push(folderId)
-                updateNavigationUI()
-                onFolderOpen?.invoke(folderId)
-            },
+            // The body lives in onFolderOpened(): this lambda is created
+            // while `adapter` is being assigned, so it cannot read
+            // `adapter` itself ("Variable 'adapter' must be initialized").
+            onFolderClick = { folderId -> onFolderOpened(folderId) },
             onToolClick = { toolId ->
                 onToolClick?.invoke(toolId)
             },
@@ -854,6 +849,18 @@ class SidePanelView @JvmOverloads constructor(
     fun setEditButtonVisible(visible: Boolean) {
         adapter.setShowAddButton(visible)
         updateSideLayout()
+    }
+
+    /**
+     * Handles a folder row tap from the main list. Leaves edit mode when a
+     * folder opens: dragging inside a folder would save the folder's contents
+     * as the pinned list, and the Add button must not show inside a folder.
+     */
+    private fun onFolderOpened(folderId: String) {
+        adapter.setShowAddButton(false)
+        navigationStack.push(folderId)
+        updateNavigationUI()
+        onFolderOpen?.invoke(folderId)
     }
 
     fun navigateBack() {
