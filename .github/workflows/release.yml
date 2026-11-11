@@ -7,38 +7,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Unit tests run FIRST. The release build below depends on this job, so
-  # a release APK is never built (or published) when the tests fail.
+  # Unit tests run FIRST (shared reusable job from test.yml). The release
+  # build below depends on this job, so a release APK is never built (or
+  # published) when the tests fail.
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
-
-      # No setup-android step: ubuntu-latest runners ship a preinstalled
-      # Android SDK, and android-actions/setup-android@v3 fails because it
-      # tries to install the obsolete 'tools' package (sdkmanager reports
-      # "Failed to find package 'tools'"). The build job below already
-      # builds against the preinstalled SDK.
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest
-
-      - name: Upload test report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports
-          path: app/build/reports/tests/testDebugUnitTest
+    uses: ./.github/workflows/test.yml
 
   build:
     needs: test
@@ -47,12 +20,12 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -65,9 +38,9 @@ jobs:
       - name: Create keystore.properties
         run: |
           echo "KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}" > keystore.properties
-          echo "KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}" >> keystore.properties
+          echo "KEY_PASSWORD=<redacted>"
           echo "STORE_FILE=release.keystore" >> keystore.properties
-          echo "STORE_PASSWORD=${{ secrets.RELEASE_STORE_PASSWORD }}" >> keystore.properties
+          echo "STORE_PASSWORD=<redacted>"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -79,12 +52,30 @@ jobs:
         id: changelog
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          # Extract everything between current tag header and the next separator
-          # Usage: awk '/### v1.2.1/,/---/' CHANGELOG.md
+          # Extract the section under a header line, up to the next '---'
+          # separator. Matches the header exactly, or the header followed
+          # by " (" (for the " (Latest)" suffix) — index() does literal
+          # matching, so the dots in the version are not regex wildcards
+          # (v1.3.8 must not match v1x3y8, nor v1.3.80).
+          extract_section() {
+            awk -v header="$1" '
+              $0 == header || index($0, header " (") == 1 { flag = 1; next }
+              /^---/ { flag = 0 }
+              flag
+            ' CHANGELOG.md
+          }
+          BODY=$(extract_section "### $TAG_NAME")
+          if [ -z "$(echo "$BODY" | tr -d '[:space:]')" ]; then
+            echo "No '### $TAG_NAME' section in CHANGELOG.md; falling back to '### Unreleased'."
+            BODY=$(extract_section "### Unreleased")
+          fi
+          if [ -z "$(echo "$BODY" | tr -d '[:space:]')" ]; then
+            echo "::error::No changelog section for '$TAG_NAME' or 'Unreleased' in CHANGELOG.md — refusing to publish an empty release body."
+            exit 1
+          fi
           {
             echo 'body<<EOF'
-            # Find the line matching the version, print until the next '---' or end of file
-            awk "/### ${TAG_NAME}/ {flag=1; next} /---/ {flag=0} flag" CHANGELOG.md
+            echo "$BODY"
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
