@@ -5,7 +5,7 @@ name: CI
 # workflow (.github/workflows/release.yml) additionally gates its release
 # build on the same test job — a release build never runs unless the
 # tests pass first. The test job itself lives in test.yml (reusable
-# workflow) so it is defined once, not duplicated across workflows.
+# workflow) so it is defined once, not duplicated across both workflows.
 on:
   push:
     branches: [master]
@@ -13,6 +13,43 @@ on:
     branches: [master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     uses: ./.github/workflows/test.yml
+
+  # Release-variant check: the release build (R8 minify + shrinkResources,
+  # lintVitalRelease with abortOnError) otherwise runs for the first time
+  # when a tag is pushed. Building it on every push catches missing R8
+  # keeps, lint errors and signing-config bugs before release time. It
+  # builds unsigned: with no keystore.properties the release signing
+  # config is absent (findByName("release") returns null).
+  release-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Lint and build release variant
+        run: ./gradlew :app:lintRelease :app:assembleRelease
