@@ -53,3 +53,12 @@ jobs:
 
       - name: Lint and build release variant
         run: ./gradlew :app:lintRelease :app:assembleRelease
+
+      # Gradle prints only the first lint error to the console; the full
+      # list (file, line, rule, message) lives in the text report on the
+      # runner, which is discarded with the runner. Print it into the log
+      # when the lint step fails so the errors are visible without
+      # re-running the job.
+      - name: Show full lint report on failure
+        if: failure()
+        run: cat app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt || echo "No lint text report was written."
