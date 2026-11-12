@@ -2,16 +2,17 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "com.imi.smartedge.sidebar.panel"
-    compileSdk = 36
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.imi.smartedge.sidebar.panel"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         // Release tags pass -PversionName=<tag without the leading v>
         // (release.yml); local and CI builds fall back to "1".
@@ -77,24 +78,21 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
-}
-
-// `kotlinOptions` went away with the Kotlin plugin in AGP 9.0 (Kotlin
-// support is now built into AGP); the JVM target is set through the
-// compilerOptions DSL instead, which lives at the top level, not inside
-// `android {}`. Target 17 (was 1.8): the JDK the build runs on and AGP 9's
-// default — D8 desugars the bytecode for the minSdk 26 devices, so this
-// does not change what runs on the phone.
-// No project-wide deprecation suppression here: the per-call
-// `@Suppress("DEPRECATION")` on AutomationManager.runShizuku is the
-// proven narrow-scope fix instead.
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    kotlinOptions {
+        jvmTarget = "1.8"
+        // No project-wide deprecation suppression here. The Kotlin compiler
+        // bundled with this Gradle wrapper rejected both
+        // `-Xsuppress-deprecated-warnings` and
+        // `-Xsuppress-deprecated-warnings-time=N` with "not supported by this
+        // version of the compiler" — verified empirically against a Kotlin
+        // 1.9.24 plugin. The per-call `@Suppress("DEPRECATION")` on
+        // AutomationManager.runShizuku is the proven narrow-scope fix instead.
+        // Revisit when we bump Kotlin past whichever minor release
+        // recognises the flag.
     }
 }
 
@@ -106,10 +104,11 @@ dependencies {
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.dynamicanimation)
     implementation(libs.glide)
-    implementation("com.github.skydoves:colorpickerview:2.5.0")
-    // Shizuku 13.1.0 -> 13.1.5 (patch bump).
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
+    implementation("com.github.skydoves:colorpickerview:2.3.0")
+    // Shizuku bumped 12.1.0 -> 13.1.0: api gains proper @Nullable annotations
+    // on `newProcess(String[], String[], String)`; provider packaging unchanged.
+    implementation("dev.rikka.shizuku:api:13.1.0")
+    implementation("dev.rikka.shizuku:provider:13.1.0")
 
     testImplementation(libs.junit)
     // Provide a real org.json on the JVM unit-test classpath to replace the
