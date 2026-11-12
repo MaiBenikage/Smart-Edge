@@ -89,4 +89,52 @@ class SlideStepMathTest {
         assertEquals(0, SlideStepMath.stepsToEmit(100f, -5f))
         assertEquals(0, SlideStepMath.drainSteps(100f, 0f))
     }
+
+    @Test
+    fun `shell batch take is bounded to MAX_STEPS_PER_MOVE, sign preserved`() {
+        assertEquals(2, SlideStepMath.shellBatchTake(16))
+        assertEquals(-2, SlideStepMath.shellBatchTake(-16))
+        assertEquals(2, SlideStepMath.shellBatchTake(2))
+        assertEquals(1, SlideStepMath.shellBatchTake(1))
+        assertEquals(-1, SlideStepMath.shellBatchTake(-1))
+        assertEquals(0, SlideStepMath.shellBatchTake(0))
+    }
+
+    @Test
+    fun `a 16-step shell accumulation drains in bounded batches and lands the exact total`() {
+        // Simulates drainShellSteps: take a bounded batch, keep the
+        // leftover queued, loop. A whole slide's worth of ticks queued
+        // while a shell call was in flight used to land as one absolute
+        // set (~10% in one frame); now it lands as 2-step batches.
+        var pending = 16
+        var total = 0
+        var batches = 0
+        while (pending != 0) {
+            val take = SlideStepMath.shellBatchTake(pending)
+            assertEquals(2, take)
+            pending -= take
+            total += take
+            batches++
+            if (batches > 100) throw AssertionError("shell queue did not drain")
+        }
+        assertEquals(16, total)
+        assertEquals(8, batches)
+        assertEquals(0, pending)
+    }
+
+    @Test
+    fun `a negative shell accumulation drains in bounded batches too`() {
+        var pending = -5
+        var total = 0
+        var batches = 0
+        while (pending != 0) {
+            val take = SlideStepMath.shellBatchTake(pending)
+            pending -= take
+            total += take
+            batches++
+            if (batches > 100) throw AssertionError("shell queue did not drain")
+        }
+        assertEquals(-5, total)
+        assertEquals(3, batches)
+    }
 }

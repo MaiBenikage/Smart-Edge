@@ -63,4 +63,23 @@ object SlideStepMath {
         if (pixelsPerUnit <= 0f) return 0
         return (accumulatedPx / pixelsPerUnit).toInt()
     }
+
+    /**
+     * Steps to apply now from a queue of [pending] steps, for the shell
+     * drain (MediaVolumeApplier.drainShellSteps). The drain used to take
+     * the whole accumulation and land it as one absolute set: a fast
+     * slide queues many ticks while one shell call is in flight (or
+     * while the shell engine is cold), so a single batch could be a
+     * whole slide's worth of steps (~10% in one frame) even though the
+     * gesture emits at most [MAX_STEPS_PER_MOVE] per MOVE event. That
+     * is the boundary the gesture-side pacing alone cannot fix — the
+     * coalescing re-batches the paced ticks. Bounding the batch to the
+     * same cap keeps the landing paced too; the caller keeps the
+     * leftover (`pending - take`) queued and the drain loops until it
+     * is empty, so the total still lands exactly. Sign is preserved,
+     * so a direction reversal nets against the queue instead of
+     * overshooting.
+     */
+    fun shellBatchTake(pending: Int): Int =
+        pending.coerceIn(-MAX_STEPS_PER_MOVE, MAX_STEPS_PER_MOVE)
 }
