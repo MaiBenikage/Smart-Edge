@@ -526,19 +526,24 @@ class EdgeHandleView @JvmOverloads constructor(
                         // Distances per unit come from the ACTION_DOWN
                         // snapshot (see snapshotGesturePrefs), not from
                         // fresh pref reads / binder calls per MOVE.
+                        // Pacing (see SlideStepMath): at most MAX_STEPS_PER_MOVE
+                        // per event, so a fast flick or a coalesced MOVE cannot
+                        // dump a whole slide's worth of steps in one frame. The
+                        // remainder stays in accumulatedDy and drains on later
+                        // MOVEs and at gesture end (see ACTION_UP/CANCEL).
                         if (isSlidingVolume) {
                             val pixelsPerUnit = gesturePixelsPerVolumeUnit
-                            if (Math.abs(accumulatedDy) >= pixelsPerUnit) {
-                                val units = (accumulatedDy / pixelsPerUnit).toInt()
-                                onAdjustVolume?.invoke(-units)
-                                accumulatedDy -= units * pixelsPerUnit
+                            val steps = SlideStepMath.stepsToEmit(accumulatedDy, pixelsPerUnit)
+                            if (steps != 0) {
+                                onAdjustVolume?.invoke(-steps)
+                                accumulatedDy -= steps * pixelsPerUnit
                             }
                         } else {
                             val pixelsPerUnit = gesturePixelsPerBrightnessUnit
-                            if (Math.abs(accumulatedDy) >= pixelsPerUnit) {
-                                val units = (accumulatedDy / pixelsPerUnit).toInt()
-                                onAdjustBrightness?.invoke(-units)
-                                accumulatedDy -= units * pixelsPerUnit
+                            val steps = SlideStepMath.stepsToEmit(accumulatedDy, pixelsPerUnit)
+                            if (steps != 0) {
+                                onAdjustBrightness?.invoke(-steps)
+                                accumulatedDy -= steps * pixelsPerUnit
                             }
                         }
                         return true
@@ -609,6 +614,20 @@ class EdgeHandleView @JvmOverloads constructor(
                     val duration = System.currentTimeMillis() - downTime
                     if (duration < ViewConfiguration.getLongPressTimeout()) {
                         handleTap()
+                    }
+                }
+
+                // Drain the whole steps the per-MOVE cap held back, so the
+                // value lands exactly where the finger stopped (see
+                // SlideStepMath). Only when a slide was in progress; the
+                // remainder is normally 0 — later MOVEs drain it, and a
+                // larger remainder only survives a final coalesced MOVE.
+                if (isSlidingSeek) {
+                    val pixelsPerUnit = if (isSlidingVolume) gesturePixelsPerVolumeUnit else gesturePixelsPerBrightnessUnit
+                    val left = SlideStepMath.drainSteps(accumulatedDy, pixelsPerUnit)
+                    if (left != 0) {
+                        if (isSlidingVolume) onAdjustVolume?.invoke(-left) else onAdjustBrightness?.invoke(-left)
+                        accumulatedDy = 0f
                     }
                 }
 

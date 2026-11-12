@@ -459,17 +459,24 @@ class PanelAppsAdapter(
                                 return@setOnTouchListener true
                             }
                             val sinceLastTick = dragState[1] - event.rawY
-                            if (Math.abs(sinceLastTick) >= tickPx) {
-                                val direction = if (sinceLastTick > 0f) +1 else -1
-                                val ticks = (Math.abs(sinceLastTick) / tickPx).toInt().coerceAtLeast(1)
-                                repeat(ticks) { onToolDrag.invoke(app.packageName, direction) }
+                            // Pacing (see SlideStepMath): at most MAX_STEPS_PER_MOVE
+                            // per event — a fast flick or a coalesced MOVE used to
+                            // dump a whole slide's worth of ticks in one frame, and
+                            // the applier landed them as one absolute set (~10% in
+                            // one jump). The remainder stays in the anchor offset
+                            // and drains on later MOVEs and at gesture end (see
+                            // ACTION_UP below).
+                            val ticks = SlideStepMath.stepsToEmit(sinceLastTick, tickPx)
+                            if (ticks != 0) {
+                                val direction = if (ticks > 0) +1 else -1
+                                repeat(Math.abs(ticks)) { onToolDrag.invoke(app.packageName, direction) }
                                 // Keep the sub-tick remainder: advance the
                                 // anchor by exactly ticks * tickPx instead of
                                 // snapping it to rawY, so the leftover
                                 // fraction still counts toward the next tick
                                 // and a slow drag moves at the same rate as a
                                 // fast one (instead of losing up to a tick per event).
-                                dragState[1] -= direction * ticks * tickPx
+                                dragState[1] -= ticks * tickPx
                             }
                             true
                         }
@@ -481,12 +488,30 @@ class PanelAppsAdapter(
                             if (!armed && totalTravel < tapSlopPx) {
                                 onToolClick(app.packageName)
                             }
+                            // Drain the ticks the per-MOVE cap held back (see
+                            // SlideStepMath), so the value lands exactly where
+                            // the finger stopped. Only when the drag was armed.
+                            if (armed) {
+                                val left = SlideStepMath.drainSteps(dragState[1] - event.rawY, tickPx)
+                                if (left != 0) {
+                                    val direction = if (left > 0) +1 else -1
+                                    repeat(Math.abs(left)) { onToolDrag.invoke(app.packageName, direction) }
+                                }
+                            }
                             v.setTag(R.id.tag_drag_armed, false)
                             true
                         }
                         android.view.MotionEvent.ACTION_CANCEL -> {
                             v.animate().scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                             (v.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { v.removeCallbacks(it) }
+                            val armed = v.getTag(R.id.tag_drag_armed) as? Boolean ?: false
+                            if (armed) {
+                                val left = SlideStepMath.drainSteps(dragState[1] - event.rawY, tickPx)
+                                if (left != 0) {
+                                    val direction = if (left > 0) +1 else -1
+                                    repeat(Math.abs(left)) { onToolDrag.invoke(app.packageName, direction) }
+                                }
+                            }
                             v.setTag(R.id.tag_drag_armed, false)
                             true
                         }

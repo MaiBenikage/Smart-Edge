@@ -1646,22 +1646,26 @@ class SidePanelView @JvmOverloads constructor(
                     return true
                 }
                 // Armed: accumulate vertical travel and emit whole units, exactly
-                // like the edge-slide gesture (EdgeHandleView). A fast flick can
-                // produce multiple units in one event. The accumulator lives in
-                // this button's own dragState[3], so the two buttons can't
-                // leak leftover travel into each other.
+                // like the edge-slide gesture (EdgeHandleView). The accumulator
+                // lives in this button's own dragState[3], so the two buttons
+                // can't leak leftover travel into each other.
+                // Pacing (see SlideStepMath): at most MAX_STEPS_PER_MOVE per
+                // event — a fast flick or a coalesced MOVE used to dump a
+                // whole slide's worth of steps in one frame, and the applier
+                // landed them as one absolute set (~10% in one jump). The
+                // remainder stays in dragState[3] and drains on later MOVEs
+                // and at gesture end (see ACTION_UP/CANCEL below).
                 // The button also visually tracks the finger (±60dp) so the
                 // drag feels connected; it springs back on UP/CANCEL.
                 view.translationY = (event.rawY - dragState[2]).coerceIn(-60f * density, 60f * density)
                 val dy = dragState[1] - event.rawY
                 dragState[1] = event.rawY
                 dragState[3] += dy
-                val absAccum = Math.abs(dragState[3])
-                if (absAccum >= pixelsPerUnit) {
-                    val units = (absAccum / pixelsPerUnit).toInt().coerceAtLeast(1)
-                    val direction = if (dragState[3] > 0f) +1 else -1
-                    repeat(units) { onStep(direction) }
-                    dragState[3] -= direction * units * pixelsPerUnit
+                val steps = SlideStepMath.stepsToEmit(dragState[3], pixelsPerUnit)
+                if (steps != 0) {
+                    val direction = if (steps > 0) +1 else -1
+                    repeat(Math.abs(steps)) { onStep(direction) }
+                    dragState[3] -= steps * pixelsPerUnit
                 }
                 true
             }
@@ -1676,6 +1680,17 @@ class SidePanelView @JvmOverloads constructor(
                     // calls performClick()) runs the same tap action.
                     view.performClick()
                 }
+                // Drain the whole steps the per-MOVE cap held back (see
+                // SlideStepMath), so the value lands exactly where the
+                // finger stopped. Only when the drag was armed — an unarmed
+                // gesture never accumulated anything.
+                if (armed) {
+                    val left = SlideStepMath.drainSteps(dragState[3], pixelsPerUnit)
+                    if (left != 0) {
+                        val direction = if (left > 0) +1 else -1
+                        repeat(Math.abs(left)) { onStep(direction) }
+                    }
+                }
                 view.setTag(R.id.tag_drag_armed, false)
                 dragState[3] = 0f
                 true
@@ -1683,6 +1698,14 @@ class SidePanelView @JvmOverloads constructor(
             android.view.MotionEvent.ACTION_CANCEL -> {
                 view.animate().translationY(0f).scaleX(1f).scaleY(1f).setDuration(SCALE_RESET_DURATION_MS).start()
                 (view.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { view.removeCallbacks(it) }
+                val armed = view.getTag(R.id.tag_drag_armed) as? Boolean ?: false
+                if (armed) {
+                    val left = SlideStepMath.drainSteps(dragState[3], pixelsPerUnit)
+                    if (left != 0) {
+                        val direction = if (left > 0) +1 else -1
+                        repeat(Math.abs(left)) { onStep(direction) }
+                    }
+                }
                 view.setTag(R.id.tag_drag_armed, false)
                 dragState[3] = 0f
                 true

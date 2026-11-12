@@ -1,0 +1,92 @@
+package com.imi.smartedge.sidebar.panel
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/**
+ * Pure-JVM unit tests for [SlideStepMath] — the pacing that stops a fast
+ * flick (or a coalesced MOVE event) from dumping a whole slide's worth of
+ * volume steps in a single frame.
+ *
+ * The contract: at most [SlideStepMath.MAX_STEPS_PER_MOVE] steps are
+ * emitted per MOVE event, the remainder is kept (in pixels) and drains on
+ * later MOVE events and at gesture end, and the final total is exactly
+ * the finger's travel — the cap changes the landing, never the total.
+ */
+class SlideStepMathTest {
+
+    @Test
+    fun `below one unit emits nothing`() {
+        assertEquals(0, SlideStepMath.stepsToEmit(20f, 41f))
+        assertEquals(0, SlideStepMath.stepsToEmit(-20f, 41f))
+        assertEquals(0, SlideStepMath.stepsToEmit(0f, 41f))
+    }
+
+    @Test
+    fun `exactly one unit emits one step, sign preserved`() {
+        assertEquals(1, SlideStepMath.stepsToEmit(41f, 41f))
+        assertEquals(-1, SlideStepMath.stepsToEmit(-41f, 41f))
+        // 1.9 units truncates toward zero, like the old call sites.
+        assertEquals(1, SlideStepMath.stepsToEmit(78f, 41f))
+        assertEquals(-1, SlideStepMath.stepsToEmit(-78f, 41f))
+    }
+
+    @Test
+    fun `a 16-unit flick is capped at MAX_STEPS_PER_MOVE per call`() {
+        // 16 units of travel in one MOVE event (the ~10% jump on a
+        // 160-step phone) emits at most the cap, never the whole burst.
+        val ppu = 41f
+        assertEquals(2, SlideStepMath.stepsToEmit(16 * ppu, ppu))
+        assertEquals(-2, SlideStepMath.stepsToEmit(-16 * ppu, ppu))
+        assertEquals(2, SlideStepMath.MAX_STEPS_PER_MOVE)
+    }
+
+    @Test
+    fun `capped remainder drains over later calls and lands the exact total`() {
+        // Caller pattern: emit, subtract steps * pixelsPerUnit, repeat.
+        // A 16-unit flick lands exactly 16 steps in total, just spread
+        // over several MOVE events instead of one frame.
+        val ppu = 41f
+        var accumulated = 16 * ppu
+        var total = 0
+        var calls = 0
+        while (true) {
+            val steps = SlideStepMath.stepsToEmit(accumulated, ppu)
+            if (steps == 0) break
+            total += steps
+            accumulated -= steps * ppu
+            calls++
+            // Guard against an infinite loop if the cap ever stops draining.
+            if (calls > 100) throw AssertionError("remainder did not drain")
+        }
+        assertEquals(16, total)
+        assertEquals(8, calls)
+        // The leftover is below one unit, so nothing more is owed.
+        assertEquals(0, SlideStepMath.drainSteps(accumulated, ppu))
+    }
+
+    @Test
+    fun `drainSteps at gesture end lands the remaining whole steps`() {
+        val ppu = 41f
+        assertEquals(3, SlideStepMath.drainSteps(3 * ppu + 10f, ppu))
+        assertEquals(-3, SlideStepMath.drainSteps(-3 * ppu - 10f, ppu))
+        assertEquals(0, SlideStepMath.drainSteps(20f, ppu))
+    }
+
+    @Test
+    fun `sub-unit remainder is kept, not lost`() {
+        // 0.9 units emits nothing; another 0.2 units then makes a step.
+        val ppu = 41f
+        var accumulated = 0.9f * ppu
+        assertEquals(0, SlideStepMath.stepsToEmit(accumulated, ppu))
+        accumulated += 0.2f * ppu
+        assertEquals(1, SlideStepMath.stepsToEmit(accumulated, ppu))
+    }
+
+    @Test
+    fun `unusable unit size emits nothing`() {
+        assertEquals(0, SlideStepMath.stepsToEmit(100f, 0f))
+        assertEquals(0, SlideStepMath.stepsToEmit(100f, -5f))
+        assertEquals(0, SlideStepMath.drainSteps(100f, 0f))
+    }
+}

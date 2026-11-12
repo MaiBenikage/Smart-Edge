@@ -93,19 +93,25 @@ object MediaVolumeApplier {
             return true
         }
 
-        // 1. Exact absolute set, verified by read-back.
+        // 1. Exact absolute set, verified by read-back. The landing is
+        // logged (see below): a silent fallthrough to a weaker path must
+        // be visible in logcat, or the next on-device jump cannot be
+        // diagnosed.
         try {
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
             if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == target) {
+                Log.d(TAG, "setStreamVolume landed $steps step(s): $before -> $target")
                 onApplied?.invoke(true)
                 return true
             }
             // Silent no-op (no throw, no change): fall through to the shell.
             // A stale read-back is harmless — the shell sets the same
             // absolute target, and the adjust fallback re-reads before acting.
+            Log.w(TAG, "setStreamVolume no-op: requested $target, still $before; falling through to shell")
         } catch (e: SecurityException) {
             // OEM ExtImpl may reject setStreamVolume for third-party apps;
             // fall through to the shell absolute set.
+            Log.w(TAG, "setStreamVolume rejected (SecurityException); falling through to shell", e)
         } catch (e: Exception) {
             Log.w(TAG, "setStreamVolume failed", e)
         }
@@ -143,12 +149,13 @@ object MediaVolumeApplier {
                 return
             }
             var applied = false
+            var liveTarget = -1
             try {
                 // Re-derive the target from the live volume: queued ticks
                 // must compose (each moves `steps` from wherever the volume
                 // is when this task runs), not overwrite each other.
                 val live = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                val liveTarget = MediaVolumeMath.target(live, steps, max)
+                liveTarget = MediaVolumeMath.target(live, steps, max)
                 if (liveTarget != live &&
                     AutomationManager.execute("cmd media_session volume --stream 3 --set $liveTarget")
                 ) {
@@ -159,6 +166,7 @@ object MediaVolumeApplier {
             } catch (e: Exception) {
                 Log.w(TAG, "shell volume set failed", e)
             }
+            Log.d(TAG, "shell volume set: steps=$steps target=$liveTarget applied=$applied")
             if (!applied) {
                 // 3. Last resort: relative adjust (coarse on some phones).
                 val live = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -206,6 +214,11 @@ object MediaVolumeApplier {
                 }
             }
             if (!ok) ok = MediaVolumeMath.hasReached(current, target, steps)
+            // The coarse adjust can only land on a multiple of the phone's
+            // adjust step, so it overshoots a fine target by up to one
+            // coarse step (~6% here). Log the landing so an on-device jump
+            // can be told apart from a burst of legitimate steps.
+            Log.w(TAG, "adjust fallback: steps=$steps target=$target landed=$current")
             ok
         } catch (e: Exception) {
             Log.w(TAG, "adjustStreamVolume failed", e)
