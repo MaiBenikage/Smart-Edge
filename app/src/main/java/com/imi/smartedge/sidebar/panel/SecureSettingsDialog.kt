@@ -26,7 +26,9 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
@@ -442,8 +444,15 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         // which refresh() updates asynchronously (5 s throttle). Observe
         // the engine StateFlow so every state change re-runs refreshUI
         // instead of relying on a single stale cache read after a grant.
+        // Collected inside repeatOnLifecycle(STARTED): a plain
+        // lifecycleScope launch keeps collecting while the dialog is
+        // stopped, and refreshUI() dismisses on a false -> true
+        // transition — dismiss() after onSaveInstanceState throws
+        // IllegalStateException. (See AutomationManager.engineState.)
         viewLifecycleOwner.lifecycleScope.launch {
-            AutomationManager.engineState.collect { refreshUI() }
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                AutomationManager.engineState.collect { refreshUI() }
+            }
         }
     }
 

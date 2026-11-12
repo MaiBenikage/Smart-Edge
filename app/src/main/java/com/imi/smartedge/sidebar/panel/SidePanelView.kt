@@ -408,16 +408,24 @@ class SidePanelView @JvmOverloads constructor(
                 // Never save from inside a folder: the folder shows the 7
                 // tool ids, not the pinned apps.
                 if (navigationStack.isNotEmpty()) return
-                // Save only the real pinned ids, in their new order. The
-                // displayed list also contains injected entries — the Tools
-                // folder button and notification-prepended apps — which are
-                // not pins and must not become permanent.
-                val pinned = panelPrefs.getPanelApps().toSet()
-                val identifiers = adapter.getApps()
+                // Reorder only what is shown, preserve the rest. The
+                // displayed list omits pinned items that can't currently
+                // be resolved (an uninstalled app, a deleted custom
+                // item), and saving the displayed list alone would delete
+                // those pins permanently on every reorder. So the saved
+                // order is (displayed ∩ pinned, in displayed order) +
+                // (previously persisted pins not on screen, in stored
+                // order). Injected entries (Tools folder, notification-
+                // prepended apps) are in neither part and still never
+                // become permanent.
+                val stored = panelPrefs.getPanelApps()
+                val pinned = stored.toSet()
+                val shown = adapter.getApps()
                     .map { it.identifier }
                     .filter { it in pinned }
-
-                panelPrefs.setPanelApps(identifiers)
+                val shownSet = shown.toSet()
+                val hidden = stored.filter { it !in shownSet }
+                panelPrefs.setPanelApps(shown + hidden)
                 updateSideLayout()
             }
         })

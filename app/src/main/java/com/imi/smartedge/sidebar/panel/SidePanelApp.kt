@@ -13,10 +13,14 @@ class SidePanelApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Apply the explicitly-chosen language to AppCompat's per-app
-        // locales so every activity gets it from process start.
-        LocaleHelper.applyPersistedLocale(this)
-
+        // No AppCompat per-app-locales call here: setApplicationLocales
+        // only notifies Activities whose AppCompatDelegate already
+        // exists, and none does in Application.onCreate, so on API 33+
+        // it is a no-op (and without a declared localeConfig the system
+        // side is undeclared too). The language is applied by the
+        // LocaleHelper.onAttach context wrap on every Activity/Service,
+        // and the two Settings activities re-apply it after an import
+        // or a reset, when a delegate exists — so nothing is lost.
         // Apply the saved theme mode
         applyAppTheme(this)
         

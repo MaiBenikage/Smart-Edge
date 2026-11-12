@@ -411,7 +411,11 @@ class SettingsMainActivity : AppCompatActivity() {
                 title.text = item.title
                 title.setTextColor(com.google.android.material.color.MaterialColors.getColor(title, com.google.android.material.R.attr.colorOnSurface))
                 
-                desc.text = "${item.category} • ${item.description}"
+                // Omit the separator when there is no description:
+                // most rows (group, switch, colour) have none, and the
+                // literal "Category • " reads as a dangling bullet.
+                desc.text = if (item.description.isEmpty()) item.category
+                    else "${item.category} • ${item.description}"
                 desc.setTextColor(com.google.android.material.color.MaterialColors.getColor(desc, com.google.android.material.R.attr.colorOnSurfaceVariant))
                 itemView.setOnClickListener { onClick(item) }
             }

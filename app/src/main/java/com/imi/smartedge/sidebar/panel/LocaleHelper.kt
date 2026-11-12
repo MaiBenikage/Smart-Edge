@@ -81,10 +81,19 @@ object LocaleHelper {
     private fun updateResources(context: Context, language: String?): Context {
         val locale = Locale(language ?: "en")
         Locale.setDefault(locale)
-        // Copy the Configuration first: mutating the live object owned by
-        // the base context's Resources is undefined behaviour and can leak
-        // the locale into other contexts.
-        val configuration = Configuration(context.resources.configuration)
+        // Start from an EMPTY Configuration and set only the locale and
+        // its layout direction. Copying the live Configuration
+        // (resources.configuration) also copies orientation and uiMode,
+        // so the wrapped context freezes the values from process start:
+        // the handle then reappears in landscape when it is set not to,
+        // dynamic game detection never fires (it reads orientation), and
+        // the overlay stops following dark mode. A fresh Configuration
+        // leaves orientation/uiMode unset, so the system re-resolves
+        // them from the live values for every read. A new object is
+        // still used (never mutate the live one owned by the base
+        // context's Resources — that is undefined behaviour and can leak
+        // the locale into other contexts).
+        val configuration = Configuration()
         configuration.setLocale(locale)
         configuration.setLayoutDirection(locale)
 

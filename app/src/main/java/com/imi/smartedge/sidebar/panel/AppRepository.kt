@@ -889,6 +889,14 @@ class AppRepository(context: Context) {
             var icData: String? = null
             var icTargetPackage: String? = null
             var icTargetClass: String? = null
+            // Whether the parser is currently inside <intent>: <extra>
+            // and <categories> are only valid as children of <intent>,
+            // so the same tags elsewhere inside <shortcut> must not be
+            // collected (a stray category breaks the launch intent and
+            // changes the pin key). The START_TAG handler is a flat
+            // `when (parser.name)` with no parent tracking, so this flag
+            // is the parent.
+            var inIntent = false
             // <extra android:name/value> children of <intent>, and
             // <categories android:name> children: without these, shortcuts
             // launch without the extras/categories their target requires.
@@ -915,6 +923,7 @@ class AppRepository(context: Context) {
                                 }
                             }
                             "intent" -> {
+                                inIntent = true
                                 icAction = parser.getAttributeValue(ANDROID_NS, "action")
                                 icData = parser.getAttributeValue(ANDROID_NS, "data")
                                 icTargetPackage = parser.getAttributeValue(ANDROID_NS, "targetPackage")
@@ -923,25 +932,34 @@ class AppRepository(context: Context) {
                             // <extra android:name/value> and <categories
                             // android:name> children of <intent>: without
                             // these the shortcut launches without the
-                            // extras/categories its target requires.
+                            // extras/categories its target requires. Only
+                            // inside <intent> — the same tags outside it
+                            // are not part of the launch intent.
                             "extra" -> {
-                                val name = parser.getAttributeValue(ANDROID_NS, "name")
-                                if (!name.isNullOrBlank()) {
-                                    val valueResId = parser.getAttributeResourceValue(ANDROID_NS, "value", 0)
-                                    val value = when {
-                                        valueResId != 0 -> try { resources.getString(valueResId) } catch (_: Exception) { null }
-                                        else -> parser.getAttributeValue(ANDROID_NS, "value")
-                                    } ?: ""
-                                    icExtras.add(name to value)
+                                if (inIntent) {
+                                    val name = parser.getAttributeValue(ANDROID_NS, "name")
+                                    if (!name.isNullOrBlank()) {
+                                        val valueResId = parser.getAttributeResourceValue(ANDROID_NS, "value", 0)
+                                        val value = when {
+                                            valueResId != 0 -> try { resources.getString(valueResId) } catch (_: Exception) { null }
+                                            else -> parser.getAttributeValue(ANDROID_NS, "value")
+                                        } ?: ""
+                                        icExtras.add(name to value)
+                                    }
                                 }
                             }
                             "categories" -> {
-                                val name = parser.getAttributeValue(ANDROID_NS, "name")
-                                if (!name.isNullOrBlank()) icCategories.add(name)
+                                if (inIntent) {
+                                    val name = parser.getAttributeValue(ANDROID_NS, "name")
+                                    if (!name.isNullOrBlank()) icCategories.add(name)
+                                }
                             }
                         }
                     }
                     XmlPullParser.END_TAG -> {
+                        if (parser.name == "intent") {
+                            inIntent = false
+                        }
                         if (parser.name == "shortcut") {
                             if (currentEnabled && currentShortcutId != null) {
                                 // Capture mutable vars into locals so Kotlin can smart-cast
@@ -993,6 +1011,7 @@ class AppRepository(context: Context) {
                             currentShortcutId = null
                             currentLabel = null
                             currentEnabled = true
+                            inIntent = false
                             icAction = null
                             icData = null
                             icTargetPackage = null

@@ -91,6 +91,10 @@ class AppSinglePickerDialog : DialogFragment() {
             override fun afterTextChanged(s: Editable?) {}
         })
         listView.setOnItemClickListener { _, _, position, _ ->
+            // Guard the "Loading…" placeholder row: the initial adapter
+            // shows one row while displayApps is still empty, and tapping
+            // it would index past the end of the backing list.
+            if (position >= displayApps.size) return@setOnItemClickListener
             parentFragmentManager.setFragmentResult(
                 REQUEST_KEY,
                 bundleOf(EXTRA_SLOT_KEY to slotKey, EXTRA_PACKAGE to displayApps[position].packageName)

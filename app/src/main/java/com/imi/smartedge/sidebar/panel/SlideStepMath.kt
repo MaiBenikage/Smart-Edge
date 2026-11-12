@@ -38,6 +38,19 @@ object SlideStepMath {
     const val MAX_STEPS_PER_MOVE = 2
 
     /**
+     * Max whole steps the shell drain lands per batch (see
+     * [shellBatchTake]). Deliberately larger than [MAX_STEPS_PER_MOVE]:
+     * the gesture emits at most 2 steps per MOVE event (60Hz, so at most
+     * ~120 steps/s), while one shell spawn takes ~30ms — so a batch of 4
+     * drains at ~130 steps/s, faster than the fastest emission, and the
+     * queue cannot grow during a slide. A batch of 2 drained slower than
+     * the gesture could emit, so a fast slide's backlog kept landing
+     * after the finger lifted. Each batch is at most 2.5% of the range,
+     * so the landing stays smooth.
+     */
+    const val MAX_SHELL_BATCH_STEPS = 4
+
+    /**
      * Whole steps to emit now for [accumulatedPx] of travel at
      * [pixelsPerUnit], capped at [MAX_STEPS_PER_MOVE] per call (sign
      * preserved). The caller keeps the remainder by subtracting
@@ -73,13 +86,13 @@ object SlideStepMath {
      * whole slide's worth of steps (~10% in one frame) even though the
      * gesture emits at most [MAX_STEPS_PER_MOVE] per MOVE event. That
      * is the boundary the gesture-side pacing alone cannot fix — the
-     * coalescing re-batches the paced ticks. Bounding the batch to the
-     * same cap keeps the landing paced too; the caller keeps the
-     * leftover (`pending - take`) queued and the drain loops until it
-     * is empty, so the total still lands exactly. Sign is preserved,
-     * so a direction reversal nets against the queue instead of
-     * overshooting.
+     * coalescing re-batches the paced ticks. Bounding the batch to
+     * [MAX_SHELL_BATCH_STEPS] keeps the landing paced too; the caller
+     * keeps the leftover (`pending - take`) queued and the drain loops
+     * until it is empty, so the total still lands exactly. Sign is
+     * preserved, so a direction reversal nets against the queue instead
+     * of overshooting.
      */
     fun shellBatchTake(pending: Int): Int =
-        pending.coerceIn(-MAX_STEPS_PER_MOVE, MAX_STEPS_PER_MOVE)
+        pending.coerceIn(-MAX_SHELL_BATCH_STEPS, MAX_SHELL_BATCH_STEPS)
 }

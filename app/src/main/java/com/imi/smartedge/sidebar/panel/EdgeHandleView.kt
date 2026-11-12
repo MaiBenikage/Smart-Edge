@@ -59,6 +59,14 @@ class EdgeHandleView @JvmOverloads constructor(
     private var isTempHighAlpha = false
     private var lastPillState: String? = null
 
+    // Desired window touchability when layoutParams does not exist yet
+    // (creation time, before the service passes params to addView).
+    // setWindowTouchable() records it here, and onAttachedToWindow()
+    // applies it once the params exist. Without this, a handle created
+    // hidden stayed touchable: the flag-set no-op'd on null params and
+    // the lastPillState dedupe defeated the init block's retry.
+    private var pendingWindowTouchable: Boolean? = null
+
     // Audit fix: the IME-insets listener created a fresh ValueAnimator on
     // every insets change without cancelling the previous one, so two
     // animators could fight over params.y. One shared animator, cancelled
@@ -296,8 +304,14 @@ class EdgeHandleView @JvmOverloads constructor(
         // Build a unique key for the current visual state to prevent redundant updates
         val stateKey = "${isRightSide}_${showPill}_${hidePillInCurrentApp}_${panelPrefs.pillColor}_${panelPrefs.handleWidth}_${panelPrefs.pillWidth}_${panelPrefs.panelOpacity}"
         if (stateKey == lastPillState) return
-        lastPillState = stateKey
-
+        // Do NOT commit lastPillState yet: the window-touchable flag is
+        // part of this state, and at creation time layoutParams does not
+        // exist yet, so setWindowTouchable() defers it (see below).
+        // Committing first would make the init block's posted
+        // updatePill() retry early-return on the unchanged key and leave
+        // the flag unapplied — a hidden handle staying touchable.
+        // The key is committed only once the flag has landed.
+        val flagApplied: Boolean
         if (showPill && !hidePillInCurrentApp) {
             val cornerRadius = 12 * density
             val shape = android.graphics.drawable.GradientDrawable().apply {
@@ -338,7 +352,7 @@ class EdgeHandleView @JvmOverloads constructor(
             }
             // Re-enable touch if the pill was hidden (and untouchable) in
             // the previous app.
-            setWindowTouchable(true)
+            flagApplied = setWindowTouchable(true)
         } else {
             background = null
             alpha = 0f
@@ -350,8 +364,14 @@ class EdgeHandleView @JvmOverloads constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 systemGestureExclusionRects = emptyList()
             }
-            setWindowTouchable(false)
+            flagApplied = setWindowTouchable(false)
         }
+        // Commit the state key only once the whole side effect — including
+        // the window-touchable flag — has landed. If the flag was deferred
+        // (creation time, no layoutParams yet), the next updatePill() call
+        // re-runs the branch and lands it (the init block's posted retry,
+        // or onAttachedToWindow() below).
+        if (flagApplied) lastPillState = stateKey
         invalidate()
     }
 
@@ -359,9 +379,20 @@ class EdgeHandleView @JvmOverloads constructor(
      * Toggle FLAG_NOT_TOUCHABLE on this view's window params. The params
      * object is mutated first so the flag sticks even if the view is not
      * attached yet; [updateLayoutSafely] applies it live when attached.
+     *
+     * Returns true when the flag was applied to live params, false when
+     * it was deferred: at creation time layoutParams is still null (the
+     * service creates the params and passes them to addView), so the
+     * desired state is recorded in [pendingWindowTouchable] and applied
+     * in [onAttachedToWindow] once the params exist.
      */
-    private fun setWindowTouchable(touchable: Boolean) {
-        val params = layoutParams as? WindowManager.LayoutParams ?: return
+    private fun setWindowTouchable(touchable: Boolean): Boolean {
+        val params = layoutParams as? WindowManager.LayoutParams
+        if (params == null) {
+            pendingWindowTouchable = touchable
+            return false
+        }
+        pendingWindowTouchable = null
         val newFlags = if (touchable) {
             params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         } else {
@@ -371,6 +402,7 @@ class EdgeHandleView @JvmOverloads constructor(
             params.flags = newFlags
             updateLayoutSafely(params)
         }
+        return true
     }
 
     private var downTime = 0L
@@ -716,6 +748,18 @@ class EdgeHandleView @JvmOverloads constructor(
         // alive and keeps calling updateLayoutSafely after detach.
         imeAnimator?.cancel()
         imeAnimator = null
+    }
+
+    /**
+     * Apply a touchability change deferred at creation time (see
+     * [setWindowTouchable]): the params exist now, so a handle created
+     * hidden is made untouchable here even if updatePill() ran before
+     * the params were created. Idempotent — if the flag already landed
+     * via the updatePill() retry, this is a no-op.
+     */
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        pendingWindowTouchable?.let { setWindowTouchable(it) }
     }
 
     fun updateFromPrefs() {

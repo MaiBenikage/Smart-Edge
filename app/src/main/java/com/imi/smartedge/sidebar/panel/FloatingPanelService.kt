@@ -563,7 +563,10 @@ class FloatingPanelService : Service() {
             }
             ACTION_SHOW_TEMP -> {
                 addEdgeHandle(forceRecreate = false)
-                addNotchHandle()
+                // No notch handle here: a temp show must not install it
+                // indefinitely (it has no temporary expiry of its own).
+                // The notch is added by onCreate / service-enabled /
+                // refreshForegroundState when the policy allows.
                 edgeHandleView?.showTemporarily()
             }
             ACTION_TOGGLE_FLASHLIGHT -> toggleFlashlight()
@@ -1688,6 +1691,7 @@ class FloatingPanelService : Service() {
                     !isVideoPlayerPackage(currentPkg)
         }
         edgeHandleView?.isGameActive = isDynamicGame
+        notchHandleView?.isGameActive = isDynamicGame
     }
 
     private fun isCurrentPackageLauncher(): Boolean {
@@ -1736,6 +1740,16 @@ class FloatingPanelService : Service() {
             panelPrefs.doubleTapToOpen ||
             panelPrefs.tripleTapToOpen
         if (!anyTriggerEnabled) return false
+        return handlePolicyAllows()
+    }
+
+    /**
+     * Landscape, home-only and engine conditions shared by the edge and
+     * notch handles. The edge trigger set lives in [shouldShowHandle];
+     * the notch is its own feature, gated by notchGesturesEnabled in
+     * [addNotchHandle], so it shares only these three conditions.
+     */
+    private fun handlePolicyAllows(): Boolean {
         val isLandscape = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE
         if (isLandscape && !panelPrefs.showInLandscape) return false
@@ -1891,9 +1905,20 @@ class FloatingPanelService : Service() {
         }
     }
 
+    /**
+     * Creates (or re-checks) the notch handle: a small touch zone over
+     * the camera cutout that runs the configured tap / double-tap /
+     * triple-tap / long-press actions. Gated on the same policy as the
+     * edge handle — notchGesturesEnabled, plus the shared landscape,
+     * home-only and engine conditions in [handlePolicyAllows] — so the
+     * notch cannot appear where the edge handle is not allowed to. The
+     * window is deliberately small (48x32dp): a tappable target around
+     * the cutout, not a full-width strip, so it does not eat the
+     * notification-shade pull-down.
+     */
     private fun addNotchHandle() {
         Log.d(TAG, "addNotchHandle called. Enabled: ${panelPrefs.notchGesturesEnabled}")
-        if (!panelPrefs.notchGesturesEnabled) {
+        if (!panelPrefs.notchGesturesEnabled || !handlePolicyAllows()) {
             removeView(notchHandleView)
             notchHandleView = null
             return
@@ -1907,8 +1932,8 @@ class FloatingPanelService : Service() {
         notchHandleView = NotchHandleView(this)
 
         val params = WindowManager.LayoutParams(
-            dpToPx(120), // Increased width for easier debugging
-            dpToPx(60),  // Increased height for easier debugging
+            dpToPx(48), // Tappable target around the cutout; the old 120dp debug size ate the shade pull-down.
+            dpToPx(32),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -2213,6 +2238,12 @@ class FloatingPanelService : Service() {
                 false
             }
         }
+        // Same LTR pin as SidePanelView / AppPickerPanelView: the panel
+        // geometry uses absolute left/right, so the overlay root must not
+        // mirror under an RTL locale. The children already pin
+        // themselves, so the flip is not demonstrated from code — this is
+        // defence in depth, keeping the root consistent with them.
+        rootLayout?.layoutDirection = View.LAYOUT_DIRECTION_LTR
         rootParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,

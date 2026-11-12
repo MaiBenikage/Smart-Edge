@@ -49,12 +49,16 @@ import java.util.concurrent.Executors
  *    there (which also covers a stale read-back from steps 1/2 that
  *    actually landed).
  *
- * [onApplied] is invoked exactly once, on the main thread, with whether the
- * volume reached (or, for the coarse adjust fallback, crossed) the target.
- * It fires inline for the synchronous paths and when the background shell
- * work completes for the shell path. The return value is true only when the
- * volume reached the target synchronously (or was already there); false
- * means it did not land synchronously or is still pending on the shell.
+ * [onApplied] is invoked on the main thread with whether the volume
+ * reached (or, for the coarse adjust fallback, crossed) the target.
+ * For the synchronous paths it fires exactly once, inline. For the
+ * shell path it fires after every batch the drain lands — so the
+ * indicator refreshes as the volume moves — and at least once per
+ * apply; the most recent callback may fire once more per later batch
+ * as the refresh signal (see [invokePendingCallbacks]). The return
+ * value is true only when the volume reached the target synchronously
+ * (or was already there); false means it did not land synchronously
+ * or is still pending on the shell.
  */
 object MediaVolumeApplier {
 
@@ -69,12 +73,17 @@ object MediaVolumeApplier {
     // each of which used to run its own shell call (hundreds of ms each),
     // so the volume kept changing for seconds after the finger lifted.
     // Steps now accumulate in pendingShellSteps and a single task drains
-    // them; callbacks accumulate alongside and all fire with the drain's
-    // result (callers only refresh the indicator from the live volume).
+    // them in bounded batches; callbacks accumulate alongside and fire
+    // per batch, so the indicator refreshes as the volume moves. The
+    // callbacks only refresh the indicator from the live volume.
     private val pendingShellSteps = java.util.concurrent.atomic.AtomicInteger(0)
     private val shellTaskActive = java.util.concurrent.atomic.AtomicBoolean(false)
     private val pendingShellCallbacks =
         java.util.Collections.synchronizedList(mutableListOf<(Boolean) -> Unit>())
+    // How many of the queued callbacks have already been fired. Guarded
+    // by pendingShellCallbacks' lock (all reads/writes happen inside
+    // synchronized blocks on it); reset when the list is cleared.
+    private var callbacksFired = 0
 
     fun apply(
         audioManager: AudioManager,
@@ -135,7 +144,7 @@ object MediaVolumeApplier {
      * when a drain finds nothing pending, with a re-check so a tick
      * that lands between the last take and the clear is never stranded.
      *
-     * The batch is bounded to [SlideStepMath.MAX_STEPS_PER_MOVE]
+     * The batch is bounded to [SlideStepMath.MAX_SHELL_BATCH_STEPS]
      * (see [SlideStepMath.shellBatchTake]): the drain used to take the
      * whole accumulation, so a fast slide could land ~10% in one frame
      * even though the gesture emits at most the cap per MOVE event —
@@ -153,6 +162,7 @@ object MediaVolumeApplier {
                     continue
                 }
                 invokePendingCallbacks(true)
+                clearPendingCallbacks()
                 return
             }
             // Bound the batch; the leftover goes back on the queue for
@@ -190,14 +200,46 @@ object MediaVolumeApplier {
         }
     }
 
+    /**
+     * Fires the shell-path callbacks for the batch that just landed.
+     * Each callback fires at least once, when the batch carrying its
+     * steps lands; the most recent one may fire once more per later
+     * batch, as the refresh signal — the drain's later batches have
+     * no fresh callback of their own (their ticks were already queued
+     * when the first batch fired), so without it the indicator freezes
+     * at the post-first-batch value while the volume keeps moving.
+     * The callbacks only refresh the indicator from the live volume,
+     * so the repeat firings are harmless. The list is cleared only
+     * when the drain finds nothing pending (see
+     * [clearPendingCallbacks]); clearing it per batch was the bug.
+     */
     private fun invokePendingCallbacks(applied: Boolean) {
         val callbacks: List<(Boolean) -> Unit> = synchronized(pendingShellCallbacks) {
-            val copy = pendingShellCallbacks.toList()
-            pendingShellCallbacks.clear()
-            copy
+            val list = pendingShellCallbacks
+            val fresh = list.subList(minOf(callbacksFired, list.size), list.size).toList()
+            callbacksFired = list.size
+            if (fresh.isNotEmpty()) fresh
+            else list.lastOrNull()?.let { listOf(it) } ?: emptyList()
         }
         if (callbacks.isEmpty()) return
         mainHandler.post { callbacks.forEach { it(applied) } }
+    }
+
+    /**
+     * Drops the shell-path callbacks when the drain is done. Skipped
+     * when a new drain has started since the exit re-check (a tick
+     * arrived after the queue was empty): clearing then would drop
+     * that drain's callbacks before it fires them. The new drain
+     * clears them when it finishes; nothing is leaked, because
+     * [callbacksFired] stays at the old list size, so the new drain
+     * only ever fires callbacks added after it.
+     */
+    private fun clearPendingCallbacks() {
+        synchronized(pendingShellCallbacks) {
+            if (shellTaskActive.get()) return
+            pendingShellCallbacks.clear()
+            callbacksFired = 0
+        }
     }
 
     /**

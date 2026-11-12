@@ -23,6 +23,15 @@ class NotchHandleView @JvmOverloads constructor(
 
     private val panelPrefs = PanelPreferences(context)
     private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * Set by FloatingPanelService.refreshForegroundState(), mirroring
+     * EdgeHandleView.isGameActive. In games, gestures must be
+     * deliberate (same rule as the edge handle): the long-press delay
+     * doubles (see [longPressTimeoutMs]) so an accidental touch in a
+     * game is less likely to fire an action.
+     */
+    var isGameActive: Boolean = false
     @Volatile private var tapCount = 0
     private val tapTimeoutMs = ViewConfiguration.getDoubleTapTimeout().toLong()
 
@@ -104,6 +113,16 @@ class NotchHandleView @JvmOverloads constructor(
         v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
+    // Long-press delay, doubled in games when deliberate gestures are
+    // on (mirrors EdgeHandleView's doubled hold time). The tap check in
+    // onTouchEvent uses the same value so the tap/long-press boundary
+    // stays consistent when the delay doubles.
+    private fun longPressTimeoutMs(): Long {
+        val base = ViewConfiguration.getLongPressTimeout().toLong()
+        val deliberate = isGameActive && panelPrefs.deliberateGestureInGames
+        return if (deliberate) base * 2 else base
+    }
+
     private var downTime = 0L
     private var downX = 0f
     private var downY = 0f
@@ -115,7 +134,7 @@ class NotchHandleView @JvmOverloads constructor(
                 downTime = System.currentTimeMillis()
                 downX = event.x
                 downY = event.y
-                handler.postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+                handler.postDelayed(longPressRunnable, longPressTimeoutMs())
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -127,7 +146,7 @@ class NotchHandleView @JvmOverloads constructor(
                     // ending here) must not fire the tap action.
                     val moved = Math.hypot((event.x - downX).toDouble(), (event.y - downY).toDouble())
                     val outOfBounds = event.x < 0 || event.x > width || event.y < 0 || event.y > height
-                    if (duration < ViewConfiguration.getLongPressTimeout() && !outOfBounds && moved <= touchSlop) {
+                    if (duration < longPressTimeoutMs() && !outOfBounds && moved <= touchSlop) {
                         // If no double/triple tap actions are set, execute single tap immediately
                         if (panelPrefs.notchDoubleTapAction == PanelPreferences.ACTION_NONE &&
                             panelPrefs.notchTripleTapAction == PanelPreferences.ACTION_NONE) {
