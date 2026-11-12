@@ -231,6 +231,17 @@ object AutomationManager {
         return s == EngineState.ROOT_READY || s == EngineState.SHIZUKU_AND_ROOT
     }
 
+    /**
+     * True when a privileged shell (Shizuku or root) is known to exist, from the
+     * refreshed cache or [execute]'s own sync probe. Never probes. Lets a caller
+     * tell "no engine" from "the engine ran but the command reported failure".
+     */
+    fun hasShellEngine(): Boolean {
+        if (isShizukuAvailable() || isRootAvailable()) return true
+        val s = lastSyncProbeState
+        return s == EngineState.SHIZUKU_READY || s == EngineState.ROOT_READY
+    }
+
     // --- EXPENSIVE PROBES (background-only by contract) ---
 
     private fun isShizukuAvailableInternal(): Boolean {

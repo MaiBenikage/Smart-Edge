@@ -9,9 +9,9 @@ import org.junit.Test
  * volume steps in a single frame.
  *
  * The contract: at most [SlideStepMath.MAX_STEPS_PER_MOVE] steps are
- * emitted per MOVE event, the remainder is kept (in pixels) and drains on
- * later MOVE events and at gesture end, and the final total is exactly
- * the finger's travel — the cap changes the landing, never the total.
+ * emitted per MOVE event (gesture end counts as one more MOVE), and the
+ * remainder is kept (in pixels) and drains on later MOVE events. A backlog
+ * still left at lift beyond the cap is dropped, never landed as a burst.
  */
 class SlideStepMathTest {
 
@@ -62,15 +62,18 @@ class SlideStepMathTest {
         assertEquals(16, total)
         assertEquals(8, calls)
         // The leftover is below one unit, so nothing more is owed.
-        assertEquals(0, SlideStepMath.drainSteps(accumulated, ppu))
+        assertEquals(0, SlideStepMath.stepsToEmit(accumulated, ppu))
     }
 
     @Test
-    fun `drainSteps at gesture end lands the remaining whole steps`() {
+    fun `gesture end is capped like a MOVE, so a flick backlog never lands as a burst`() {
+        // A flick then an immediate lift: 16 units are still held back.
+        // The lift emits at most the cap; the uncapped drain used to land
+        // all 16 as one absolute set (the ~10% jump at lift).
         val ppu = 41f
-        assertEquals(3, SlideStepMath.drainSteps(3 * ppu + 10f, ppu))
-        assertEquals(-3, SlideStepMath.drainSteps(-3 * ppu - 10f, ppu))
-        assertEquals(0, SlideStepMath.drainSteps(20f, ppu))
+        assertEquals(2, SlideStepMath.stepsToEmit(16 * ppu + 10f, ppu))
+        assertEquals(-2, SlideStepMath.stepsToEmit(-16 * ppu - 10f, ppu))
+        assertEquals(1, SlideStepMath.stepsToEmit(ppu + 10f, ppu))
     }
 
     @Test
@@ -87,7 +90,6 @@ class SlideStepMathTest {
     fun `unusable unit size emits nothing`() {
         assertEquals(0, SlideStepMath.stepsToEmit(100f, 0f))
         assertEquals(0, SlideStepMath.stepsToEmit(100f, -5f))
-        assertEquals(0, SlideStepMath.drainSteps(100f, 0f))
     }
 
     @Test

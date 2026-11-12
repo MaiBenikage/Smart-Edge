@@ -20,11 +20,17 @@ package com.imi.smartedge.sidebar.panel
  * The fix: at most [MAX_STEPS_PER_MOVE] steps are emitted per MOVE event.
  * The remainder stays in the caller's accumulator (in pixels, so it is
  * valid at any pixels-per-unit — a sensitivity change mid-gesture needs
- * no rebasing) and drains on later MOVE events and at gesture end
- * ([drainSteps]). At 60Hz MOVE events the cap still allows ~75%/s,
- * faster than a deliberate swipe, so it only binds on coalesced/batched
- * MOVE deltas — normal slides are unchanged, and the final value is
- * still exactly the finger's total travel.
+ * no rebasing) and drains on later MOVE events. At 60Hz MOVE events the
+ * cap still allows ~75%/s, faster than a deliberate swipe, so it only
+ * binds on coalesced/batched MOVE deltas.
+ *
+ * Gesture end (UP/CANCEL) is treated as one last MOVE: it emits at most
+ * [MAX_STEPS_PER_MOVE] via [stepsToEmit] and the rest of the backlog is
+ * dropped. It used to drain the whole backlog uncapped, so a flick then a
+ * lift landed it as one absolute set — the same ~10% jump the per-MOVE cap
+ * exists to prevent, just delayed to the lift. A backlog only exists after
+ * a flick faster than the cap, where the exact landing point is not
+ * something the user can aim for anyway.
  *
  * Pure JVM logic with no Android dependency, so it is unit-tested
  * directly (see SlideStepMathTest). The truncation matches the call
@@ -62,19 +68,6 @@ object SlideStepMath {
         if (pixelsPerUnit <= 0f) return 0
         val units = (accumulatedPx / pixelsPerUnit).toInt()
         return units.coerceIn(-MAX_STEPS_PER_MOVE, MAX_STEPS_PER_MOVE)
-    }
-
-    /**
-     * Whole steps still owed for [accumulatedPx] at [pixelsPerUnit],
-     * uncapped: call at gesture end (UP/CANCEL) so the value lands
-     * exactly where the finger stopped. Normally 0 — the per-MOVE cap
-     * keeps the remainder small and later MOVE events drain it; a larger
-     * remainder only survives a final coalesced MOVE delta, and landing
-     * it at lift is the correct final value.
-     */
-    fun drainSteps(accumulatedPx: Float, pixelsPerUnit: Float): Int {
-        if (pixelsPerUnit <= 0f) return 0
-        return (accumulatedPx / pixelsPerUnit).toInt()
     }
 
     /**

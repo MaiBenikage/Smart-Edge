@@ -585,9 +585,13 @@ class FloatingPanelService : Service() {
             sidePanelView,
             pickerPanelView,
             edgeHandleView,
-            notchHandleView,
-            indicatorText
+            notchHandleView
         )
+        // The indicator is hidden outright, not alpha-hidden and restored:
+        // cancelling its fade animation here drops the fade's end action
+        // (visibility = GONE), so a capture taken mid-fade restored it to a
+        // visible alpha with no fade left to remove it.
+        hideIndicatorNow()
         // Cancel any in-flight restore from a previous capture.
         handler.removeCallbacks(screenshotRestoreRunnable)
         screenshotHideViews = viewsToHide
@@ -1538,8 +1542,10 @@ class FloatingPanelService : Service() {
         // mListenerInfo). Across service restarts that pile up. The
         // fade-runnable cancellation above removes the timing path; this
         // drops the memory anchor.
+        // removeViewImmediate without an isAttachedToWindow guard: a view
+        // added in the last frame is not attached yet but is still a window.
         indicatorText?.let { tv ->
-            try { if (tv.isAttachedToWindow) windowManager.removeView(tv) } catch (e: Exception) {}
+            try { windowManager.removeViewImmediate(tv) } catch (e: Exception) {}
         }
         indicatorFadeRunnable = null
         indicatorText = null
@@ -2824,18 +2830,20 @@ class FloatingPanelService : Service() {
      * showConfirmOverlay), NOT in rootLayout: the panel is closed during the
      * indicator's primary use case (edge-slide volume/brightness), when
      * rootLayout is detached or null, so a rootLayout child would be
-     * invisible. The view is created once and kept attached (GONE when idle)
+     * invisible. The view is created once and kept added (GONE when idle)
      * so rapid ticks don't churn addView/removeView. Returns true when the
-     * overlay is attached and ready to show text.
+     * overlay has been added and is ready to show text.
+     *
+     * The field, not isAttachedToWindow, says whether the overlay exists: a
+     * view passed to addView is not attached until its window's first
+     * traversal, a frame later. Two indicator updates inside that frame (a
+     * MOVE that emits two steps, or a shell batch landing) used to read
+     * "not attached", drop the reference and add a second window. The first
+     * one was orphaned: no fade ever reached it, so it stayed on screen
+     * until the service died.
      */
     private fun ensureIndicatorOverlay(): Boolean {
-        val existing = indicatorText
-        if (existing != null && existing.isAttachedToWindow) return true
-        if (existing != null) {
-            // Detached without the field being cleared (defensive): drop it
-            // and recreate, rather than writing into a detached view.
-            indicatorText = null
-        }
+        if (indicatorText != null) return true
         val density = resources.displayMetrics.density
         indicatorText = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -2879,10 +2887,11 @@ class FloatingPanelService : Service() {
     private fun showIndicator(text: String) {
         if (!ensureIndicatorOverlay()) return
 
-        indicatorText?.text = text
-        indicatorText?.visibility = View.VISIBLE
-        indicatorText?.alpha = 1f
-        indicatorText?.animate()?.cancel()
+        val tv = indicatorText ?: return
+        tv.animate().cancel()
+        tv.text = text
+        tv.alpha = 1f
+        tv.visibility = View.VISIBLE
 
         indicatorFadeRunnable?.let { handler.removeCallbacks(it) }
         indicatorFadeRunnable = Runnable {
@@ -2893,6 +2902,16 @@ class FloatingPanelService : Service() {
                 ?.start()
         }
         handler.postDelayed(indicatorFadeRunnable!!, INDICATOR_SHOW_DURATION_MS)
+    }
+
+    /** Hides the indicator now and cancels its pending fade. */
+    private fun hideIndicatorNow() {
+        indicatorFadeRunnable?.let { handler.removeCallbacks(it) }
+        indicatorFadeRunnable = null
+        indicatorText?.let { tv ->
+            tv.animate().cancel()
+            tv.visibility = View.GONE
+        }
     }
 
     /**

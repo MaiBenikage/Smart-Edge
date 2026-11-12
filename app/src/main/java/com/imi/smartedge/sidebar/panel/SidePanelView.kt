@@ -1662,7 +1662,7 @@ class SidePanelView @JvmOverloads constructor(
                 // whole slide's worth of steps in one frame, and the applier
                 // landed them as one absolute set (~10% in one jump). The
                 // remainder stays in dragState[3] and drains on later MOVEs
-                // and at gesture end (see ACTION_UP/CANCEL below).
+                // (capped at lift too, see ACTION_UP/CANCEL below).
                 // The button also visually tracks the finger (±60dp) so the
                 // drag feels connected; it springs back on UP/CANCEL.
                 view.translationY = (event.rawY - dragState[2]).coerceIn(-60f * density, 60f * density)
@@ -1688,12 +1688,10 @@ class SidePanelView @JvmOverloads constructor(
                     // calls performClick()) runs the same tap action.
                     view.performClick()
                 }
-                // Drain the whole steps the per-MOVE cap held back (see
-                // SlideStepMath), so the value lands exactly where the
-                // finger stopped. Only when the drag was armed — an unarmed
-                // gesture never accumulated anything.
+                // Lift counts as one last MOVE: capped, and any larger
+                // backlog is dropped (see SlideStepMath). Only when armed.
                 if (armed) {
-                    val left = SlideStepMath.drainSteps(dragState[3], pixelsPerUnit)
+                    val left = SlideStepMath.stepsToEmit(dragState[3], pixelsPerUnit)
                     if (left != 0) {
                         val direction = if (left > 0) +1 else -1
                         repeat(Math.abs(left)) { onStep(direction) }
@@ -1708,7 +1706,7 @@ class SidePanelView @JvmOverloads constructor(
                 (view.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { view.removeCallbacks(it) }
                 val armed = view.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                 if (armed) {
-                    val left = SlideStepMath.drainSteps(dragState[3], pixelsPerUnit)
+                    val left = SlideStepMath.stepsToEmit(dragState[3], pixelsPerUnit)
                     if (left != 0) {
                         val direction = if (left > 0) +1 else -1
                         repeat(Math.abs(left)) { onStep(direction) }

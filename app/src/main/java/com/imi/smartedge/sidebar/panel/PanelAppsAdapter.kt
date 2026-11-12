@@ -464,7 +464,7 @@ class PanelAppsAdapter(
                             // dump a whole slide's worth of ticks in one frame, and
                             // the applier landed them as one absolute set (~10% in
                             // one jump). The remainder stays in the anchor offset
-                            // and drains on later MOVEs and at gesture end (see
+                            // and drains on later MOVEs (capped at lift too, see
                             // ACTION_UP below).
                             val ticks = SlideStepMath.stepsToEmit(sinceLastTick, tickPx)
                             if (ticks != 0) {
@@ -488,11 +488,10 @@ class PanelAppsAdapter(
                             if (!armed && totalTravel < tapSlopPx) {
                                 onToolClick(app.packageName)
                             }
-                            // Drain the ticks the per-MOVE cap held back (see
-                            // SlideStepMath), so the value lands exactly where
-                            // the finger stopped. Only when the drag was armed.
+                            // Lift counts as one last MOVE: capped, and any
+                            // larger backlog is dropped (see SlideStepMath).
                             if (armed) {
-                                val left = SlideStepMath.drainSteps(dragState[1] - event.rawY, tickPx)
+                                val left = SlideStepMath.stepsToEmit(dragState[1] - event.rawY, tickPx)
                                 if (left != 0) {
                                     val direction = if (left > 0) +1 else -1
                                     repeat(Math.abs(left)) { onToolDrag.invoke(app.packageName, direction) }
@@ -506,7 +505,7 @@ class PanelAppsAdapter(
                             (v.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { v.removeCallbacks(it) }
                             val armed = v.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                             if (armed) {
-                                val left = SlideStepMath.drainSteps(dragState[1] - event.rawY, tickPx)
+                                val left = SlideStepMath.stepsToEmit(dragState[1] - event.rawY, tickPx)
                                 if (left != 0) {
                                     val direction = if (left > 0) +1 else -1
                                     repeat(Math.abs(left)) { onToolDrag.invoke(app.packageName, direction) }
