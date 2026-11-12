@@ -81,17 +81,20 @@ android {
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 
-    kotlinOptions {
-        jvmTarget = "1.8"
-        // No project-wide deprecation suppression here. The Kotlin compiler
-        // bundled with this Gradle wrapper rejected both
-        // `-Xsuppress-deprecated-warnings` and
-        // `-Xsuppress-deprecated-warnings-time=N` with "not supported by this
-        // version of the compiler" — verified empirically against a Kotlin
-        // 1.9.24 plugin. The per-call `@Suppress("DEPRECATION")` on
-        // AutomationManager.runShizuku is the proven narrow-scope fix instead.
-        // Revisit when we bump Kotlin past whichever minor release
-        // recognises the flag.
+}
+
+// `kotlinOptions` went away with the Kotlin plugin in AGP 9.0 (Kotlin
+// support is now built into AGP); the JVM target is set through the
+// compilerOptions DSL instead, which lives at the top level, not inside
+// `android {}`. Target 17 (was 1.8): the JDK the build runs on and AGP 9's
+// default — D8 desugars the bytecode for the minSdk 26 devices, so this
+// does not change what runs on the phone.
+// No project-wide deprecation suppression here: the per-call
+// `@Suppress("DEPRECATION")` on AutomationManager.runShizuku is the
+// proven narrow-scope fix instead.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
