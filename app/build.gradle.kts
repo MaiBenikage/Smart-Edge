@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "com.imi.smartedge.sidebar.panel"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.imi.smartedge.sidebar.panel"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         // Release tags pass -PversionName=<tag without the leading v>
         // (release.yml); local and CI builds fall back to "1".
@@ -104,11 +104,10 @@ dependencies {
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.dynamicanimation)
     implementation(libs.glide)
-    implementation("com.github.skydoves:colorpickerview:2.3.0")
-    // Shizuku bumped 12.1.0 -> 13.1.0: api gains proper @Nullable annotations
-    // on `newProcess(String[], String[], String)`; provider packaging unchanged.
-    implementation("dev.rikka.shizuku:api:13.1.0")
-    implementation("dev.rikka.shizuku:provider:13.1.0")
+    implementation("com.github.skydoves:colorpickerview:2.5.0")
+    // Shizuku 13.1.0 -> 13.1.5 (patch bump).
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 
     testImplementation(libs.junit)
     // Provide a real org.json on the JVM unit-test classpath to replace the
