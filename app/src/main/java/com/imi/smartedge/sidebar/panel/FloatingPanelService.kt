@@ -384,7 +384,7 @@ class FloatingPanelService : Service() {
 
         if (panelPrefs.serviceEnabled) {
             addEdgeHandle()
-            // // addNotchHandle() // Commented out per user request
+            addNotchHandle()
         }
 
         @Suppress("DEPRECATION") val filter = android.content.IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
@@ -466,7 +466,7 @@ class FloatingPanelService : Service() {
                 
                 if (newState) {
                     addEdgeHandle()
-                    // addNotchHandle()
+                    addNotchHandle()
                 } else {
                     stopSelf()
                 }
@@ -563,7 +563,7 @@ class FloatingPanelService : Service() {
             }
             ACTION_SHOW_TEMP -> {
                 addEdgeHandle(forceRecreate = false)
-                // addNotchHandle()
+                addNotchHandle()
                 edgeHandleView?.showTemporarily()
             }
             ACTION_TOGGLE_FLASHLIGHT -> toggleFlashlight()
@@ -1672,7 +1672,7 @@ class FloatingPanelService : Service() {
             notchHandleView?.visibility = View.GONE
         } else {
             addEdgeHandle(forceRecreate = false)
-            // addNotchHandle()
+            addNotchHandle()
             edgeHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
             notchHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
         }
@@ -1888,6 +1888,50 @@ class FloatingPanelService : Service() {
             Log.e(TAG, "Failed to add edge handle overlay", e)
             try { edgeHandleView?.let { windowManager.removeView(it) } } catch (_: Exception) {}
             edgeHandleView = null
+        }
+    }
+
+    private fun addNotchHandle() {
+        Log.d(TAG, "addNotchHandle called. Enabled: ${panelPrefs.notchGesturesEnabled}")
+        if (!panelPrefs.notchGesturesEnabled) {
+            removeView(notchHandleView)
+            notchHandleView = null
+            return
+        }
+
+        if (notchHandleView != null) {
+            Log.d(TAG, "Notch handle already exists")
+            return
+        }
+
+        notchHandleView = NotchHandleView(this)
+
+        val params = WindowManager.LayoutParams(
+            dpToPx(120), // Increased width for easier debugging
+            dpToPx(60),  // Increased height for easier debugging
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+
+        try {
+            Log.d(TAG, "Adding notch handle to WindowManager")
+            notchHandleView?.let { windowManager.addView(it, params) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add notch handle", e)
+            // Drop the reference so the next addNotchHandle() call doesn't try to
+            // re-attach a partially-attached view (would throw a different
+            // unchecked exception on second attempt).
+            try { notchHandleView?.let { windowManager.removeView(it) } } catch (_: Exception) {}
+            notchHandleView = null
         }
     }
 
