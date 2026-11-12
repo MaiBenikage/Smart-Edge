@@ -99,6 +99,13 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+    // Provides repeatOnLifecycle (used by SecureSettingsDialog): the
+    // lifecycle-runtime-ktx artifact is not pulled in by appcompat
+    // (which only brings the base lifecycle-runtime), so the
+    // LifecycleOwner extension was an unresolved reference until this
+    // was declared. Version 2.6.1 matches the lifecycle version
+    // appcompat 1.7.0 already resolves to, so nothing is upgraded.
+    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.material)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.recyclerview)
