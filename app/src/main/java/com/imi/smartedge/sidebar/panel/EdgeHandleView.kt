@@ -649,18 +649,15 @@ class EdgeHandleView @JvmOverloads constructor(
                     }
                 }
 
-                // Drain the whole steps the per-MOVE cap held back, so the
-                // value lands exactly where the finger stopped (see
-                // SlideStepMath). Only when a slide was in progress; the
-                // remainder is normally 0 — later MOVEs drain it, and a
-                // larger remainder only survives a final coalesced MOVE.
+                // Lift counts as one last MOVE: capped like the others, and
+                // any larger backlog is dropped (see SlideStepMath).
                 if (isSlidingSeek) {
                     val pixelsPerUnit = if (isSlidingVolume) gesturePixelsPerVolumeUnit else gesturePixelsPerBrightnessUnit
-                    val left = SlideStepMath.drainSteps(accumulatedDy, pixelsPerUnit)
+                    val left = SlideStepMath.stepsToEmit(accumulatedDy, pixelsPerUnit)
                     if (left != 0) {
                         if (isSlidingVolume) onAdjustVolume?.invoke(-left) else onAdjustBrightness?.invoke(-left)
-                        accumulatedDy = 0f
                     }
+                    accumulatedDy = 0f
                 }
 
                 isSlidingSeek = false
