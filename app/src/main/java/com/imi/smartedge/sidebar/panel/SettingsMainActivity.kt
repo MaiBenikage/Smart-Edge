@@ -40,6 +40,10 @@ class SettingsMainActivity : AppCompatActivity() {
     }
 
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsMainBinding.inflate(layoutInflater)
@@ -52,7 +56,6 @@ class SettingsMainActivity : AppCompatActivity() {
 
         panelPrefs = PanelPreferences(this)
         
-        initializeSettingsList()
         setupSearch()
         setupListeners()
         
@@ -70,6 +73,21 @@ class SettingsMainActivity : AppCompatActivity() {
             }
         }
         onBackPressedDispatcher.addCallback(this, searchBackCallback)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Rebuild the search index on every resume: the index is built
+        // from the inflated layouts plus the runtime gates
+        // (isRuntimeHidden), so toggling a setting on a child screen
+        // changes which rows are visible. Building once in onCreate
+        // left newly-visible rows missing and newly-hidden rows still
+        // offered. initializeSettingsList() clears first, so this never
+        // duplicates rows, and the search query text is untouched (it
+        // lives in the EditText, not the index) — re-apply the current
+        // filter so visible results match the rebuilt index.
+        initializeSettingsList()
+        filterSettings(binding.etSettingsSearch.text.toString())
     }
 
     private fun initializeSettingsList() {
@@ -130,7 +148,7 @@ class SettingsMainActivity : AppCompatActivity() {
 
     /**
      * Rows hidden at runtime by the owning screen's loadCurrentSettings
-     * (same gates as InteractionSettingsActivity). Only these two rows
+     * (same gates as InteractionSettingsActivity). Only these three rows
      * are runtime-gated; every other indexed row is always visible.
      */
     private fun isRuntimeHidden(idName: String): Boolean {
@@ -138,6 +156,7 @@ class SettingsMainActivity : AppCompatActivity() {
         return when (idName) {
             "layoutNotchTapGestures" -> !prefs.notchGesturesEnabled
             "layoutSlideSensitivity" -> !prefs.slideBrightnessEnabled && !prefs.slideVolumeEnabled
+            "layout_swipe_sensitivity" -> !prefs.gesturesEnabled
             else -> false
         }
     }
@@ -393,6 +412,9 @@ class SettingsMainActivity : AppCompatActivity() {
     }
 
     private fun applyGlobalRefresh() {
+        // Same guard as the other screens' applyOnly(): no refresh
+        // while the service is off (it would flash its notification).
+        if (!panelPrefs.serviceEnabled) return
         val intent = Intent(this, FloatingPanelService::class.java).apply {
             action = FloatingPanelService.ACTION_REFRESH
         }

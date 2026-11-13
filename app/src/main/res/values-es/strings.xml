@@ -266,6 +266,7 @@
     <string name="action_none">Desactivado</string>
     <string name="action_launcher">Lanzador</string>
     <string name="action_favorite_app">Favorita: %1$s</string>
+    <string name="action_favorite_not_set">(no establecido)</string>
     <string name="action_screenshot">Captura</string>
     <string name="action_last_app">Última App</string>
     <string name="action_back">Atrás</string>
@@ -318,7 +319,6 @@
     <string name="toast_bg_locked_hyperos">El color de fondo es fijo en el tema HyperOS</string>
     <string name="toast_export_saved_file">Copia de seguridad guardada</string>
     <string name="toast_export_failed">Error al exportar – no se pudo crear el archivo</string>
-    <string name="toast_export_error">Error al exportar: %1$s</string>
     <string name="toast_overlay_required">Se requiere permiso de superposición</string>
     <string name="toast_accessibility_required">Se requiere el servicio de accesibilidad</string>
     <string name="toast_opening_sidebar">Abriendo barra lateral…</string>
@@ -490,9 +490,9 @@
     <string name="oem_step_open_settings">Toca "Abrir ajustes" abajo</string>
     <string name="oem_step_miui_2">Desplázate y toca "Apps instaladas"</string>
     <string name="oem_step_miui_3">Busca "Smart Edge" y tócalo</string>
-    <string name="oem_step_miui_4">Activa el interruptor</string>
+    <string name="oem_step_toggle_on">Activa el interruptor</string>
     <string name="oem_step_miui_5">Toca "Permitir" en el diálogo</string>
-    <string name="oem_step_samsung_2">Desplázate a "Apps instaladas"</string>
+    <string name="oem_step_scroll_installed_apps">Desplázate a "Apps instaladas"</string>
     <string name="oem_step_samsung_3">Toca "Smart Edge"</string>
     <string name="oem_step_samsung_5">Toca "Permitir" en el aviso</string>
     <string name="oem_step_oppo_2">Toca "Apps descargadas" o "Servicios instalados"</string>
@@ -501,7 +501,7 @@
     <string name="oem_step_vivo_2">Ve a la sección "Apps instaladas"</string>
     <string name="oem_step_vivo_3">Selecciona "Smart Edge"</string>
     <string name="oem_step_vivo_4">Activa el interruptor</string>
-    <string name="oem_step_vivo_5">Toca "Aceptar" para confirmar</string>
+    <string name="oem_step_tap_ok_confirm">Toca "Aceptar" para confirmar</string>
     <string name="oem_step_huawei_3">Busca "Smart Edge"</string>
     <string name="oem_step_huawei_4">Activa el servicio</string>
     <string name="oem_step_generic_2">Abre "Apps instaladas" o "Servicios descargados"</string>

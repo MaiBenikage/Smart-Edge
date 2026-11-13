@@ -109,7 +109,11 @@ class PanelTileService : TileService() {
         // toggleService catches its own start failures internally, so no
         // try/catch here: there is nothing left for this block to catch.
         mainHandler.post {
-            prefs.toggleService(this@PanelTileService, forcedState = targetState)
+            // Read the live state here, not the click-time value: the
+            // service can flip between the click and this runnable (e.g.
+            // Stop in the notification), and toggling a stale target would
+            // flip it the wrong way.
+            prefs.toggleService(this@PanelTileService, forcedState = !prefs.serviceEnabled)
             mainHandler.postDelayed({
                 updateTile()
                 isProcessingToggle = false

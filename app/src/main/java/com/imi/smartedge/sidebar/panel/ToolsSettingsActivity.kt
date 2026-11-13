@@ -17,6 +17,10 @@ class ToolsSettingsActivity : AppCompatActivity() {
     // set programmatically (revert + onResume sync) — see setupListeners.
     private var suppressDeviceAdminListener = false
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsToolsBinding.inflate(layoutInflater)

@@ -55,8 +55,17 @@ class PanelPreferences(context: Context) {
 
         /** Minimum gap between WRITE_SETTINGS prompts from the brightness paths. */
         const val WRITE_SETTINGS_PROMPT_COOLDOWN_MS = 60_000L
+
+        /** Shared brightness 1%-step accumulator (see [brightnessStepAccumulator]). */
+        private val sharedBrightnessStepAccumulator = PercentStepAccumulator()
+
+        /** Lock for the first-read generation of [shortcutToken]. */
+        private val shortcutTokenLock = Any()
+
         private const val KEY_PANEL_APPS = "panel_apps"
         private const val KEY_PANEL_SEEDED = "panel_seeded"
+        private const val KEY_SETUP_COMPLETED_V2 = "setup_completed_v2"
+        private const val KEY_SERVICE_ENABLED = "service_enabled"
         private const val KEY_SHORTCUT_TOKEN = "shortcut_token"
         private const val KEY_PANEL_LABELS = "panel_item_labels"
         private const val KEY_PANEL_SIDE = "panel_side"
@@ -306,8 +315,10 @@ class PanelPreferences(context: Context) {
         // read. Calling `getPanelApps().joinToString(",")` here would discard
         // the escape sequences the prefs blob still carries, producing a
         // perfectly valid JSON export that silently corrupts the next
-        // `importFromJson`. Read the persisted blob verbatim instead — this
-        // is also what makes the export idempotent across multiple
+        // `importFromJson`. The panel-apps entry is therefore decoded and
+        // re-encoded through `encodeDelim` (a decode→encode round-trip is
+        // exact for canonical blobs); the other entries are read verbatim.
+        // That is also what makes the export idempotent across multiple
         // export→import round-trips.
         val strings = mapOf(
             KEY_PANEL_APPS to getPanelApps().take(MAX_PANEL_APPS).joinToString(DELIMITER) { encodeDelim(it) },
@@ -519,7 +530,7 @@ class PanelPreferences(context: Context) {
                         putString(KEY_FAVORITE_APP_PREFIX + key, it)
                     }
                 }
-                readString(KEY_APP_LANGUAGE)?.let { putString(KEY_APP_LANGUAGE, it) }
+                readString(KEY_APP_LANGUAGE)?.let { putString(KEY_APP_LANGUAGE, if (it == "es") "es" else "en") }
 
                 // Ints (clamped to each control's range)
                 putIntClamped(KEY_PANEL_OPACITY, panelOpacity, 10, 100)
@@ -1056,8 +1067,8 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putString(KEY_PICKER_ANIM_TYPE, value) }
 
     var setupCompleted: Boolean
-        get() = prefs.getBoolean("setup_completed_v2", false)
-        set(value) = prefs.edit { putBoolean("setup_completed_v2", value) }
+        get() = prefs.getBoolean(KEY_SETUP_COMPLETED_V2, false)
+        set(value) = prefs.edit { putBoolean(KEY_SETUP_COMPLETED_V2, value) }
 
     var toolsFolderMigrated: Boolean
         get() = prefs.getBoolean(KEY_TOOLS_FOLDER_MIGRATED, false)
@@ -1107,21 +1118,26 @@ class PanelPreferences(context: Context) {
     }
 
     /** Clear the favourite for every slot (and the legacy global) that
-     *  points at an uninstalled package. */
+     *  points at an uninstalled package, and reset each affected slot's
+     *  gesture action to [ACTION_NONE] so the gesture summary does not
+     *  show an empty "Favorite: " label and the gesture does not just
+     *  toast "unset". The slot key IS its action pref key, so the reset
+     *  is a putInt on the same key. */
     fun clearFavoriteAppIfPackage(pkg: String) {
         prefs.edit {
             if (favoriteAppPackage == pkg) putString(KEY_FAVORITE_APP, "")
             for (key in FAVORITE_SLOT_KEYS) {
-                if (prefs.getString(KEY_FAVORITE_APP_PREFIX + key, null) == pkg) {
+                if (favoriteAppPackageFor(key) == pkg) {
                     remove(KEY_FAVORITE_APP_PREFIX + key)
+                    putInt(key, ACTION_NONE)
                 }
             }
         }
     }
 
     var appLanguage: String
-        get() = prefs.getString(KEY_APP_LANGUAGE, java.util.Locale.getDefault().language) ?: "en"
-        set(value) = prefs.edit { putString(KEY_APP_LANGUAGE, value) }
+        get() = prefs.getString(KEY_APP_LANGUAGE, java.util.Locale.getDefault().language)?.takeIf { it.isNotBlank() } ?: "en"
+        set(value) = prefs.edit { putString(KEY_APP_LANGUAGE, if (value == "es") "es" else "en") }
 
     var notchGesturesEnabled: Boolean
         get() = prefs.getBoolean(KEY_NOTCH_GESTURES_ENABLED, false)
@@ -1144,7 +1160,7 @@ class PanelPreferences(context: Context) {
         set(value) = prefs.edit { putInt(KEY_NOTCH_LONG_PRESS_ACTION, value) }
 
     var serviceEnabled: Boolean
-        get() = prefs.getBoolean("service_enabled", true)
+        get() = prefs.getBoolean(KEY_SERVICE_ENABLED, true)
         // Audit M3: original setter used commit=false (async apply) while the
         // Quick-Settings Tile path uses commit=true. Asymmetric persist means a
         // process-kill between the write and the next read could leave the tile
@@ -1154,7 +1170,7 @@ class PanelPreferences(context: Context) {
 
     fun setServiceEnabled(enabled: Boolean, commit: Boolean = false) {
         prefs.edit(commit = commit) {
-            putBoolean("service_enabled", enabled)
+            putBoolean(KEY_SERVICE_ENABLED, enabled)
         }
     }
 
@@ -1649,14 +1665,17 @@ class PanelPreferences(context: Context) {
     }
 
     /**
-     * The brightness 1%-step accumulator for this [PanelPreferences]
-     * instance. The edge-slide path (FloatingPanelService.adjustBrightness)
-     * and the tools long-press-drag path (SidePanelView) each build their
-     * own PanelPreferences, so each has its own accumulator and the pending
-     * remainder does NOT carry between the two paths. Runtime state only —
-     * not persisted.
+     * The brightness 1%-step accumulator, SHARED across all [PanelPreferences]
+     * instances in this process (see the companion's
+     * [sharedBrightnessStepAccumulator]). The edge-slide path
+     * (FloatingPanelService.adjustBrightness) and the tools long-press-drag
+     * path (SidePanelView) each build their own PanelPreferences, so a
+     * per-instance accumulator lost the pending remainder when switching
+     * paths (up to ~1% of a step). Both paths run on the main thread, so a
+     * single shared instance is safe. Runtime state only — not persisted.
      */
-    val brightnessStepAccumulator = PercentStepAccumulator()
+    val brightnessStepAccumulator: PercentStepAccumulator
+        get() = sharedBrightnessStepAccumulator
 
     /**
      * Unguessable per-install token embedded in our home-screen shortcuts
@@ -1665,13 +1684,12 @@ class PanelPreferences(context: Context) {
      * UUID stored only in our prefs cannot. Generated once, on first read.
      */
     val shortcutToken: String
-        get() {
-            var token = prefs.getString(KEY_SHORTCUT_TOKEN, null)
-            if (token.isNullOrBlank()) {
-                token = java.util.UUID.randomUUID().toString()
-                prefs.edit().putString(KEY_SHORTCUT_TOKEN, token).apply()
-            }
-            return token
+        get() = synchronized(shortcutTokenLock) {
+            val existing = prefs.getString(KEY_SHORTCUT_TOKEN, null)
+            if (!existing.isNullOrBlank()) return@synchronized existing
+            val token = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString(KEY_SHORTCUT_TOKEN, token).apply()
+            token
         }
 
     fun getGameApps(): List<String> {

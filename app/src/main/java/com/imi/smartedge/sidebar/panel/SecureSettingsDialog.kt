@@ -569,7 +569,17 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
             // notice the status change and tap Close themselves.
             if (lastAutomationPossible == false) {
                 parentFragmentManager.setFragmentResult(REQUEST_KEY, android.os.Bundle.EMPTY)
-                dismiss()
+                // refreshUI() is also called from refreshAfterGrant(),
+                // which runs from plain lifecycleScope coroutines after a
+                // grant/revoke — lifecycleScope survives a stop, so this
+                // can run after onSaveInstanceState, where dismiss()
+                // throws IllegalStateException. Only dismiss while the
+                // dialog is at least STARTED; the result above is already
+                // set, so a stopped dialog is dismissed by the normal
+                // lifecycle instead.
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    dismiss()
+                }
             }
         }
         lastAutomationPossible = isAutomationPossible
@@ -580,6 +590,9 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
 
     private fun applyOnly() {
         try {
+            // Same guard as the settings screens' applyOnly(): no refresh
+            // while the service is off (it would flash its notification).
+            if (!PanelPreferences(requireContext()).serviceEnabled) return
             val intent = Intent(requireContext(), FloatingPanelService::class.java).apply {
                 action = FloatingPanelService.ACTION_REFRESH
             }

@@ -98,7 +98,7 @@ class RecentAppsManager(context: Context) {
          * nothing usable is present.
          */
         private val PACKAGE_NAME_REGEX =
-            Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+")
+            Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)*")
         private val INTENT_PACKAGE_PARAM = Regex("(?:^|;)package=([^;]+)")
         private val INTENT_COMPONENT_PARAM = Regex("(?:^|;)component=([^;/]+)/")
 
@@ -185,11 +185,8 @@ class RecentAppsManager(context: Context) {
             if (pkg == appContext.packageName) return
             // Respect the user toggle — don't accumulate history nobody asked for.
             if (!panelPrefs.recentEnabled) return
-            // Never track the launcher or non-launchable packages: the
-            // launcher foregrounds between almost every app switch and
-            // would dominate the frequency ranking.
-            if (!isTrackableRecent(pkg)) return
-
+            // Debounce first: a duplicate record that will be dropped must
+            // not pay the PackageManager binder call in isTrackableRecent().
             // Monotonic clock for the debounce: wall-clock time breaks when
             // the user (or the network) changes the clock. The persisted
             // lastTime from before this change is a wall-clock value, so
@@ -199,6 +196,11 @@ class RecentAppsManager(context: Context) {
             val lastTime = panelPrefs.recentLastTime
             val lastSource = panelPrefs.recentLastSource
             if (pkg == lastPkg && source != lastSource && now - lastTime in 0..<DEBOUNCE_MS) return
+
+            // Never track the launcher or non-launchable packages: the
+            // launcher foregrounds between almost every app switch and
+            // would dominate the frequency ranking.
+            if (!isTrackableRecent(pkg)) return
 
             try {
                 val capacity = panelPrefs.recentHistorySize.coerceIn(
@@ -302,7 +304,16 @@ class RecentAppsManager(context: Context) {
     private fun loadHistory(): List<String> {
         val json = panelPrefs.recentHistoryJson
         if (json.isBlank()) return emptyList()
-        val arr = JSONArray(json)
+        val arr = try {
+            JSONArray(json)
+        } catch (_: Exception) {
+            // Corrupt blob: repair it now (persist the empty list) instead
+            // of leaving it in place, or every later launch would be
+            // dropped too and Recents would stay dead.
+            Log.w(TAG, "loadHistory: malformed history, clearing it")
+            saveHistory(emptyList())
+            return emptyList()
+        }
         val out = ArrayList<String>(arr.length())
         for (i in 0 until arr.length()) {
             val pkg = arr.optString(i, "").trim()

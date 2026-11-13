@@ -22,6 +22,21 @@ class MainActivity : AppCompatActivity(), android.content.SharedPreferences.OnSh
     private lateinit var binding: ActivityMainM3Binding
     private lateinit var panelPrefs: PanelPreferences
 
+    /**
+     * Delayed Vivo/iQOO deep-link (see requestIgnoreBatteryOptimization):
+     * kept as a field so it can be cancelled in onDestroy — leaving the
+     * screen within the 1 s delay used to still pop the Vivo settings
+     * page. Same pattern as SetupActivity's automationUnavailableRunnable.
+     */
+    private val vivoDeepLinkRunnable = Runnable {
+        openVivoSpecificSettings()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        binding.root.removeCallbacks(vivoDeepLinkRunnable)
+    }
+
     override fun attachBaseContext(newBase: android.content.Context) {
         super.attachBaseContext(LocaleHelper.onAttach(newBase))
     }
@@ -269,9 +284,7 @@ private fun requestOverlayPermission() {
         // We provide a small delay and then attempt to open their specific "High Power Consumption" or "BgStartUp" manager.
         val manufacturer = Build.MANUFACTURER.lowercase()
         if (manufacturer.contains("vivo") || manufacturer.contains("iqoo")) {
-            binding.root.postDelayed({
-                openVivoSpecificSettings()
-            }, 1000)
+            binding.root.postDelayed(vivoDeepLinkRunnable, 1000)
         }
     }
 

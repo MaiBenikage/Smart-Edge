@@ -35,6 +35,10 @@ class TextActionsSettingsActivity : AppCompatActivity() {
     private val actions = mutableListOf<TextAction>()
     private lateinit var adapter: TextActionAdapter
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsTextActionsBinding.inflate(layoutInflater)

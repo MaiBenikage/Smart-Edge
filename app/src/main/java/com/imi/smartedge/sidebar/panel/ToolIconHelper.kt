@@ -43,6 +43,10 @@ object ToolIconHelper {
         val key = "t:$toolId"
         cache.get(key)?.let { return copy(it) }
         val d = DRAWABLE_BY_TOOL[toolId]?.let { ContextCompat.getDrawable(context, it)?.mutate() } ?: return null
+        // Only cache drawables that can be copied: one with a null
+        // constantState cannot produce an independent instance (see
+        // copy()), so it is handed out fresh and never shared.
+        if (d.constantState == null) return d
         cache.put(key, d)
         return copy(d)
     }
@@ -51,10 +55,16 @@ object ToolIconHelper {
         val cacheKey = "d:$key"
         cache.get(cacheKey)?.let { return copy(it) }
         val d = DRAWABLE_BY_DASH[key]?.let { ContextCompat.getDrawable(context, it)?.mutate() } ?: return null
+        // Only cache drawables that can be copied (see forToolId).
+        if (d.constantState == null) return d
         cache.put(cacheKey, d)
         return copy(d)
     }
 
+    // Returns a fresh, independent instance of a cached drawable. The
+    // cache only holds drawables with a non-null constantState (the
+    // callers skip caching otherwise), so newDrawable() always succeeds
+    // here and the cached instance itself is never handed out.
     private fun copy(d: Drawable): Drawable =
         d.constantState?.newDrawable()?.mutate() ?: d.mutate()
 }

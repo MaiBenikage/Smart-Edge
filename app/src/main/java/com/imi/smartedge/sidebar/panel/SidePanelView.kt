@@ -976,7 +976,6 @@ class SidePanelView @JvmOverloads constructor(
                 }
             }
         }
-        updateSideLayout()
     }
 
     /**
@@ -1250,7 +1249,6 @@ class SidePanelView @JvmOverloads constructor(
     fun applyTheme() {
         val inFolder = navigationStack.isNotEmpty()
         val showTools = panelPrefs.showTools && !inFolder
-        binding.toolsContainer.visibility = if (showTools) View.VISIBLE else View.GONE
 
         val showPower = panelPrefs.showPowerMenu
         binding.layoutPowerTools.visibility = if (showPower) View.VISIBLE else View.GONE

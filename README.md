@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://f-droid.org/en/packages/com.imi.smartedge.sidebar.panel/"><img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="80" border="0"></a>
-  <a href="https://github.com/Imtiaz-Official/Smart-Edge/releases/latest"><img src="https://raw.githubusercontent.com/machiav3lli/oandbackupx/master/badge_github.png" alt="Get it on GitHub" height="80" border="0"></a>
+  <a href="https://github.com/MaiBenikage/Smart-Edge/releases/latest"><img src="https://raw.githubusercontent.com/machiav3lli/oandbackupx/master/badge_github.png" alt="Get it on GitHub" height="80" border="0"></a>
 </p>
 
 <div align="center">
@@ -39,14 +39,13 @@
 
 *   **Custom UI Themes:** Choose from **OriginOS**, **HyperOS (Glass)**, **Realme UI**, and **Rich UI** styles.
 *   **Glassmorphic Blur:** High-quality real-time background blur with **adjustable intensity** (Optimized for Android 12+).
-*   **Material You:** Full support for dynamic accent colors and Material 3 components (Supports Android 12+ dynamic colors).
+*   **Material You:** Material 3 components with static Material You colours and a user-picked accent colour.
 *   **Smart App Picker:** Integrated search and management system to pin your most-used apps.
 *   **Utility Tools:** Built-in tools like **Screenshot** (one-tap) shortcut, Volume and Brightness controls.
 *   **Premium Motion:** Physics-based spring animations with customizable feel (Calm to Instant).
 *   **Edge Gestures:** Responsive edge-swipe triggers with adjustable height, width, and position.
 *   **Icon Customization:** Full support for **Icon Packs** and custom icon shapes (Circle, Squircle, Square).
-*   **Productivity Hub:** Active notifications section with instant **Freeform Window** launching.
-*   **Multitasking:** Drag-and-drop apps to **Split-Screen** or **Freeform** mode.
+*   **Productivity Hub:** Active notifications section.
 *   **Manual Hide:** Select specific apps where the sidebar handle will automatically hide itself.
 
 ---
@@ -76,9 +75,9 @@ Smart Edge is built to be yours. In the settings, you can adjust:
 <h2 align="center">Requirements</h2>
 
 *   **Android 8.0 (API 26) or higher:** Standard requirement for core functionality.
-*   **Accessibility Service:** Required for core interaction and multi-window features.
+*   **Accessibility Service:** Required for core interaction and system shortcuts.
 *   **Shizuku or root (optional):** Powers the high-performance automation engine (privileged system settings and shell). Without it the app falls back to Accessibility-based automation.
-*   **Android 12+:** Recommended for native real-time background blur and Material You dynamic color support.
+*   **Android 12+:** Recommended for native real-time background blur.
 
 ---
 

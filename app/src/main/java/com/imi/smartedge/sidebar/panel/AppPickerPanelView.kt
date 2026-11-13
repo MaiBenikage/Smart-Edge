@@ -1278,6 +1278,13 @@ class AppPickerPanelView @JvmOverloads constructor(
         }
 
         private fun bindFull(holder: RecyclerView.ViewHolder, position: Int) {
+            // The staggered entry animation (playStaggeredEntryAnim) sets
+            // alpha/translationY on the item view; a recycled row rebound
+            // mid-animation would show the new content at partial alpha /
+            // offset until the old animation finishes. Reset here so every
+            // bind starts clean (onViewRecycled also cancels the animator).
+            holder.itemView.alpha = 1f
+            holder.itemView.translationY = 0f
             when (val item = getItem(position)) {
                 is PickerItem.AppRow -> bindApp(holder as AppViewHolder, item.app, isChild = false)
                 is PickerItem.TreeChild -> bindApp(holder as AppViewHolder, item.app, isChild = true)
@@ -1285,6 +1292,16 @@ class AppPickerPanelView @JvmOverloads constructor(
                 is PickerItem.CustomRow -> bindCustom(holder as CustomViewHolder, item)
                 is PickerItem.EmptyState -> bindEmpty(holder as EmptyViewHolder, item)
             }
+        }
+
+        override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+            super.onViewRecycled(holder)
+            // Cancel the staggered entry animation (or any other animator)
+            // still running on this row, so it cannot keep animating the
+            // view after it is rebound to different content.
+            holder.itemView.animate().cancel()
+            holder.itemView.alpha = 1f
+            holder.itemView.translationY = 0f
         }
 
         // --- APP / CHILD ---

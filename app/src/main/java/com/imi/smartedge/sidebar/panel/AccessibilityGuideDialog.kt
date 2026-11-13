@@ -100,7 +100,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                     getString(R.string.oem_step_open_settings),
                     getString(R.string.oem_step_miui_2),
                     getString(R.string.oem_step_miui_3),
-                    getString(R.string.oem_step_miui_4),
+                    getString(R.string.oem_step_toggle_on),
                     getString(R.string.oem_step_miui_5)
                 )
             )
@@ -110,9 +110,9 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                 icon = android.R.drawable.ic_menu_manage,
                 steps = listOf(
                     getString(R.string.oem_step_open_settings),
-                    getString(R.string.oem_step_samsung_2),
+                    getString(R.string.oem_step_scroll_installed_apps),
                     getString(R.string.oem_step_samsung_3),
-                    getString(R.string.oem_step_miui_4),
+                    getString(R.string.oem_step_toggle_on),
                     getString(R.string.oem_step_samsung_5)
                 )
             )
@@ -124,7 +124,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                     getString(R.string.oem_step_open_settings),
                     getString(R.string.oem_step_oppo_2),
                     getString(R.string.oem_step_oppo_3),
-                    getString(R.string.oem_step_miui_4),
+                    getString(R.string.oem_step_toggle_on),
                     getString(R.string.oem_step_oppo_5)
                 )
             )
@@ -137,7 +137,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                     getString(R.string.oem_step_vivo_2),
                     getString(R.string.oem_step_vivo_3),
                     getString(R.string.oem_step_vivo_4),
-                    getString(R.string.oem_step_vivo_5)
+                    getString(R.string.oem_step_tap_ok_confirm)
                 )
             )
             isHuawei() -> OemGuide(
@@ -146,10 +146,10 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                 icon = android.R.drawable.ic_menu_manage,
                 steps = listOf(
                     getString(R.string.oem_step_open_settings),
-                    getString(R.string.oem_step_samsung_2),
+                    getString(R.string.oem_step_scroll_installed_apps),
                     getString(R.string.oem_step_huawei_3),
                     getString(R.string.oem_step_huawei_4),
-                    getString(R.string.oem_step_vivo_5)
+                    getString(R.string.oem_step_tap_ok_confirm)
                 )
             )
             else -> OemGuide(
@@ -160,7 +160,7 @@ class AccessibilityGuideDialog : BottomSheetDialogFragment() {
                     getString(R.string.oem_step_open_settings),
                     getString(R.string.oem_step_generic_2),
                     getString(R.string.oem_step_miui_3),
-                    getString(R.string.oem_step_miui_4),
+                    getString(R.string.oem_step_toggle_on),
                     getString(R.string.oem_step_miui_5)
                 )
             )

@@ -706,9 +706,13 @@ class InteractionSettingsActivity : AppCompatActivity() {
         PanelPreferences.ACTION_AUTO_ROTATION -> getString(R.string.action_rotation)
         PanelPreferences.ACTION_OPEN_FAVORITE_APP -> {
             // Resolve the app name (not a truncated package fragment):
-            // "Fav: com.example" tells the user nothing.
+            // "Fav: com.example" tells the user nothing. An empty
+            // package (app uninstalled, slot not yet cleared) renders
+            // "(not set)" instead of falling through to an empty label.
             val pkg = panelPrefs.favoriteAppPackageFor(slotKey)
-            val label = try {
+            val label = if (pkg.isEmpty()) {
+                getString(R.string.action_favorite_not_set)
+            } else try {
                 val ai = packageManager.getApplicationInfo(pkg, 0)
                 packageManager.getApplicationLabel(ai).toString()
             } catch (_: Exception) {

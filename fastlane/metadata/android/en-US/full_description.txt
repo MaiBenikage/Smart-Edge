@@ -2,10 +2,9 @@ Smart Edge is a highly customizable Android side panel inspired by OriginOS. Acc
 
 Key Features:
 * Custom UI Themes: Choose from OriginOS, HyperOS, Realme UI, and Rich UI styles.
-* Productivity Hub: Dedicated active notifications section with instant Freeform Window launching.
-* Drag-to-Split: Drag app icons to the top or bottom of the screen to launch in split-screen mode.
+* Productivity Hub: Dedicated active notifications section.
 * Glassmorphic Blur: High-quality real-time background blur with adjustable intensity.
-* Material You: Full support for dynamic accent colors and Material 3 components.
+* Material You: Material 3 components with static Material You colours and a user-picked accent colour.
 * Smart App Picker: Integrated search and management system to pin your most-used apps.
 * Superior Icon Packs: Advanced support for appfilter.xml and icon masking for a consistent look.
 * Utility Tools: Built-in tools like Screenshot, Volume/Brightness controls, and Power Menu.

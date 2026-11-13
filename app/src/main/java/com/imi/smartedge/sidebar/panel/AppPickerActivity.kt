@@ -38,6 +38,10 @@ class AppPickerActivity : AppCompatActivity() {
     private val searchHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var searchDebounceRunnable: Runnable? = null
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityAppPickerM3Binding.inflate(layoutInflater)

@@ -124,9 +124,14 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateLanguageLabel() {
-        binding.tvLanguageValue.text = when (panelPrefs.appLanguage) {
+        binding.tvLanguageValue.text = when (val code = panelPrefs.appLanguage) {
             "es" -> "Español"
-            else -> "English"
+            "en" -> "English"
+            // Unknown stored code (e.g. a hand-edited backup): show the
+            // code itself rather than claiming "English" — the app
+            // actually runs in that language. A blank code falls back
+            // to English, the default.
+            else -> code.ifBlank { "English" }
         }
     }
 
@@ -183,8 +188,7 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
         // declared) and always failed with EACCES on API 26-28.
         lifecycleScope.launch(Dispatchers.IO) {
             val ok = try {
-                contentResolver.openOutputStream(uri)?.use { it.write(panelPrefs.exportToJson().toByteArray()) }
-                true
+                contentResolver.openOutputStream(uri)?.use { it.write(panelPrefs.exportToJson().toByteArray()) } != null
             } catch (_: Exception) {
                 false
             }

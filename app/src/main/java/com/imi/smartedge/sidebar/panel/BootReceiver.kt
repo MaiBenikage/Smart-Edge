@@ -33,7 +33,16 @@ class BootReceiver : BroadcastReceiver() {
         // Check the engine is available BEFORE starting. Otherwise the UI
         // shows "enabled" but the service can't start — inconsistent state.
         // Accessibility or usable automation both count (see isEngineAvailable).
-        if (!context.isEngineAvailable()) return
+        // The automation cache is cold at boot: refresh() has not run yet,
+        // so isEngineAvailable() (which reads the cached
+        // isAutomationPossible()) would say "no engine" for an
+        // automation-only user even when Shizuku/root is present — and the
+        // service would never start to run refresh() itself. So check the
+        // *configured* engine instead: Accessibility is read live from the
+        // secure setting, and an automation opt-in means the user wants the
+        // service. FloatingPanelService.onCreate() runs refresh() and the
+        // handles stay gated until an engine is actually confirmed.
+        if (!context.isAccessibilityServiceEnabled() && !prefs.useAutomationForGestures) return
 
         val serviceIntent = Intent(context, FloatingPanelService::class.java)
         try {

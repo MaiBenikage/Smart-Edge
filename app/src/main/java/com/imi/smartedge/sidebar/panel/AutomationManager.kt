@@ -206,6 +206,18 @@ object AutomationManager {
                 val wasReady = isAutomationCached
                 isAutomationCached = actuallyShizuku || rootProbe
                 _engineState.value = newState
+                // Keep the sync-probe cache in step: hasShellEngine()
+                // falls back to lastSyncProbeState, which execute()'s sync
+                // probe writes — but a refresh() that finds the engine gone
+                // (e.g. Shizuku permission revoked) left a stale READY
+                // behind. The sync probe only distinguishes Shizuku vs
+                // root, so SHIZUKU_AND_ROOT maps to SHIZUKU_READY (the
+                // probe's first choice).
+                lastSyncProbeState = when (newState) {
+                    EngineState.SHIZUKU_AND_ROOT, EngineState.SHIZUKU_READY -> EngineState.SHIZUKU_READY
+                    EngineState.ROOT_READY -> EngineState.ROOT_READY
+                    else -> EngineState.NONE
+                }
                 // If we transitioned READY → NONE mid-session, fire the UI hook.
                 if (wasReady && !isAutomationCached) {
                     Handler(Looper.getMainLooper()).post { onEngineLost?.invoke() }

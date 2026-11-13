@@ -8,6 +8,7 @@
 
 ### Unreleased
 - **ci**: Pull requests to `master` now fail a `Changelog` check unless they add a bullet under `### Unreleased` (opt out with the `skip-changelog` label), so every tag has its release notes ready.
+- **fix(review)**: Full-codebase review fixes (17 Medium, 36 Low): double screenshot no longer leaves overlays invisible, notch re-gated on rotation, ToggleActivity and boot auto-start work for automation-only users, Black Screen timeout gated on WRITE_SETTINGS, tap+long-press no longer fires both actions, icon-pack fallback is first-wins with per-activity resolution, sidebar load no longer aborts on a dead PackageManager call, language setting applied on all activities, settings search no longer offers hidden rows, and the changelog check now passes release PRs.
 
 ### v1.5.8
 - **fix(sidebar)**: The volume indicator no longer sticks on screen. A second update in the same frame as the first used to add a second overlay window (the first wasn't attached yet), orphaning the first one so its fade never ran; the overlay is now tracked by its field alone. Taking a screenshot mid-fade no longer leaves the indicator visible.
@@ -37,11 +38,9 @@
 - **refactor(core)**: Centralized action execution logic into a new ActionDispatcher class to unify Edge and Notch handle behaviors.
 - **fix(core)**: Added a mandatory engine check (Accessibility or Automation) in FloatingPanelService before displaying the handle.
 - **fix(ui)**: Resolved crash in Handle settings by expanding vertical offset range and safely clamping out-of-bounds positions.
-- **fix(multitasking)**: Fixed freeform window feature to correctly spawn floating windows with system caption bars and better orientation detection.
-- **fix(multitasking)**: Restored the missing Multitasking & Windowing settings section (Freeform and Split-screen toggles) to the dashboard.
+- **fix(multitasking)**: Restored the missing Multitasking & Windowing settings section to the Interaction dashboard. (Correction: the Freeform window and Split-screen launching this entry originally described was later removed — drag-to-split proved unreliable on Android 14+ — so the original windowing claims no longer apply.)
 - **fix(ui)**: Fixed invisible pill graphic issue by using correct system defaults for reset actions and forcing synchronous redraws.
 - **feat(automation)**: Improved Native Gesture Engine dialog feedback to accurately and instantly reflect Root/Shizuku active connection states.
-- **fix(multitasking)**: Smoothed out freeform window launches by switching to native system transitions instead of custom fade animations.
 
 ---
 

@@ -28,21 +28,30 @@ class IconPackManager(private val context: Context) {
     companion object {
         private val iconMapCache = ConcurrentHashMap<String, Map<String, String>>()
 
+        // Resolved versionCode per pack, so a cache hit does not re-query
+        // PackageManager for the version on every icon load (L1). Cleared
+        // with the map cache in invalidateCache(), so a pack update still
+        // re-resolves and re-parses instead of serving the pre-update map.
+        private val packVersionCache = ConcurrentHashMap<String, Long>()
+
         /** Drop all cached mappings for a pack (install / update / remove). */
         fun invalidateCache(iconPackPackage: String) {
             val prefix = "$iconPackPackage|"
             iconMapCache.keys.removeIf { it == iconPackPackage || it.startsWith(prefix) }
+            packVersionCache.remove(iconPackPackage)
         }
     }
 
     private fun cacheKey(iconPackPackage: String): String {
         if (iconPackPackage == "none") return "none"
-        val version = try {
-            androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(
-                packageManager.getPackageInfo(iconPackPackage, 0)
-            )
-        } catch (_: Exception) {
-            0L
+        val version = packVersionCache.getOrPut(iconPackPackage) {
+            try {
+                androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(
+                    packageManager.getPackageInfo(iconPackPackage, 0)
+                )
+            } catch (_: Exception) {
+                0L
+            }
         }
         return "$iconPackPackage|$version"
     }
@@ -127,8 +136,10 @@ class IconPackManager(private val context: Context) {
      * Shared <item component drawable> loop for both appfilter sources.
      * Both the package key and the full component key are stored: the
      * package key is the fallback getThemedIcon() looks up, and the
-     * component key keeps per-activity entries from collapsing to
-     * "last wins" for callers that resolve by component.
+     * component key is what it resolves first for a per-activity entry.
+     * The package key is first-wins: the first item listed for a package
+     * is usually its main activity, so the fallback is that activity's
+     * drawable instead of whichever activity happens to be listed last.
      */
     private fun parseAppFilter(parser: XmlPullParser, out: MutableMap<String, String>) {
         var eventType = parser.eventType
@@ -139,7 +150,7 @@ class IconPackManager(private val context: Context) {
                 if (component != null && drawable != null) {
                     out[component] = drawable
                     val pkg = extractPackage(component)
-                    if (pkg.isNotEmpty()) out[pkg] = drawable
+                    if (pkg.isNotEmpty()) out.putIfAbsent(pkg, drawable)
                 }
             }
             eventType = parser.next()
@@ -178,7 +189,29 @@ class IconPackManager(private val context: Context) {
             return originalIcon
         }
 
-        // 1. Try direct mapping from appfilter.xml
+        // 1. Try the per-activity mapping from appfilter.xml. The launch
+        // intent's component is the app's main activity, in the same
+        // ComponentInfo{...} form the map stores (plain form tried too,
+        // since some packs omit the wrapper).
+        val launchComponent = try {
+            packageManager.getLaunchIntentForPackage(packageName)?.component
+        } catch (e: Exception) {
+            null
+        }
+        if (launchComponent != null) {
+            val flat = launchComponent.flattenToString()
+            for (key in listOf("ComponentInfo{$flat}", flat)) {
+                val componentDrawable = map[key]
+                if (componentDrawable != null) {
+                    try {
+                        val resId = iconPackRes.getIdentifier(componentDrawable, "drawable", iconPackPackage)
+                        if (resId != 0) return iconPackRes.getDrawable(resId, null)
+                    } catch (e: Exception) {}
+                }
+            }
+        }
+
+        // 2. Try direct package mapping from appfilter.xml
         val drawableName = map[packageName]
         if (drawableName != null) {
             try {
@@ -187,7 +220,7 @@ class IconPackManager(private val context: Context) {
             } catch (e: Exception) {}
         }
 
-        // 2. Try heuristic mapping (com.pkg.app -> com_pkg_app)
+        // 3. Try heuristic mapping (com.pkg.app -> com_pkg_app)
         try {
             val resName = packageName.replace(".", "_").lowercase(java.util.Locale.ROOT)
             val resId = iconPackRes.getIdentifier(resName, "drawable", iconPackPackage)

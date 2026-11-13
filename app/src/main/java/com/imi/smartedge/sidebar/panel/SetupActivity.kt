@@ -47,6 +47,25 @@ class SetupActivity : AppCompatActivity() {
         binding.root.removeCallbacks(automationUnavailableRunnable)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // "Grant All" chain state (F15): rotating mid-chain used to
+        // silently stop it. Restored in onCreate; onResume then
+        // advances the chain. hasInteractedWithAutoStart is part of
+        // the chain state too — nextMissingGrantStep() returns
+        // "autostart" while it is false, so losing it would stop the
+        // chain on the autostart step.
+        outState.putBoolean(KEY_GRANT_ALL_IN_PROGRESS, grantAllInProgress)
+        outState.putString(KEY_GRANT_ALL_LAST_STEP, grantAllLastStep)
+        outState.putBoolean(KEY_GRANT_ALL_AUTO_START, hasInteractedWithAutoStart)
+    }
+
+    companion object {
+        private const val KEY_GRANT_ALL_IN_PROGRESS = "grant_all_in_progress"
+        private const val KEY_GRANT_ALL_LAST_STEP = "grant_all_last_step"
+        private const val KEY_GRANT_ALL_AUTO_START = "grant_all_auto_start"
+    }
+
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -59,8 +78,18 @@ class SetupActivity : AppCompatActivity() {
         updateUI()
     }
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Restore the "Grant All" chain state (F15): rotating mid-chain
+        // used to silently stop it. onResume advances the chain, so
+        // restoring here resumes it.
+        grantAllInProgress = savedInstanceState?.getBoolean(KEY_GRANT_ALL_IN_PROGRESS) ?: false
+        grantAllLastStep = savedInstanceState?.getString(KEY_GRANT_ALL_LAST_STEP)
+        hasInteractedWithAutoStart = savedInstanceState?.getBoolean(KEY_GRANT_ALL_AUTO_START) ?: false
         binding = ActivitySetupBinding.inflate(layoutInflater)
         setContentView(binding.root)
         panelPrefs = PanelPreferences(this)

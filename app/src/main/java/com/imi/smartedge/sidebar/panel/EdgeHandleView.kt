@@ -85,6 +85,11 @@ class EdgeHandleView @JvmOverloads constructor(
 
     /** Long-press runnable: performs action */
     private val longPressRunnable = Runnable {
+        // A long-press is confirmed as non-tap: discard any pending tap
+        // from an earlier tap, or the tap action would fire alongside
+        // the long-press action.
+        handler.removeCallbacks(tapRunnable)
+        tapCount = 0
         if (panelPrefs.longPressAction != PanelPreferences.ACTION_NONE) {
             performAction(panelPrefs.longPressAction, PanelPreferences.KEY_LONG_PRESS_ACTION)
             isTriggered = true
@@ -97,6 +102,9 @@ class EdgeHandleView @JvmOverloads constructor(
     }
 
     private val holdRunnable = Runnable {
+        // A hold is confirmed as non-tap: discard any pending tap.
+        handler.removeCallbacks(tapRunnable)
+        tapCount = 0
         if (!hasPassedThreshold) return@Runnable
         isTriggered = true
         vibrateHaptic()
@@ -423,6 +431,16 @@ class EdgeHandleView @JvmOverloads constructor(
     private var gestureSwipeThreshold = 0f
     private var gestureHoldTime = HOLD_DURATION_MS
 
+    // Long-press delay, doubled in games when deliberate gestures are on
+    // (same rule as NotchHandleView). The tap check in onTouchEvent uses
+    // the same value so the tap/long-press boundary stays consistent when
+    // the delay doubles.
+    private fun longPressTimeoutMs(): Long {
+        val base = ViewConfiguration.getLongPressTimeout().toLong()
+        val deliberate = isGameActive && panelPrefs.deliberateGestureInGames
+        return if (deliberate) base * 2 else base
+    }
+
     private fun snapshotGesturePrefs() {
         gestureHidePill = panelPrefs.autoHideInFullscreen &&
             panelPrefs.isWhitelistedFromAutoHide(panelPrefs.currentForegroundPackage)
@@ -466,13 +484,21 @@ class EdgeHandleView @JvmOverloads constructor(
                 isSlidingVolume = false
                 isTopHalf = event.y < height / 2
                 dragStartRawY = event.rawY
-                downTime = System.currentTimeMillis()
+                downTime = event.eventTime
                 hasPassedThreshold = false
                 isTriggered = false
                 isDragMode = false
 
+                // A tap from an earlier gesture may still be pending
+                // (tapRunnable waits out the double-tap timeout). Cancel
+                // the pending fire so it cannot go off during this
+                // gesture; tapCount is kept so a second tap still counts
+                // toward a double-tap, and a confirmed non-tap gesture
+                // resets it below.
+                if (tapCount > 0) handler.removeCallbacks(tapRunnable)
+
                 // Schedule long-press → perform action
-                handler.postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+                handler.postDelayed(longPressRunnable, longPressTimeoutMs())
 
                 if (showPill && gestureGesturesEnabled) {
                     animate().scaleX(0.85f).scaleY(0.95f).setDuration(SCALE_PRESS_SMALL_DURATION_MS).start()
@@ -550,6 +576,10 @@ class EdgeHandleView @JvmOverloads constructor(
                         accumulatedDy = 0f 
                         handler.removeCallbacks(longPressRunnable)
                         handler.removeCallbacks(holdRunnable)
+                        // A slide is confirmed as non-tap: discard any
+                        // pending tap from an earlier tap.
+                        handler.removeCallbacks(tapRunnable)
+                        tapCount = 0
                         vibrateHaptic(10)
                     }
 
@@ -603,6 +633,10 @@ class EdgeHandleView @JvmOverloads constructor(
                 if (!hasPassedThreshold && dx > effectiveThreshold) {
                     hasPassedThreshold = true
                     handler.removeCallbacks(longPressRunnable)
+                    // A swipe is confirmed as non-tap: discard any
+                    // pending tap from an earlier tap.
+                    handler.removeCallbacks(tapRunnable)
+                    tapCount = 0
 
                     // Hold time comes from the ACTION_DOWN snapshot (games
                     // double it when deliberate gestures are on).
@@ -643,10 +677,19 @@ class EdgeHandleView @JvmOverloads constructor(
                 }
 
                 if (!hasPassedThreshold && !isTriggered && !isSlidingSeek && event.action == MotionEvent.ACTION_UP) {
-                    val duration = System.currentTimeMillis() - downTime
-                    if (duration < ViewConfiguration.getLongPressTimeout()) {
+                    val duration = event.eventTime - downTime
+                    if (duration < longPressTimeoutMs()) {
                         handleTap()
                     }
+                }
+
+                if (event.action == MotionEvent.ACTION_CANCEL && tapCount > 0) {
+                    // The second touch was cancelled (system interruption):
+                    // no double-tap can follow, so re-arm the pending tap
+                    // instead of leaving tapCount stale (the next tap would
+                    // wrongly count as a double-tap). tapRunnable was
+                    // cancelled in ACTION_DOWN and is not pending here.
+                    handler.postDelayed(tapRunnable, tapTimeoutMs)
                 }
 
                 // Lift counts as one last MOVE: capped like the others, and
@@ -723,7 +766,19 @@ class EdgeHandleView @JvmOverloads constructor(
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            systemGestureExclusionRects = listOf(Rect(0, 0, width, height))
+            // Only claim the gesture exclusion while the pill is actually
+            // visible (same condition as updatePill()'s visible branch):
+            // updatePill() clears the rects when hidden, and an
+            // unconditional re-add here would swallow the system Back
+            // gesture on the invisible strip until the next updatePill().
+            val currentPkg = panelPrefs.currentForegroundPackage
+            val hidePillInCurrentApp = panelPrefs.autoHideInFullscreen &&
+                panelPrefs.isWhitelistedFromAutoHide(currentPkg)
+            systemGestureExclusionRects = if (showPill && !hidePillInCurrentApp) {
+                listOf(Rect(0, 0, width, height))
+            } else {
+                emptyList()
+            }
         }
     }
 
@@ -760,12 +815,14 @@ class EdgeHandleView @JvmOverloads constructor(
     }
 
     fun updateFromPrefs() {
-        val prefs = PanelPreferences(context)
-        isRightSide = prefs.panelSide == PanelPreferences.SIDE_RIGHT
-        showPill = prefs.showPill
+        // Use the existing panelPrefs field, not a second PanelPreferences:
+        // its properties are live SharedPreferences reads, so it already
+        // sees fresh values, and a second instance invites the two to drift.
+        isRightSide = panelPrefs.panelSide == PanelPreferences.SIDE_RIGHT
+        showPill = panelPrefs.showPill
         
         if (!isTempHighAlpha) {
-            alpha = prefs.panelOpacity / 100f
+            alpha = panelPrefs.panelOpacity / 100f
         }
 
         val params = layoutParams as? WindowManager.LayoutParams
@@ -774,17 +831,17 @@ class EdgeHandleView @JvmOverloads constructor(
             val safeMargin = (10 * density).toInt()
 
             val h = cappedHandleHeightPx(
-                if (showPill) (prefs.handleHeight * density).toInt()
-                else (prefs.handleHeight * 1.5f * density).toInt(),
+                if (showPill) (panelPrefs.handleHeight * density).toInt()
+                else (panelPrefs.handleHeight * 1.5f * density).toInt(),
                 screenH,
                 safeMargin
             )
 
             val maxOffset = maxHandleOffsetPx(screenH, h, safeMargin)
-            val requestedOffset = (prefs.handleVerticalOffset * density).toInt()
+            val requestedOffset = (panelPrefs.handleVerticalOffset * density).toInt()
 
             params.y = requestedOffset.coerceIn(-maxOffset, maxOffset)
-            params.width = (prefs.handleWidth * density).toInt()
+            params.width = (panelPrefs.handleWidth * density).toInt()
             params.height = h
 
             updateLayoutSafely(params)

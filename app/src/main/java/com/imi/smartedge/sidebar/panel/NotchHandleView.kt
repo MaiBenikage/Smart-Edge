@@ -81,6 +81,11 @@ class NotchHandleView @JvmOverloads constructor(
     }
 
     private val longPressRunnable = Runnable {
+        // A long-press is confirmed as non-tap: discard any pending tap
+        // from an earlier tap, or the tap action would fire alongside
+        // the long-press action.
+        handler.removeCallbacks(tapRunnable)
+        tapCount = 0
         if (panelPrefs.notchLongPressAction != PanelPreferences.ACTION_NONE) {
             performAction(panelPrefs.notchLongPressAction, PanelPreferences.KEY_NOTCH_LONG_PRESS_ACTION)
             vibrateHaptic(40)
@@ -114,7 +119,7 @@ class NotchHandleView @JvmOverloads constructor(
     }
 
     // Long-press delay, doubled in games when deliberate gestures are
-    // on (mirrors EdgeHandleView's doubled hold time). The tap check in
+    // on (same rule as EdgeHandleView's long-press timeout). The tap check in
     // onTouchEvent uses the same value so the tap/long-press boundary
     // stays consistent when the delay doubles.
     private fun longPressTimeoutMs(): Long {
@@ -131,16 +136,31 @@ class NotchHandleView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
-                downTime = System.currentTimeMillis()
+                downTime = event.eventTime
                 downX = event.x
                 downY = event.y
+                // A tap from an earlier gesture may still be pending
+                // (tapRunnable waits out the double-tap timeout). Cancel
+                // the pending fire so it cannot go off during this
+                // gesture; tapCount is kept so a second tap still counts
+                // toward a double-tap, and a confirmed non-tap gesture
+                // resets it below.
+                if (tapCount > 0) handler.removeCallbacks(tapRunnable)
                 handler.postDelayed(longPressRunnable, longPressTimeoutMs())
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 handler.removeCallbacks(longPressRunnable)
+                if (event.action == MotionEvent.ACTION_CANCEL && tapCount > 0) {
+                    // The second touch was cancelled (system interruption):
+                    // no double-tap can follow, so re-arm the pending tap
+                    // instead of leaving tapCount stale (the next tap would
+                    // wrongly count as a double-tap). tapRunnable was
+                    // cancelled in ACTION_DOWN and is not pending here.
+                    handler.postDelayed(tapRunnable, tapTimeoutMs)
+                }
                 if (event.action == MotionEvent.ACTION_UP) {
-                    val duration = System.currentTimeMillis() - downTime
+                    val duration = event.eventTime - downTime
                     // A tap counts only if the finger stayed inside the view
                     // and barely moved: a slide off the notch (or a drag
                     // ending here) must not fire the tap action.
@@ -169,6 +189,10 @@ class NotchHandleView @JvmOverloads constructor(
                 // off the notch and the long-press still fired.)
                 if (event.x < 0 || event.x > width || event.y < 0 || event.y > height) {
                     handler.removeCallbacks(longPressRunnable)
+                    // Sliding off is confirmed as non-tap: discard any
+                    // pending tap from an earlier tap.
+                    handler.removeCallbacks(tapRunnable)
+                    tapCount = 0
                 }
                 return true
             }

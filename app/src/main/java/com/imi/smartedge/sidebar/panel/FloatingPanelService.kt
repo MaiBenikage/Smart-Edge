@@ -210,6 +210,11 @@ class FloatingPanelService : Service() {
 
             val packageName = intent.data?.schemeSpecificPart ?: return
 
+            // A launcher install/uninstall/update can change the launcher
+            // set: drop the isCurrentPackageLauncher() cache so the next
+            // foreground switch re-queries it.
+            launcherPackagesCache = null
+
             // Invalidate system icon cache for this app
             AppRepository.clearSystemIconCache()
             // Drop the cached version tag so Glide's icon key for this
@@ -578,6 +583,20 @@ class FloatingPanelService : Service() {
     }
 
     fun triggerScreenshot() {
+        // The indicator is hidden outright, not alpha-hidden and restored:
+        // cancelling its fade animation here drops the fade's end action
+        // (visibility = GONE), so a capture taken mid-fade restored it to a
+        // visible alpha with no fade left to remove it.
+        hideIndicatorNow()
+        // A hide is already in flight (two rapid screenshots): the views
+        // are already at alpha 0, so re-capturing "previous" alphas would
+        // save 0 and the restore would leave the overlays invisible. Keep
+        // the original alphas and just re-arm the safety restore timer.
+        if (screenshotHideViews != null) {
+            handler.removeCallbacks(screenshotRestoreRunnable)
+            handler.postDelayed(screenshotRestoreRunnable, SCREENSHOT_RESTORE_DELAY_MS)
+            return
+        }
         // Hide overlays instantly (alpha = 0) so the system screenshot does not
         // capture the sidebar/picker/handle. Keep the panel open.
         val viewsToHide = listOfNotNull(
@@ -587,11 +606,6 @@ class FloatingPanelService : Service() {
             edgeHandleView,
             notchHandleView
         )
-        // The indicator is hidden outright, not alpha-hidden and restored:
-        // cancelling its fade animation here drops the fade's end action
-        // (visibility = GONE), so a capture taken mid-fade restored it to a
-        // visible alpha with no fade left to remove it.
-        hideIndicatorNow()
         // Cancel any in-flight restore from a previous capture.
         handler.removeCallbacks(screenshotRestoreRunnable)
         screenshotHideViews = viewsToHide
@@ -1111,6 +1125,7 @@ class FloatingPanelService : Service() {
         }
         contentPickerOverlay = null
         contentPickerOverlayParams = null
+        contentPickerFeedbackText = null
     }
 
     private fun openFavoriteApp(slotKey: String? = null) {
@@ -1228,12 +1243,20 @@ class FloatingPanelService : Service() {
             //      FLAG_KEEP_SCREEN_ON keeps the screen on, which is the
             //      supported replacement for the deprecated
             //      SCREEN_BRIGHT_WAKE_LOCK.
-            val useTrueScreenOff = try {
-                panelPrefs.enableDeviceAdmin &&
-                    (getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager)
-                        .isAdminActive(android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java))
+            val isDeviceAdminActive = try {
+                (getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager)
+                    .isAdminActive(android.content.ComponentName(this, SmartEdgeDeviceAdminReceiver::class.java))
             } catch (e: Exception) {
                 false
+            }
+            // True screen-off also needs WRITE_SETTINGS: it turns the
+            // screen off by writing SCREEN_OFF_TIMEOUT. Without the grant
+            // the write throws (swallowed below), the screen never turns
+            // off, and the session would wrongly persist as
+            // true-screen-off. Fall back to the legacy dim overlay.
+            val useTrueScreenOff = panelPrefs.enableDeviceAdmin && isDeviceAdminActive && canWrite
+            if (panelPrefs.enableDeviceAdmin && isDeviceAdminActive && !canWrite) {
+                showIndicator(getString(R.string.toast_write_settings_required))
             }
             trueScreenOffActive = useTrueScreenOff
             try {
@@ -1499,12 +1522,13 @@ class FloatingPanelService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
-        // Audit fix: restore brightness if Black Screen was active. The old
-        // onDestroy only removed the overlay and released the wake lock, so
-        // a kill during Black Screen left the device at minimum brightness.
-        if (blackScreenOverlay != null) {
-            restoreSavedBrightness()
-        }
+        // windowManager is lateinit: if onCreate threw before its
+        // assignment, every WindowManager call below would throw
+        // UninitializedPropertyAccessException. Guard the teardown on it
+        // (same pattern as ::repository.isInitialized below).
+        val wmReady = ::windowManager.isInitialized
+        // Brightness is restored once, in the wasBlackScreenActive block
+        // below (which also restores the timeout/keyguard).
         try {
             cameraManager?.unregisterTorchCallback(torchCallback)
         } catch (e: Exception) {}
@@ -1523,8 +1547,10 @@ class FloatingPanelService : Service() {
         AutomationManager.onEngineLost = null
         // Remove the standalone confirmation overlay if it is still attached
         // (avoids WindowLeaked when the service dies before the 1.5s timeout).
-        confirmOverlay?.let { ov ->
-            try { if (ov.isAttachedToWindow) windowManager.removeView(ov) } catch (e: Exception) {}
+        if (wmReady) {
+            confirmOverlay?.let { ov ->
+                try { if (ov.isAttachedToWindow) windowManager.removeView(ov) } catch (e: Exception) {}
+            }
         }
         confirmOverlay = null
         // Audit L6: cancel every pending message on the foreground Handler.
@@ -1544,8 +1570,10 @@ class FloatingPanelService : Service() {
         // drops the memory anchor.
         // removeViewImmediate without an isAttachedToWindow guard: a view
         // added in the last frame is not attached yet but is still a window.
-        indicatorText?.let { tv ->
-            try { windowManager.removeViewImmediate(tv) } catch (e: Exception) {}
+        if (wmReady) {
+            indicatorText?.let { tv ->
+                try { windowManager.removeViewImmediate(tv) } catch (e: Exception) {}
+            }
         }
         indicatorFadeRunnable = null
         indicatorText = null
@@ -1567,11 +1595,13 @@ class FloatingPanelService : Service() {
         blackScreenWakeLock?.let { if (it.isHeld) it.release() }
         blackScreenWakeLock = null
         blackScreenOverlay?.let { overlay ->
-            try {
-                if (overlay.isAttachedToWindow) {
-                    windowManager.removeViewImmediate(overlay)
-                }
-            } catch (e: Exception) {}
+            if (wmReady) {
+                try {
+                    if (overlay.isAttachedToWindow) {
+                        windowManager.removeViewImmediate(overlay)
+                    }
+                } catch (e: Exception) {}
+            }
         }
         blackScreenOverlay = null
         blackScreenOverlayParams = null
@@ -1636,6 +1666,12 @@ class FloatingPanelService : Service() {
                 addEdgeHandle()
                 edgeHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
             }
+            // Re-gate the notch handle on rotation too: the policy above
+            // (landscape/home-only/engine) can newly forbid it, and
+            // addNotchHandle() removes it from WindowManager when it does
+            // (a merely GONE window could still intercept touches).
+            addNotchHandle()
+            notchHandleView?.visibility = if (isPanelOpen) View.GONE else View.VISIBLE
         }
     }
 
@@ -1644,6 +1680,10 @@ class FloatingPanelService : Service() {
         // Cancel any live SpringAnimator animation first: a running spring
         // keeps the view (and its window params) alive past detach.
         SpringAnimator.cancel(view)
+        // windowManager is lateinit: onDestroy can run before onCreate
+        // reached its assignment, so bail instead of throwing
+        // UninitializedPropertyAccessException.
+        if (!::windowManager.isInitialized) return
         try {
             // More aggressive removal to ensure no 'permanent' ghosts remain
             if (view.isAttachedToWindow) {
@@ -1700,21 +1740,31 @@ class FloatingPanelService : Service() {
         notchHandleView?.isGameActive = isDynamicGame
     }
 
-    private fun isCurrentPackageLauncher(): Boolean {
-        val currentPkg = panelPrefs.currentForegroundPackage
-        if (currentPkg.isEmpty() || currentPkg == packageName) return true // Assume home if unknown or if in our own app
+    // Cached set of launcher package names (default HOME + all resolved
+    // launchers). PackageManager IPC (resolveActivity +
+    // queryIntentActivities) is expensive on the main thread, and
+    // isCurrentPackageLauncher() is called up to 4x per foreground switch
+    // (refreshForegroundState + handlePolicyAllows). Invalidated on
+    // package add/remove/replace (see packageReceiver).
+    private var launcherPackagesCache: Set<String>? = null
 
+    private fun getLauncherPackages(): Set<String> {
+        launcherPackagesCache?.let { return it }
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_HOME)
         }
-        val resolveInfo = packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
-        val homePkg = resolveInfo?.activityInfo?.packageName
-        
+        val homePkg = packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+            ?.activityInfo?.packageName
         // Also check all installed launchers as some devices have multiple or third-party ones
         val allLaunchers = packageManager.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
             .map { it.activityInfo.packageName }
-        
-        return currentPkg == homePkg || allLaunchers.contains(currentPkg) || currentPkg == "com.android.systemui"
+        return (listOfNotNull(homePkg) + allLaunchers).toSet().also { launcherPackagesCache = it }
+    }
+
+    private fun isCurrentPackageLauncher(): Boolean {
+        val currentPkg = panelPrefs.currentForegroundPackage
+        if (currentPkg.isEmpty() || currentPkg == packageName) return true // Assume home if unknown or if in our own app
+        return getLauncherPackages().contains(currentPkg) || currentPkg == "com.android.systemui"
     }
 
     /**

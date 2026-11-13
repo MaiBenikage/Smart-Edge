@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import java.util.concurrent.atomic.AtomicBoolean
 import org.xmlpull.v1.XmlPullParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -227,9 +228,10 @@ class AppRepository(context: Context) {
          * picker/service lifetime) repeated the two full PM scans whenever
          * any pinned intent: label was unfillable (e.g. target app
          * uninstalled but pin kept). Static, so the scans run at most once.
+         * AtomicBoolean so two concurrent getPanelApps() calls can't both
+         * launch the backfill.
          */
-        @Volatile
-        private var labelsBackfillAttempted = false
+        private val labelsBackfillAttempted = AtomicBoolean(false)
     }
 
     /**
@@ -342,13 +344,16 @@ class AppRepository(context: Context) {
         }
 
         val list = resolved
+            // activityInfo is a platform type and can be null for a malformed
+            // entry — drop those before dereferencing packageName below.
+            .filter { it.activityInfo != null }
             .distinctBy { it.activityInfo.packageName }
             .filter { it.activityInfo.packageName != appContext.packageName }
             .map { resolveInfo ->
                 val pkg = resolveInfo.activityInfo.packageName
                     AppInfo(
                         packageName = pkg,
-                        appName = resolveInfo.loadLabel(packageManager).toString(),
+                        appName = resolveInfo.loadLabel(packageManager)?.toString()?.takeIf { it.isNotBlank() } ?: pkg,
                         isInPanel = panelIdentifiers.contains(pkg),
                         type = AppInfo.Type.APP,
                         appearanceKey = appearanceKey
@@ -674,8 +679,6 @@ class AppRepository(context: Context) {
      * Sort order: groups by app label, items within a group by label.
      */
     suspend fun getShortcutsByPackage(): List<PickerGroup> = withContext(Dispatchers.IO) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return@withContext emptyList()
-
         // (1) Public path: static shortcuts via manifest meta-data. No permission.
         val staticGroups = getStaticShortcutsByPackage()
 
@@ -687,13 +690,15 @@ class AppRepository(context: Context) {
                 getLiveShortcutsByPackage(launcherApps)
             } else emptyList()
 
-        // Merge by package, dedupe by intentUri so a static shortcut that's also pinned
-        // live doesn't appear twice in the picker.
+        // Merge by package, dedupe by (intentUri, activityName) so a static
+        // shortcut that's also pinned live doesn't appear twice in the
+        // picker — while two distinct shortcuts to the same target
+        // (different shortcut ids) both survive.
         val merged = linkedMapOf<String, MutableList<AppInfo>>()
         (staticGroups + liveGroups).forEach { (pkg, items) ->
             val bag = merged.getOrPut(pkg) { mutableListOf() }
             items.forEach { incoming ->
-                if (bag.none { it.intentUri == incoming.intentUri }) bag.add(incoming)
+                if (bag.none { it.intentUri == incoming.intentUri && it.activityName == incoming.activityName }) bag.add(incoming)
             }
         }
 
@@ -839,7 +844,7 @@ class AppRepository(context: Context) {
                         )
                     }
                     if (items.isNotEmpty()) {
-                        result.add(pkg.packageName to items.sortedBy { it.appName.lowercase() })
+                        result.add(pkg.packageName to items.sortedBy { it.appName.lowercase(java.util.Locale.ROOT) })
                     }
                 } catch (e: Exception) {
                     continue
@@ -1111,8 +1116,7 @@ class AppRepository(context: Context) {
         // backfill does two full PackageManager scans, which used to block
         // the first sidebar open. When it fills labels, the host refreshes
         // (see onLabelsBackfilled).
-        if (!labelsBackfillAttempted) {
-            labelsBackfillAttempted = true
+        if (labelsBackfillAttempted.compareAndSet(false, true)) {
             iconPreloadScope.launch {
                 try {
                     if (backfillMissingPanelLabels() > 0) {
@@ -1134,7 +1138,14 @@ class AppRepository(context: Context) {
                 // (USB/debug notices, SystemUI, dialogs): they have no
                 // launch intent and are not apps the user can open.
                 if (pkg == appContext.packageName) continue
-                if (packageManager.getLaunchIntentForPackage(pkg) == null) continue
+                // A dead system server rethrows as RuntimeException — skip
+                // this package rather than aborting the whole sidebar load.
+                val launchable = try {
+                    packageManager.getLaunchIntentForPackage(pkg) != null
+                } catch (_: Exception) {
+                    false
+                }
+                if (!launchable) continue
                 allIdentifiers.add(0, pkg)
             }
         }

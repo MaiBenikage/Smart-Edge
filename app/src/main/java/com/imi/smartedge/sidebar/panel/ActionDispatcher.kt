@@ -4,8 +4,17 @@ import android.content.Context
 import android.content.Intent
 import android.os.VibrationEffect
 import android.os.Vibrator
+import java.util.concurrent.Executors
 
 object ActionDispatcher {
+
+    // Single-thread executor for the automation fallback (replaces the
+    // raw Thread-per-gesture, which forked a thread — and a shell process —
+    // per gesture with no cap). Named daemon thread, same as
+    // MediaVolumeApplier's shellExecutor.
+    private val autoActionExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "SmartEdge-AutoAction").apply { isDaemon = true }
+    }
 
     fun performAction(
         context: Context,
@@ -61,11 +70,11 @@ object ActionDispatcher {
         // Shizuku / su shell `waitFor()`. The previous inline code called
         // AutomationManager.*() which synchronously forks a process and joins
         // it; every back/home/recents gesture therefore froze the UI for the
-        // duration of the shell exec. We perform the work on a single
-        // short-lived background worker and fall back to the Accessibility
+        // duration of the shell exec. We perform the work on the single
+        // background executor thread and fall back to the Accessibility
         // path (which runs in the system process and is non-blocking for us)
         // when the automation route is unavailable or fails.
-        Thread({
+        autoActionExecutor.execute {
             val usedAutomation = panelPrefs.useAutomationForGestures &&
                 AutomationManager.isAutomationPossible()
             if (usedAutomation) {
@@ -80,7 +89,7 @@ object ActionDispatcher {
                     PanelAccessibilityService.ACTION_PREVIOUS_APP -> AutomationManager.performPreviousApp()
                     else -> false
                 }
-                if (success) return@Thread
+                if (success) return@execute
             }
 
             // Accessibility is the last resort here (automation already
@@ -98,7 +107,7 @@ object ActionDispatcher {
                     // ignore — service may simply not be reachable from this caller
                 }
             }
-        }, "SmartEdge-AutoAction").start()
+        }
     }
 
     private fun vibrateHaptic(context: Context, panelPrefs: PanelPreferences, duration: Long = 20) {

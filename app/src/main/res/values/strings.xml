@@ -267,6 +267,7 @@
     <string name="action_none">Disabled</string>
     <string name="action_launcher">Launcher</string>
     <string name="action_favorite_app">Favorite: %1$s</string>
+    <string name="action_favorite_not_set">(not set)</string>
     <string name="action_screenshot">Screenshot</string>
     <string name="action_last_app">Last App</string>
     <string name="action_back">Back</string>
@@ -352,7 +353,6 @@
     <string name="toast_bg_locked_hyperos">Background color is fixed for HyperOS theme</string>
     <string name="toast_export_saved_file">Backup saved</string>
     <string name="toast_export_failed">Export failed – could not create file</string>
-    <string name="toast_export_error">Export failed: %1$s</string>
     <string name="toast_overlay_required">Overlay permission required</string>
     <string name="toast_accessibility_required">Accessibility service required</string>
     <string name="toast_opening_sidebar">Opening Sidebar…</string>
@@ -538,9 +538,9 @@
     <string name="oem_step_open_settings">Tap "Open Settings" below</string>
     <string name="oem_step_miui_2">Scroll down and tap "Installed apps"</string>
     <string name="oem_step_miui_3">Find "Smart Edge" and tap it</string>
-    <string name="oem_step_miui_4">Toggle the switch to ON</string>
+    <string name="oem_step_toggle_on">Toggle the switch to ON</string>
     <string name="oem_step_miui_5">Tap "Allow" on the confirmation dialog</string>
-    <string name="oem_step_samsung_2">Scroll down to "Installed apps"</string>
+    <string name="oem_step_scroll_installed_apps">Scroll down to "Installed apps"</string>
     <string name="oem_step_samsung_3">Tap "Smart Edge"</string>
     <string name="oem_step_samsung_5">Tap "Allow" on the prompt</string>
     <string name="oem_step_oppo_2">Tap "Downloaded apps" or "Installed services"</string>
@@ -549,7 +549,7 @@
     <string name="oem_step_vivo_2">Scroll to "Installed apps" section</string>
     <string name="oem_step_vivo_3">Select "Smart Edge"</string>
     <string name="oem_step_vivo_4">Turn the toggle ON</string>
-    <string name="oem_step_vivo_5">Tap "OK" to confirm</string>
+    <string name="oem_step_tap_ok_confirm">Tap "OK" to confirm</string>
     <string name="oem_step_huawei_3">Find "Smart Edge"</string>
     <string name="oem_step_huawei_4">Enable the service</string>
     <string name="oem_step_generic_2">Open "Installed apps" or "Downloaded services"</string>

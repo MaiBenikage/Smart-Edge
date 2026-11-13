@@ -65,7 +65,12 @@ class ToggleActivity : AppCompatActivity() {
             return
         }
 
-        if (!PanelAccessibilityService.isRunning) {
+        // Accessibility OR usable automation both count as an engine (see
+        // isEngineAvailable): an automation-only user (Shizuku/root, no
+        // Accessibility) can run the panel, so requiring the a11y service
+        // here locked them out of the home-screen shortcut, the static
+        // launcher shortcut, and the notification open action.
+        if (!isEngineAvailable()) {
             Toast.makeText(this, getString(R.string.toast_accessibility_required), Toast.LENGTH_SHORT).show()
             finish()
             return
