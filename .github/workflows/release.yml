@@ -36,7 +36,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          fetch-depth: 0
+          # No fetch-depth: 0 here — nothing in this job reads git
+          # history, so the default shallow checkout is enough and faster.
           # For a manual (workflow_dispatch) run, build the tag given in
           # inputs.tag, not the branch selected in the UI — the release
           # must be published under the tag it names. When inputs.tag is
@@ -53,6 +54,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
+
+      # The test job (needs: test) validates the wrapper on the same tag,
+      # but this job signs and publishes — validate here too so the
+      # release never depends on another job having done it.
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
 
       - name: Resolve tag name
         id: tag
@@ -116,6 +123,13 @@ jobs:
           RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
         run: |
           printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > app/release.keystore
+          # Fail with a clear message if the secret is empty or unset:
+          # without this, the build fails later with a confusing Gradle
+          # keystore-loading error instead.
+          if [ ! -s app/release.keystore ]; then
+            echo "::error::RELEASE_KEYSTORE secret is empty or did not decode - check the repository secret."
+            exit 1
+          fi
 
       - name: Create keystore.properties
         env:
