@@ -7,6 +7,8 @@
 ---
 
 ### Unreleased
+
+### v1.5.9
 - **ci**: Pull requests to `master` now fail a `Changelog` check unless they add a bullet under `### Unreleased` (opt out with the `skip-changelog` label), so every tag has its release notes ready.
 - **fix(review)**: Full-codebase review fixes (17 Medium, 36 Low): double screenshot no longer leaves overlays invisible, notch re-gated on rotation, ToggleActivity and boot auto-start work for automation-only users, Black Screen timeout gated on WRITE_SETTINGS, tap+long-press no longer fires both actions, icon-pack fallback is first-wins with per-activity resolution, sidebar load no longer aborts on a dead PackageManager call, language setting applied on all activities, settings search no longer offers hidden rows, and the changelog check now passes release PRs.
 - **feat(locale)**: Declared `android:localeConfig` (`res/xml/locales_config.xml`, en/es), so the system per-app language picker lists the app and AppCompat's `setApplicationLocales` works on API 33+. `LocaleHelper.onAttach` now prefers AppCompat's locale (what the system picker sets) with the stored in-app preference as fallback, the in-app language setting shows the effective locale, and the stored preference is synced with AppCompat at process start. The manual wrap stays for Services and the Application, which AppCompat does not cover.
