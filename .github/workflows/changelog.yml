@@ -1,0 +1,51 @@
+name: Changelog
+
+# Every PR to master must add at least one bullet under '### Unreleased'
+# in CHANGELOG.md, so the notes are ready when the section is renamed
+# to '### vX.Y.Z' at release time (release.yml refuses a tag without
+# its own section). Changes with nothing user-facing (CI tweaks, typo
+# fixes) can opt out with the 'skip-changelog' label.
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changelog-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changelog:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Require a new bullet under Unreleased
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Same section rules as release.yml: a section ends at the next
+          # '### ' header or a '---' separator.
+          unreleased() {
+            git show "$1:CHANGELOG.md" 2>/dev/null | awk '
+              /^### / { flag = 0 }
+              $0 == "### Unreleased" { flag = 1; next }
+              /^---/ { flag = 0 }
+              flag && /^- /
+            ' | sort -u
+          }
+          NEW=$(comm -13 <(unreleased "$BASE_SHA") <(unreleased "$HEAD_SHA"))
+          if [ -z "$NEW" ]; then
+            echo "::error file=CHANGELOG.md::Add a '- **type(scope)**: ...' bullet under '### Unreleased' in CHANGELOG.md, or label the PR 'skip-changelog' if nothing user-facing changed."
+            exit 1
+          fi
+          echo "New Unreleased entries:"
+          echo "$NEW"
