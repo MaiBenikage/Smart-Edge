@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Locales the app supports, for the system per-app language picker
+     (Android 13+) and for AppCompat's setApplicationLocales on API 33+.
+     Must match the languages offered by the in-app language setting
+     (MiscellaneousSettingsActivity) and the values PanelPreferences
+     .appLanguage clamps to. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="es" />
+</locale-config>

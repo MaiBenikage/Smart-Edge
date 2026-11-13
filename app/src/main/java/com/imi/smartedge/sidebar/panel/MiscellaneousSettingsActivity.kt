@@ -124,7 +124,7 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateLanguageLabel() {
-        binding.tvLanguageValue.text = when (val code = panelPrefs.appLanguage) {
+        binding.tvLanguageValue.text = when (val code = LocaleHelper.getEffectiveLanguage(this)) {
             "es" -> "Español"
             "en" -> "English"
             // Unknown stored code (e.g. a hand-edited backup): show the
@@ -138,7 +138,12 @@ class MiscellaneousSettingsActivity : AppCompatActivity() {
     private fun showLanguagePicker() {
         val languages = arrayOf("English", "Español")
         val codes = arrayOf("en", "es")
-        val currentIndex = codes.indexOf(panelPrefs.appLanguage).let { if (it == -1) 0 else it }
+        // Pre-select the language the app is actually running in (the
+        // effective locale: AppCompat's per-app locale first, which is
+        // what the system picker sets). The change check below still
+        // compares against the stored pref, so picking the effective
+        // language when the stored pref is stale still writes it back.
+        val currentIndex = codes.indexOf(LocaleHelper.getEffectiveLanguage(this)).let { if (it == -1) 0 else it }
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(R.string.dialog_choose_language)

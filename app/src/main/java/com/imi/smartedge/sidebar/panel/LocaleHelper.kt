@@ -8,13 +8,63 @@ import java.util.Locale
 
 object LocaleHelper {
 
-    fun onAttach(context: Context): Context {
-        // LocaleListCompat.getDefault()[0] is null-safe on API 24+ (minSdk = 26),
-        // which lets us replace the deprecated `Locale.getDefault()` platform
-        // call. Kotlin was emitting `locale: Locale!` on the old call site.
+    /**
+     * The language the app is actually running in: AppCompat's per-app
+     * locale first (set by the system per-app picker or by setLocale),
+     * then the stored in-app preference, then the system default.
+     * AppCompat wins because the system picker writes only there — if
+     * onAttach read the stored pref first, it would override the system
+     * choice. The stored pref is the fallback for a user who chose a
+     * language in-app before localeConfig existed (AppCompat had nothing
+     * stored, because setApplicationLocales was a no-op without it).
+     * Only "en"/"es" are supported; anything else falls through to the
+     * next source.
+     */
+    fun getEffectiveLanguage(context: Context): String {
+        val appCompatLang = AppCompatDelegate.getApplicationLocales().get(0)?.language
+            ?.takeIf { it == "en" || it == "es" }
+        if (appCompatLang != null) return appCompatLang
+        // LocaleListCompat.getDefault()[0] is null-safe on API 24+ (minSdk
+        // = 26), which lets us replace the deprecated `Locale.getDefault()`
+        // platform call. Kotlin was emitting `locale: Locale!` on the old
+        // call site.
         val defaultLang = LocaleListCompat.getDefault().get(0)?.language
             ?: Locale.ROOT.language
-        val lang = getPersistedData(context, defaultLang)
+        return getPersistedData(context, defaultLang)?.takeIf { it.isNotBlank() } ?: "en"
+    }
+
+    /**
+     * Align the stored in-app preference with AppCompat's per-app locale
+     * at process start (called from SidePanelApp.onCreate). Two cases:
+     * - AppCompat has a locale (user picked one in the system per-app
+     *   picker, which writes only there): copy it into the stored pref,
+     *   so the in-app setting and every onAttach fallback agree with it.
+     * - AppCompat is empty but the stored pref has a language (user chose
+     *   in-app before localeConfig existed, when setApplicationLocales
+     *   was a no-op): push it into AppCompat, so the system picker shows
+     *   the current language instead of "System default".
+     * Does nothing when neither has a language (first run: the app follows
+     * the system language, and pinning it would stop it following later
+     * system-language changes). Only writes when the two disagree.
+     */
+    fun syncLocaleWithAppCompat(context: Context) {
+        val preferences = context.getSharedPreferences(PanelPreferences.PREFS_NAME, Context.MODE_PRIVATE)
+        val appCompatLang = AppCompatDelegate.getApplicationLocales().get(0)?.language
+            ?.takeIf { it == "en" || it == "es" }
+        if (appCompatLang != null) {
+            if (preferences.getString(PanelPreferences.KEY_APP_LANGUAGE, null) != appCompatLang) {
+                preferences.edit().putString(PanelPreferences.KEY_APP_LANGUAGE, appCompatLang).apply()
+            }
+            return
+        }
+        val stored = preferences.getString(PanelPreferences.KEY_APP_LANGUAGE, null)
+            ?.takeIf { it == "en" || it == "es" }
+        if (stored != null) {
+            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(stored))
+        }
+    }
+
+    fun onAttach(context: Context): Context {
         // Round-7 U-Med: bypass setLocale() here because that path calls
         // persist() — unconditional on every Activity attach (MainActivity,
         // SettingsMainActivity, every *SettingsActivity, etc.), which forces
@@ -24,7 +74,7 @@ object LocaleHelper {
         // waste on every resume. updateResources only mutates Context.resources
         // (cheap). The Settings page still uses setLocale() for the explicit
         // user-driven language flip, where the write is the whole point.
-        return updateResources(context, lang)
+        return updateResources(context, getEffectiveLanguage(context))
     }
 
     fun setLocale(context: Context, language: String?): Context {
