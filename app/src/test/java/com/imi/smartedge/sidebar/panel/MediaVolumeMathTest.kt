@@ -95,4 +95,26 @@ class MediaVolumeMathTest {
         assertFalse(MediaVolumeMath.shouldAdjustAgain(10, 10, 10, 1))
         assertFalse(MediaVolumeMath.shouldAdjustAgain(10, 10, 10, -1))
     }
+
+    // ─── mayUseAdjust() ──────────────────────────────────────────
+
+    @Test fun `mayUseAdjust is false when a shell engine exists but the shell set failed`() {
+        // Audit (4th) TEST — the no-fallback rule: a failed shell set must
+        // go to read-back only. Stacking a coarse adjust on top of a set
+        // that may still have landed moved the volume ~10% past the target
+        // on the OnePlus 13.
+        assertFalse(MediaVolumeMath.mayUseAdjust(shellSetSucceeded = false, hasShellEngine = true))
+    }
+
+    @Test fun `mayUseAdjust is false when the shell set succeeded`() {
+        // A landed set needs no adjust, engine or not.
+        assertFalse(MediaVolumeMath.mayUseAdjust(shellSetSucceeded = true, hasShellEngine = true))
+        assertFalse(MediaVolumeMath.mayUseAdjust(shellSetSucceeded = true, hasShellEngine = false))
+    }
+
+    @Test fun `mayUseAdjust is true only when no shell engine exists`() {
+        // The only case adjust is allowed: no privileged shell at all, so
+        // the shell set could not have landed anything.
+        assertTrue(MediaVolumeMath.mayUseAdjust(shellSetSucceeded = false, hasShellEngine = false))
+    }
 }

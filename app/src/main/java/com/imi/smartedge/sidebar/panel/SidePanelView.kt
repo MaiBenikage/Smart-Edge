@@ -1666,7 +1666,10 @@ class SidePanelView @JvmOverloads constructor(
                 view.translationY = (event.rawY - dragState[2]).coerceIn(-60f * density, 60f * density)
                 val dy = dragState[1] - event.rawY
                 dragState[1] = event.rawY
-                dragState[3] += dy
+                // Audit M-D: a direction flip discards the stale backlog
+                // in dragState[3] (see SlideStepMath.accumulateDelta),
+                // so the slide never runs the wrong way after a reversal.
+                dragState[3] = SlideStepMath.accumulateDelta(dragState[3], dy)
                 val steps = SlideStepMath.stepsToEmit(dragState[3], pixelsPerUnit)
                 if (steps != 0) {
                     val direction = if (steps > 0) +1 else -1
@@ -1687,16 +1690,20 @@ class SidePanelView @JvmOverloads constructor(
                     view.performClick()
                 }
                 // Lift counts as one last MOVE: capped, and any larger
-                // backlog is dropped (see SlideStepMath). Only when armed.
+                // backlog is dropped (see SlideStepMath.liftEmit). Only
+                // when armed; the remainder it returns is 0, so the
+                // accumulator is dropped either way.
                 if (armed) {
-                    val left = SlideStepMath.stepsToEmit(dragState[3], pixelsPerUnit)
+                    val (left, remainder) = SlideStepMath.liftEmit(dragState[3], pixelsPerUnit)
                     if (left != 0) {
                         val direction = if (left > 0) +1 else -1
                         repeat(Math.abs(left)) { onStep(direction) }
                     }
+                    dragState[3] = remainder
+                } else {
+                    dragState[3] = 0f
                 }
                 view.setTag(R.id.tag_drag_armed, false)
-                dragState[3] = 0f
                 true
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
@@ -1704,14 +1711,16 @@ class SidePanelView @JvmOverloads constructor(
                 (view.getTag(R.id.tag_drag_arm_runnable) as? Runnable)?.let { view.removeCallbacks(it) }
                 val armed = view.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                 if (armed) {
-                    val left = SlideStepMath.stepsToEmit(dragState[3], pixelsPerUnit)
+                    val (left, remainder) = SlideStepMath.liftEmit(dragState[3], pixelsPerUnit)
                     if (left != 0) {
                         val direction = if (left > 0) +1 else -1
                         repeat(Math.abs(left)) { onStep(direction) }
                     }
+                    dragState[3] = remainder
+                } else {
+                    dragState[3] = 0f
                 }
                 view.setTag(R.id.tag_drag_armed, false)
-                dragState[3] = 0f
                 true
             }
             else -> false

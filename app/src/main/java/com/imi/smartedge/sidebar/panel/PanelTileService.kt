@@ -87,6 +87,20 @@ class PanelTileService : TileService() {
 
         // 3. Permission Check (Instant)
         if (!hasOverlayPermission() || !isEngineAvailable()) {
+            // Audit M-A: the engine cache may simply not have been probed
+            // yet (cold start after a reboot) — refusing outright would
+            // route the user to MainActivity for a tap that would have
+            // worked a moment later. When the user opted into automation
+            // and the probe has not run yet (UNKNOWN), kick off a probe
+            // and leave the tile as-is instead; the next tap re-evaluates.
+            // A definitively probed NONE still refuses as before.
+            if (hasOverlayPermission() && prefs.useAutomationForGestures &&
+                AutomationManager.engineState.value == AutomationManager.EngineState.UNKNOWN
+            ) {
+                AutomationManager.refresh()
+                isProcessingToggle = false
+                return
+            }
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }

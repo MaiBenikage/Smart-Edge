@@ -1,4 +1,4 @@
 Latest release — volume indicator and volume-jump fixes.
-- The volume indicator no longer sticks on screen, and taking a screenshot mid-fade no longer leaves it visible.
-- Volume no longer jumps ~10% at random: a failed shell set no longer falls back to a coarse relative adjust, and lifting the finger after a fast slide lands at most one capped step batch.
+- The volume indicator no longer sticks on screen, and a screenshot mid-fade no longer leaves it visible.
+- Volume no longer jumps ~10% at random: a failed shell set no longer falls back to a coarse relative adjust, and lifting the finger after a fast slide lands at most one capped batch.
 - Third-audit fixes: locale handling, notch/edge-handle policy, sidebar reorder, shortcut parsing, settings search, and release-workflow hardening.

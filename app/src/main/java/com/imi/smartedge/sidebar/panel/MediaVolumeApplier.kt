@@ -145,11 +145,17 @@ object MediaVolumeApplier {
         val target = MediaVolumeMath.target(live, steps, max)
         when {
             target == live -> true
-            AutomationManager.execute("cmd media_session volume --stream 3 --set $target") ||
-                AutomationManager.hasShellEngine() ->
-                // Never stack an adjust on a shell set (see class KDoc, path 3).
-                audioManager.getStreamVolume(STREAM) == target
-            else -> applyByAdjust(audioManager, steps, target)
+            // The adjust decision is a pure function (see
+            // MediaVolumeMath.mayUseAdjust): adjust only when no shell
+            // engine exists at all. hasShellEngine() never probes — it is
+            // a cheap cached read — so evaluating it even when the shell
+            // set succeeded costs nothing.
+            MediaVolumeMath.mayUseAdjust(
+                AutomationManager.execute("cmd media_session volume --stream 3 --set $target"),
+                AutomationManager.hasShellEngine()
+            ) -> applyByAdjust(audioManager, steps, target)
+            // Never stack an adjust on a shell set (see class KDoc, path 3).
+            else -> audioManager.getStreamVolume(STREAM) == target
         }
     } catch (e: Exception) {
         Log.w(TAG, "volume batch failed", e)

@@ -62,12 +62,16 @@ class PanelPreferences(context: Context) {
         /** Lock for the first-read generation of [shortcutToken]. */
         private val shortcutTokenLock = Any()
 
+        /** Lock for the read-modify-write on the issued-shortcut-ID set. */
+        private val issuedShortcutIdsLock = Any()
+
         private const val KEY_PANEL_APPS = "panel_apps"
         private const val KEY_PANEL_SEEDED = "panel_seeded"
         private const val KEY_SETUP_COMPLETED_V2 = "setup_completed_v2"
         private const val KEY_SERVICE_ENABLED = "service_enabled"
         private const val KEY_SHORTCUT_TOKEN = "shortcut_token"
         private const val KEY_PANEL_LABELS = "panel_item_labels"
+        private const val KEY_ISSUED_SHORTCUT_IDS = "issued_shortcut_ids"
         private const val KEY_PANEL_SIDE = "panel_side"
         private const val KEY_AUTO_START = "auto_start"
         private const val KEY_SHOW_PILL = "show_pill"
@@ -138,6 +142,7 @@ class PanelPreferences(context: Context) {
         private const val KEY_FULLSCREEN_WHITELIST = "fullscreen_whitelist"
         private const val KEY_DELIBERATE_GESTURE_GAMES = "deliberate_gesture_games"
         private const val KEY_TOOLS_FOLDER_MIGRATED = "tools_folder_migrated"
+        private const val KEY_SHORTCUT_PINS_MIGRATED = "shortcut_pins_migrated"
         private const val KEY_SLIDE_BRIGHTNESS_ENABLED = "slide_brightness_enabled"
         private const val KEY_SLIDE_VOLUME_ENABLED = "slide_volume_enabled"
         private const val KEY_SLIDE_SENSITIVITY = "slide_sensitivity"
@@ -1074,6 +1079,15 @@ class PanelPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_TOOLS_FOLDER_MIGRATED, false)
         set(value) = prefs.edit { putBoolean(KEY_TOOLS_FOLDER_MIGRATED, value) }
 
+    /**
+     * Audit (4th) Low: one-time migration of shortcut pins created under
+     * v1.5.5 and earlier (see AppRepository.migrateShortcutPinsIfNeeded).
+     * Follows the [toolsFolderMigrated] pattern.
+     */
+    var shortcutPinsMigrated: Boolean
+        get() = prefs.getBoolean(KEY_SHORTCUT_PINS_MIGRATED, false)
+        set(value) = prefs.edit { putBoolean(KEY_SHORTCUT_PINS_MIGRATED, value) }
+
     var slideBrightnessEnabled: Boolean
         get() = prefs.getBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, DEFAULT_SLIDE_BRIGHTNESS)
         set(value) = prefs.edit { putBoolean(KEY_SLIDE_BRIGHTNESS_ENABLED, value) }
@@ -1691,6 +1705,46 @@ class PanelPreferences(context: Context) {
             prefs.edit().putString(KEY_SHORTCUT_TOKEN, token).apply()
             token
         }
+
+    /**
+     * IDs of home-screen shortcuts this install issued through
+     * ToggleActivity's ACTION_CREATE_SHORTCUT flow — one random UUID per
+     * shortcut, minted at creation time and recorded here.
+     *
+     * Audit (4th) Low: the CREATE_SHORTCUT result used to carry the
+     * per-install shortcut token, so any app could send
+     * ACTION_CREATE_SHORTCUT, harvest the token from the result, and pass
+     * the service re-enable gate the token was meant to guard. The result
+     * now carries only the shortcut's own ID; the token never leaves the
+     * app in that flow. ToggleActivity enables the service only when the
+     * launched shortcut's ID is in this set (shortcuts pinned through the
+     * ShortcutManager pin flow still carry the token — that path goes to
+     * the system launcher only, so the token gate still applies there).
+     * The set is capped: each mint keeps the newest 64 IDs, so a caller
+     * spamming CREATE_SHORTCUT cannot grow the stored string without
+     * bound. Stored as a delimited string like the other lists in this
+     * file.
+     */
+    fun issueShortcutId(): String {
+        val id = java.util.UUID.randomUUID().toString()
+        synchronized(issuedShortcutIdsLock) {
+            val ids = getIssuedShortcutIds().toList().takeLast(63) + id
+            prefs.edit { putString(KEY_ISSUED_SHORTCUT_IDS, ids.joinToString(DELIMITER) { encodeDelim(it) }) }
+        }
+        return id
+    }
+
+    /** True when [id] is one this install issued (see [issueShortcutId]). */
+    fun isIssuedShortcutId(id: String?): Boolean {
+        if (id.isNullOrBlank()) return false
+        return getIssuedShortcutIds().contains(id)
+    }
+
+    private fun getIssuedShortcutIds(): Set<String> {
+        val raw = prefs.getString(KEY_ISSUED_SHORTCUT_IDS, "") ?: ""
+        if (raw.isBlank()) return emptySet()
+        return splitDelim(raw).filter { it.isNotBlank() }.map { decodeDelim(it) }.toSet()
+    }
 
     fun getGameApps(): List<String> {
         val raw = prefs.getString(KEY_GAME_APPS, "") ?: ""

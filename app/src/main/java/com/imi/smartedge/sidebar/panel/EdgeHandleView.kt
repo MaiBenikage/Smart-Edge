@@ -584,7 +584,11 @@ class EdgeHandleView @JvmOverloads constructor(
                     }
 
                     if (isSlidingSeek) {
-                        accumulatedDy += dySinceLast
+                        // Audit M-D: a direction flip discards the stale
+                        // backlog (see SlideStepMath.accumulateDelta), so
+                        // a flick one way cannot keep emitting steps in
+                        // the old direction while the finger moves back.
+                        accumulatedDy = SlideStepMath.accumulateDelta(accumulatedDy, dySinceLast)
                         // Distances per unit come from the ACTION_DOWN
                         // snapshot (see snapshotGesturePrefs), not from
                         // fresh pref reads / binder calls per MOVE.
@@ -676,11 +680,34 @@ class EdgeHandleView @JvmOverloads constructor(
                     isTriggered = true
                 }
 
+                // Audit M-C (regression from a361e4f): a tap from an
+                // earlier gesture may still be pending (tapCount > 0,
+                // tapRunnable cancelled in ACTION_DOWN). If this touch
+                // does not count as a tap, the first tap must still fire
+                // — re-arm it below, the same re-post the ACTION_CANCEL
+                // path does. A wiggly second tap used to lift without
+                // passing a slide/swipe threshold, count nothing and
+                // re-post nothing, so tapCount stayed 1 with no runnable
+                // pending and the next tap — even minutes later — ran
+                // the double-tap action.
+                var countedAsTap = false
                 if (!hasPassedThreshold && !isTriggered && !isSlidingSeek && event.action == MotionEvent.ACTION_UP) {
                     val duration = event.eventTime - downTime
                     if (duration < longPressTimeoutMs()) {
                         handleTap()
+                        countedAsTap = true
                     }
+                }
+
+                if (event.action == MotionEvent.ACTION_UP && !countedAsTap && tapCount > 0) {
+                    // This touch was not a tap (held past the long-press
+                    // timeout, or the long-press was cancelled by
+                    // movement without a slide/swipe confirming a
+                    // non-tap): no double-tap can follow it, so re-arm
+                    // the pending tap instead of leaving tapCount stale.
+                    // tapRunnable is not pending here — it was cancelled
+                    // in ACTION_DOWN and only handleTap() re-posts it.
+                    handler.postDelayed(tapRunnable, tapTimeoutMs)
                 }
 
                 if (event.action == MotionEvent.ACTION_CANCEL && tapCount > 0) {
@@ -696,11 +723,11 @@ class EdgeHandleView @JvmOverloads constructor(
                 // any larger backlog is dropped (see SlideStepMath).
                 if (isSlidingSeek) {
                     val pixelsPerUnit = if (isSlidingVolume) gesturePixelsPerVolumeUnit else gesturePixelsPerBrightnessUnit
-                    val left = SlideStepMath.stepsToEmit(accumulatedDy, pixelsPerUnit)
+                    val (left, remainder) = SlideStepMath.liftEmit(accumulatedDy, pixelsPerUnit)
                     if (left != 0) {
                         if (isSlidingVolume) onAdjustVolume?.invoke(-left) else onAdjustBrightness?.invoke(-left)
                     }
-                    accumulatedDy = 0f
+                    accumulatedDy = remainder
                 }
 
                 isSlidingSeek = false
@@ -796,6 +823,11 @@ class EdgeHandleView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         handler.removeCallbacksAndMessages(null)
+        // Audit M-C: a detach mid-touch removes the pending tapRunnable
+        // above, so reset tapCount too — otherwise a stale 1 survives
+        // the detach and the next tap after re-attach counts as a
+        // double-tap.
+        tapCount = 0
         // A running IME-avoidance animator keeps the view and its params
         // alive and keeps calling updateLayoutSafely after detach.
         imeAnimator?.cancel()

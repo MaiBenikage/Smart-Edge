@@ -77,6 +77,57 @@ class SlideStepMathTest {
     }
 
     @Test
+    fun `lift drops the backlog beyond the final capped emit, next gesture starts from zero`() {
+        // A flick then a lift: 16 units are still held back. The lift
+        // emits at most the cap; the remainder is dropped, not carried
+        // into the next gesture — the audit's lift-drop rule. The
+        // remainder liftEmit returns is what the callers assign back to
+        // their accumulator (EdgeHandleView, SidePanelView), so it must
+        // be 0 even when the emit took only part of the backlog.
+        val ppu = 41f
+        val (steps, remainder) = SlideStepMath.liftEmit(16 * ppu, ppu)
+        assertEquals(2, steps)
+        assertEquals(0f, remainder, 0f)
+        // The next gesture starts from the dropped remainder: nothing owed.
+        assertEquals(0, SlideStepMath.stepsToEmit(remainder, ppu))
+        // Same for the negative direction.
+        val (negSteps, negRemainder) = SlideStepMath.liftEmit(-16 * ppu, ppu)
+        assertEquals(-2, negSteps)
+        assertEquals(0f, negRemainder, 0f)
+        assertEquals(0, SlideStepMath.stepsToEmit(negRemainder, ppu))
+        // A sub-cap backlog drops its remainder too: the lift emits 1
+        // step of the 1.2 units held back and the rest is dropped, not
+        // kept for the next gesture.
+        val (oneStep, oneRemainder) = SlideStepMath.liftEmit(ppu + 10f, ppu)
+        assertEquals(1, oneStep)
+        assertEquals(0f, oneRemainder, 0f)
+        // Nothing held back: no emit, nothing to drop.
+        val (noSteps, noRemainder) = SlideStepMath.liftEmit(10f, ppu)
+        assertEquals(0, noSteps)
+        assertEquals(0f, noRemainder, 0f)
+    }
+
+    @Test
+    fun `reversal discards the stale backlog instead of emitting the old way`() {
+        // Audit M-D: 16 units held back upward, then the finger moves
+        // 1 unit down. The old backlog is dropped; only the new
+        // downward unit counts, so the slide never runs the wrong way
+        // after a reversal.
+        val ppu = 41f
+        assertEquals(-ppu, SlideStepMath.accumulateDelta(16 * ppu, -ppu), 0f)
+        assertEquals(ppu, SlideStepMath.accumulateDelta(-16 * ppu, ppu), 0f)
+        // Same direction keeps accumulating.
+        assertEquals(17 * ppu, SlideStepMath.accumulateDelta(16 * ppu, ppu), 0f)
+        assertEquals(-17 * ppu, SlideStepMath.accumulateDelta(-16 * ppu, -ppu), 0f)
+        // Zero leftover or zero delta: nothing to discard.
+        assertEquals(ppu, SlideStepMath.accumulateDelta(0f, ppu), 0f)
+        assertEquals(16 * ppu, SlideStepMath.accumulateDelta(16 * ppu, 0f), 0f)
+        // A sub-unit stale remainder is dropped on reversal too.
+        assertEquals(-10f, SlideStepMath.accumulateDelta(20f, -10f), 0f)
+        assertEquals(10f, SlideStepMath.accumulateDelta(-20f, 10f), 0f)
+    }
+
+    @Test
     fun `sub-unit remainder is kept, not lost`() {
         // 0.9 units emits nothing; another 0.2 units then makes a step.
         val ppu = 41f

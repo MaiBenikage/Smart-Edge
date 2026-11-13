@@ -1486,26 +1486,21 @@ class AppPickerPanelView @JvmOverloads constructor(
             val inGlobalEdit = item.isEditing          // Edit state
             val isThisItemEditing = item.isItemEditing // Modify state
 
-            // Horizontal scroll for long title/content (layout sets
-            // scrollHorizontally + scrollbars="horizontal"; TextView needs a
-            // movement method to actually show/scroll the horizontal bar).
-            // setMovementMethod makes the TextView itself clickable,
-            // focusable and long-clickable, which would swallow taps over
-            // the text — and the text covers most of the row — so the
-            // body's click listener (launch URL/intent) would only fire on
-            // the padding. Clear those flags again right after setting it
-            // so taps pass through to the body while the text still
-            // scrolls horizontally. Use the shared instance instead of
-            // allocating a new movement method on every bind.
-            val movementMethod = android.text.method.ScrollingMovementMethod.getInstance()
-            holder.tvTitle.movementMethod = movementMethod
-            holder.tvContent.movementMethod = movementMethod
-            holder.tvTitle.isClickable = false
-            holder.tvTitle.isLongClickable = false
-            holder.tvTitle.isFocusable = false
-            holder.tvContent.isClickable = false
-            holder.tvContent.isLongClickable = false
-            holder.tvContent.isFocusable = false
+            // Audit M-E (round-1 M7, still open): do NOT set a movement
+            // method (e.g. ScrollingMovementMethod) on tvTitle/tvContent.
+            // AOSP TextView.onTouchEvent dispatches to the movement method
+            // whenever mMovement != null — regardless of isClickable /
+            // isLongClickable / isFocusable, so clearing those flags did
+            // not help — and Touch.onTouchEvent returns true on
+            // ACTION_DOWN, so the TextView claims the gesture and the
+            // body's click listener (launchCustomItemContent) never fires
+            // for taps on the text, which covers most of the row. Long
+            // text does not need a movement method: the row lives in a
+            // scrolling list, so it scrolls with the list. Set
+            // movementMethod = null explicitly so a recycled holder can
+            // never carry a stale one.
+            holder.tvTitle.movementMethod = null
+            holder.tvContent.movementMethod = null
 
             // NOTE: do NOT call holder.setIsRecyclable(false) here. Marking the
             // holder non-recyclable while it is being removed (cancel / delete /

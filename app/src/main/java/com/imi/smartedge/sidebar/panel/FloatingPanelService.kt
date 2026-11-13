@@ -326,8 +326,9 @@ class FloatingPanelService : Service() {
         isRunning = true
 
         // Audit L5/U11/L7: probe engine once at service startup, then react if the
-        // Shizuku binder dies at runtime. A localized Snackbar (with Toast fallback
-        // if no anchor View exists yet) is now surfaced instead of the old plain toast.
+        // Shizuku binder dies at runtime. A localized indicator overlay (with
+        // Toast fallback if the overlay itself cannot be created) is now
+        // surfaced instead of the old plain toast.
         AutomationManager.refresh()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -341,11 +342,26 @@ class FloatingPanelService : Service() {
         // The engine-lost callback reads panelPrefs, so it must be assigned
         // AFTER panelPrefs exists: if the engine dies between service start
         // and this line, the callback would read an uninitialised lateinit
-        // and crash the service instead of showing the Snackbar.
+        // and crash the service instead of showing the indicator.
         AutomationManager.onEngineLost = {
             if (panelPrefs.useAutomationForGestures) {
-                showEngineLostSnackbar()
+                showEngineLost()
                 addEdgeHandle()
+            }
+        }
+        // Audit M-A: the startup refresh() above is fire-and-forget — the
+        // handles are gated synchronously in onCreate on the cold cache, so
+        // for Shizuku/root-only users (accessibility off) no handle is added
+        // after a reboot until something re-gates (e.g. rotation). Re-gate
+        // when the probe lands, the same way onConfigurationChanged does:
+        // addEdgeHandle()/addNotchHandle() self-gate on the policy, so this
+        // is a no-op while the engine is still unavailable. Assigned here
+        // (after panelPrefs) for the same lateinit reason as onEngineLost
+        // above; cleared in onDestroy alongside it.
+        AutomationManager.onEngineReady = {
+            if (panelPrefs.serviceEnabled) {
+                addEdgeHandle()
+                addNotchHandle()
             }
         }
         // Audit L1: provision the shared repository BEFORE initSidePanel() calls
@@ -1540,11 +1556,13 @@ class FloatingPanelService : Service() {
             NotificationTrackingService.removeOnNotificationsChangedListener(it)
         }
         notificationChangedListener = null
-        // Audit S3: clear the AutomationManager.onEngineLost callback so the
-        // single-engine-singleton doesn't keep `this` alive past the service's
-        // death. Without this the Singleton → Service reference would leak the
-        // entire WindowManager overlay tree across service restarts.
+        // Audit S3: clear the AutomationManager.onEngineLost/onEngineReady
+        // callbacks so the single-engine-singleton doesn't keep `this` alive
+        // past the service's death. Without this the Singleton → Service
+        // reference would leak the entire WindowManager overlay tree across
+        // service restarts.
         AutomationManager.onEngineLost = null
+        AutomationManager.onEngineReady = null
         // Remove the standalone confirmation overlay if it is still attached
         // (avoids WindowLeaked when the service dies before the 1.5s timeout).
         if (wmReady) {
@@ -2965,23 +2983,20 @@ class FloatingPanelService : Service() {
     }
 
     /**
-     * Audit prompt — localized Snackbar surfaced when Shizuku/Root binder dies
-     * mid-session. Falls back to a Toast only if no anchor View is yet attached
-     * to the WindowManager (i.e. the very first probe fired before the panel was
-     * ever opened).
+     * Audit H2 — the Shizuku/Root binder died mid-session. The old code showed
+     * a Snackbar anchored to rootLayout / edgeHandleView, but both are
+     * WindowManager overlay views: Snackbar.make() needs a CoordinatorLayout
+     * or content FrameLayout parent, and a WindowManager view's parent is the
+     * ViewRootImpl (not a View), so it threw IllegalArgumentException and
+     * crashed the service — the isAttachedToWindow check did not prevent it.
+     * The service's own indicator overlay is used instead (it is always
+     * available), with a Toast only as a last resort if the overlay itself
+     * cannot be created.
      */
-    private fun showEngineLostSnackbar() {
+    private fun showEngineLost() {
         val msg = getString(R.string.engine_lost_msg)
-        // The anchor must be attached to a window: rootLayout is non-null
-        // but detached while the panel is closed, and a Snackbar anchored
-        // to a detached view is never shown.
-        val anchor = rootLayout?.takeIf { it.isAttachedToWindow } ?: edgeHandleView?.takeIf { it.isAttachedToWindow }
-        if (anchor != null) {
-            com.google.android.material.snackbar.Snackbar.make(
-                anchor,
-                msg,
-                com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-            ).show()
+        if (ensureIndicatorOverlay()) {
+            showIndicator(msg)
         } else {
             android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
         }

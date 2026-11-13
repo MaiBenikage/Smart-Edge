@@ -36,6 +36,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   - [onEngineLost] is a fire-and-forget main-thread callback cleared on death so
  *     FloatingPanelService can hide its handle and surface a banner without holding
  *     a reference to any UI.
+ *   - [onEngineReady] is the mirror hook: fired when a probe transitions the
+ *     engine from UNKNOWN/NONE to a ready state, so hosts that gated on the
+ *     cold cache (FloatingPanelService's handles, which are added
+ *     synchronously in onCreate) can re-gate once the probe lands instead
+ *     of waiting for a rotation.
  *
  * Each existing public signature is preserved byte-for-byte so external callers
  * (FloatingPanelService, SetupActivity, AccessibilityGuideDialog) need only add a
@@ -65,6 +70,18 @@ object AutomationManager {
      */
     @Volatile
     var onEngineLost: (() -> Unit)? = null
+
+    /**
+     * Audit M-A — optional UI hook fired on the main thread when a probe
+     * transitions the engine from UNKNOWN/NONE to a ready state
+     * (SHIZUKU_READY, ROOT_READY or SHIZUKU_AND_ROOT). Mirrors
+     * [onEngineLost]: the host clears it when it goes away (e.g. in
+     * FloatingPanelService.onDestroy) so the singleton does not keep it
+     * alive. Fires only on the UNKNOWN/NONE → ready transition, not on
+     * every re-probe that re-confirms an already-ready engine.
+     */
+    @Volatile
+    var onEngineReady: (() -> Unit)? = null
 
     // Process-lifetime scope justifies itself because Shizuku's binder is a
     // system-level context that outlives any individual Activity. Registering the
@@ -146,7 +163,24 @@ object AutomationManager {
             pendingShizukuResult = null
             scope.launch {
                 refreshJob?.join()
-                mainHandler.post { pending(granted) }
+                // Audit M-H (crash guard): the pending callback closes over
+                // the Activity that asked for the permission — if that
+                // Activity was destroyed by a rotation while the prompt was
+                // up, the callback can throw (e.g. BadTokenException from
+                // a dialog show on the dead window) and kill the process.
+                // Swallow it here and log: the result is simply lost. The
+                // full fix is an ActivityResultLauncher or a re-delivery
+                // to the new Activity instance, which is a larger change
+                // owned by the settings call sites; this is the backstop.
+                mainHandler.post {
+                    try {
+                        pending(granted)
+                    } catch (e: IllegalStateException) {
+                        Log.w(TAG, "Shizuku result callback failed (caller Activity gone?)", e)
+                    } catch (e: android.view.WindowManager.BadTokenException) {
+                        Log.w(TAG, "Shizuku result callback failed (caller Activity gone?)", e)
+                    }
+                }
             }
         }
     }
@@ -204,6 +238,7 @@ object AutomationManager {
                     else -> EngineState.NONE
                 }
                 val wasReady = isAutomationCached
+                val prevState = _engineState.value
                 isAutomationCached = actuallyShizuku || rootProbe
                 _engineState.value = newState
                 // Keep the sync-probe cache in step: hasShellEngine()
@@ -221,6 +256,16 @@ object AutomationManager {
                 // If we transitioned READY → NONE mid-session, fire the UI hook.
                 if (wasReady && !isAutomationCached) {
                     Handler(Looper.getMainLooper()).post { onEngineLost?.invoke() }
+                }
+                // Audit M-A: if we transitioned UNKNOWN/NONE → ready, fire
+                // the mirror hook so hosts that gated on the cold cache can
+                // re-gate now that the probe has landed. A re-probe that
+                // re-confirms an already-ready engine does not fire.
+                if ((prevState == EngineState.UNKNOWN || prevState == EngineState.NONE) &&
+                    (newState == EngineState.SHIZUKU_READY || newState == EngineState.ROOT_READY ||
+                        newState == EngineState.SHIZUKU_AND_ROOT)
+                ) {
+                    Handler(Looper.getMainLooper()).post { onEngineReady?.invoke() }
                 }
             }
             } finally {

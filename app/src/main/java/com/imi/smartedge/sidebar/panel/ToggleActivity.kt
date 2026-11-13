@@ -31,17 +31,19 @@ class ToggleActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         // 1. Handle Shortcut Creation request from Launcher
-        // SECURITY: Embed the per-install shortcut token (see
-        // PanelPreferences.shortcutToken) into the shortcutIntent so on
-        // subsequent launches we can detect that ToggleActivity was triggered
-        // by tapping our own home-screen shortcut (vs. being invoked by a
-        // 3rd-party app via plain MAIN). A plain boolean extra can be set by
-        // any app; the random token cannot be guessed. This gates the silent
-        // service re-enable below.
+        // SECURITY: the shortcutIntent carries only a per-shortcut ID
+        // minted for this shortcut and recorded in prefs (see
+        // PanelPreferences.issueShortcutId) — never the per-install
+        // shortcut token. Audit (4th) Low: the result used to embed the
+        // token, so any app could send ACTION_CREATE_SHORTCUT, harvest
+        // the token from the result, and pass the service re-enable gate
+        // below — exactly the spoofing the round-1 token was meant to
+        // stop. A per-shortcut ID proves only that this install issued
+        // this shortcut, and the token never leaves the app in this flow.
         if (intent.action == Intent.ACTION_CREATE_SHORTCUT) {
             val shortcutIntent = Intent(this, ToggleActivity::class.java).apply {
                 action = ACTION_TOGGLE
-                putExtra("smartedge.shortcut_token", PanelPreferences(this@ToggleActivity).shortcutToken)
+                putExtra("smartedge.shortcut_id", PanelPreferences(this@ToggleActivity).issueShortcutId())
             }
 
             val resultIntent = Intent().apply {
@@ -70,29 +72,46 @@ class ToggleActivity : AppCompatActivity() {
         // Accessibility) can run the panel, so requiring the a11y service
         // here locked them out of the home-screen shortcut, the static
         // launcher shortcut, and the notification open action.
+        //
+        // Audit (4th) M-A: isEngineAvailable() reads AutomationManager's
+        // cache, which is cold (UNKNOWN) after a reboot until something
+        // calls refresh() — a legitimate shortcut launch was refused until
+        // the screen rotated. Kick off a refresh; while the state is still
+        // UNKNOWN the probe has not reported yet, so do not refuse — proceed
+        // and let the service's own re-gate settle it. A completed probe
+        // that found no engine (NONE) still refuses below.
         if (!isEngineAvailable()) {
-            Toast.makeText(this, getString(R.string.toast_accessibility_required), Toast.LENGTH_SHORT).show()
-            finish()
-            return
+            if (AutomationManager.engineState.value == AutomationManager.EngineState.UNKNOWN) {
+                AutomationManager.refresh()
+            } else {
+                Toast.makeText(this, getString(R.string.toast_accessibility_required), Toast.LENGTH_SHORT).show()
+                finish()
+                return
+            }
         }
 
         // Ensure service is enabled in preferences ONLY when ToggleActivity was
-        // launched from our own home-screen shortcut (the CREATE_SHORTCUT branch
-        // above and pinShortcut() stamp the per-install shortcut token into
-        // the shortcut intent). Without this gate, any 3rd-party app could fire
+        // launched from our own home-screen shortcut: either the per-shortcut
+        // ID minted by the CREATE_SHORTCUT branch above, or the per-install
+        // token stamped by the ShortcutManager pin flow (which goes to the
+        // system launcher only — see InteractionSettingsActivity.pinShortcut).
+        // Without this gate, any 3rd-party app could fire
         // `Intent(MAIN).setClassName(this, ToggleActivity)` and silently flip
         // the service back on after the user had disabled it for battery /
         // privacy reasons. A boolean extra is not a gate — any app can set one —
-        // so the token (a random UUID only our prefs know) is checked instead.
+        // so the issued ID (recorded only in our prefs) or the token (a random
+        // UUID only our prefs know) is checked instead.
+        val prefs = PanelPreferences(this)
         if (intent.action == ACTION_TOGGLE &&
-            intent.getStringExtra("smartedge.shortcut_token") == PanelPreferences(this).shortcutToken) {
-            PanelPreferences(this).serviceEnabled = true
+            (prefs.isIssuedShortcutId(intent.getStringExtra("smartedge.shortcut_id")) ||
+                intent.getStringExtra("smartedge.shortcut_token") == prefs.shortcutToken)) {
+            prefs.serviceEnabled = true
         }
 
         // 3. Trigger the Panel — but only if the service is enabled. The
-        // token gate above re-enables it for our own shortcuts; without a
-        // valid token (static manifest shortcut, which can't carry the
-        // per-install token, or any other caller) the service stays off
+        // ID/token gate above re-enables it for our own shortcuts; without
+        // a valid ID or token (static manifest shortcut, which can't carry
+        // either, or any other caller) the service stays off
         // and ACTION_OPEN would silently do nothing. Tell the user and
         // route them to the main screen where they can start it.
         if (!PanelPreferences(this).serviceEnabled) {

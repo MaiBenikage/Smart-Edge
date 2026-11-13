@@ -57,6 +57,40 @@ object SlideStepMath {
     const val MAX_SHELL_BATCH_STEPS = 4
 
     /**
+     * Accumulate a new MOVE delta into the leftover backlog, discarding
+     * the stale backlog when the finger reverses direction (audit M-D).
+     * All three drag paths keep a signed, netted leftover and emit steps
+     * from it until it drains, so after a fast flick one way the finger
+     * moving the other way kept emitting steps in the OLD direction
+     * until the backlog crossed zero — in a simulation, brightness kept
+     * rising while the finger moved down. When the new delta runs
+     * opposite to the leftover's sign, the leftover is dropped and only
+     * the new delta counts, so the slide never runs the wrong way after
+     * a reversal. A zero leftover or a zero delta has no direction to
+     * flip from, so they accumulate normally. The per-MOVE cap and the
+     * lift drop are unchanged: this only decides what the backlog is.
+     */
+    fun accumulateDelta(leftover: Float, delta: Float): Float {
+        if (leftover != 0f && delta != 0f && (leftover < 0f) != (delta < 0f)) return delta
+        return leftover + delta
+    }
+
+    /**
+     * Gesture-end (UP/CANCEL) emit: the steps to land for the leftover
+     * backlog, and the remainder to carry into the next gesture. The
+     * emit is capped like a MOVE ([stepsToEmit]); the remainder is
+     * always 0 — any backlog still held back after the final capped
+     * emit is dropped, never landed as a burst and never carried over,
+     * so the next gesture starts from zero (ACTION_DOWN resets the
+     * accumulator, and the audit's lift-drop rule). Callers assign the
+     * returned remainder back to their accumulator instead of writing 0
+     * themselves, so the drop is one decision in one place, pinned by
+     * SlideStepMathTest.
+     */
+    fun liftEmit(accumulatedPx: Float, pixelsPerUnit: Float): Pair<Int, Float> =
+        stepsToEmit(accumulatedPx, pixelsPerUnit) to 0f
+
+    /**
      * Whole steps to emit now for [accumulatedPx] of travel at
      * [pixelsPerUnit], capped at [MAX_STEPS_PER_MOVE] per call (sign
      * preserved). The caller keeps the remainder by subtracting

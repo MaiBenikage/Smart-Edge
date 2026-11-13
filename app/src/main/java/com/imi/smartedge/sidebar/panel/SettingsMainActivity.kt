@@ -32,6 +32,34 @@ class SettingsMainActivity : AppCompatActivity() {
     private val allSettings = mutableListOf<SettingItem>()
     private lateinit var searchAdapter: SearchResultsAdapter
 
+    /**
+     * Audit LOW (settings hub inflates ~300 views on every resume):
+     * the search index is cached across resumes — a plain resume reuses
+     * it and inflates nothing. It is rebuilt only when stale: first use,
+     * or when something that changes the list has happened since it was
+     * built. The rebuild triggers are the runtime gates in
+     * isRuntimeHidden() (notchGesturesEnabled,
+     * slideBrightnessEnabled/slideVolumeEnabled, gesturesEnabled —
+     * toggled on InteractionSettingsActivity) and the effective language
+     * (titles/descriptions come from getString() at build time). They
+     * are snapshotted at build time and compared in onResume, so a
+     * change made on any screen — including a settings import or a
+     * reset — is caught without touching the toggle handlers. A
+     * recreated Activity starts stale (recreate() after Reset, language
+     * switch) and rebuilds on its first resume.
+     */
+    private var settingsIndexStale = true
+    private var lastIndexSnapshot: IndexSnapshot? = null
+
+    /** Everything that can change the built search index. */
+    private data class IndexSnapshot(
+        val notchGesturesEnabled: Boolean,
+        val slideBrightnessEnabled: Boolean,
+        val slideVolumeEnabled: Boolean,
+        val gesturesEnabled: Boolean,
+        val language: String
+    )
+
     // Named property so expandSearch() can re-enable it after collapseSearch() disables it.
     private lateinit var searchBackCallback: androidx.activity.OnBackPressedCallback
 
@@ -77,16 +105,19 @@ class SettingsMainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Rebuild the search index on every resume: the index is built
-        // from the inflated layouts plus the runtime gates
-        // (isRuntimeHidden), so toggling a setting on a child screen
-        // changes which rows are visible. Building once in onCreate
-        // left newly-visible rows missing and newly-hidden rows still
-        // offered. initializeSettingsList() clears first, so this never
-        // duplicates rows, and the search query text is untouched (it
-        // lives in the EditText, not the index) — re-apply the current
-        // filter so visible results match the rebuilt index.
-        initializeSettingsList()
+        // Audit LOW (settings hub inflates ~300 views on every resume):
+        // rebuild the search index only when it is stale — first use, or
+        // a gating toggle / the language changed since it was built (see
+        // settingsIndexStale). A plain resume reuses the cached
+        // descriptors and inflates nothing. Previously this rebuilt on
+        // every resume because toggling a setting on a child screen
+        // changes which rows are visible (a361e4f); the snapshot
+        // comparison below preserves that without the rebuild.
+        if (settingsIndexStale || indexSnapshotChanged()) {
+            initializeSettingsList()
+            settingsIndexStale = false
+            lastIndexSnapshot = currentIndexSnapshot()
+        }
         filterSettings(binding.etSettingsSearch.text.toString())
     }
 
@@ -160,6 +191,17 @@ class SettingsMainActivity : AppCompatActivity() {
             else -> false
         }
     }
+
+    /** Snapshot of everything that can change the built search index. */
+    private fun currentIndexSnapshot() = IndexSnapshot(
+        notchGesturesEnabled = panelPrefs.notchGesturesEnabled,
+        slideBrightnessEnabled = panelPrefs.slideBrightnessEnabled,
+        slideVolumeEnabled = panelPrefs.slideVolumeEnabled,
+        gesturesEnabled = panelPrefs.gesturesEnabled,
+        language = LocaleHelper.getEffectiveLanguage(this)
+    )
+
+    private fun indexSnapshotChanged(): Boolean = lastIndexSnapshot != currentIndexSnapshot()
 
     private fun extractMetadata(view: View): Pair<String, String> {
         var title = ""

@@ -1,8 +1,16 @@
 package com.imi.smartedge.sidebar.panel
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Tracks recently-used apps for the sidebar "Recent" section.
@@ -26,6 +34,57 @@ class RecentAppsManager(context: Context) {
 
     companion object {
         private const val TAG = "RecentAppsManager"
+
+        /**
+         * Cache of [isTrackableRecent] results, per package. Without it
+         * getTopPackages paid one PackageManager binder call per distinct
+         * history package (up to 256), twice per panel open. Static like
+         * [cachedHomePackages]: every call site constructs a fresh
+         * RecentAppsManager, so an instance map would never survive to
+         * the next open. Cleared when packages change (see
+         * [ensureLaunchIntentCacheReceiver]); a stale entry can only
+         * survive until the next install/uninstall/replace.
+         */
+        private val launchIntentCache = ConcurrentHashMap<String, Boolean>()
+
+        /** Guards the one-time registration in [ensureLaunchIntentCacheReceiver]. */
+        private val launchIntentReceiverRegistered = AtomicBoolean(false)
+
+        /**
+         * Registers (once per process) a package-change receiver on the
+         * application context that clears [launchIntentCache] — the same
+         * invalidation the service's packageReceiver does for its
+         * launcher cache. The application context lives for the process
+         * lifetime, so there is nothing to unregister. A failed
+         * registration (e.g. no real Context under test) leaves the
+         * cache working but never invalidated until the process dies.
+         */
+        private fun ensureLaunchIntentCacheReceiver(context: Context) {
+            if (!launchIntentReceiverRegistered.compareAndSet(false, true)) return
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addDataScheme("package")
+            }
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    launchIntentCache.clear()
+                }
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.registerReceiver(receiver, filter)
+                }
+            } catch (e: Exception) {
+                // Roll back so a later call can retry.
+                launchIntentReceiverRegistered.set(false)
+                Log.w(TAG, "launch-intent cache receiver not registered", e)
+            }
+        }
 
         /**
          * Static lock for the history. Every call site constructs a fresh
@@ -168,14 +227,28 @@ class RecentAppsManager(context: Context) {
      */
     private fun isTrackableRecent(pkg: String): Boolean {
         if (pkg in homePackages(appContext)) return false
-        return try {
+        // Audit (4th) M-F: the launch-intent result is cached per package
+        // (see launchIntentCache) — getTopPackages used to pay one
+        // PackageManager binder call per distinct history package on every
+        // open. A cached false keeps an uninstalled package out without a
+        // fresh binder call; the cache is cleared on package add/remove/
+        // replace, so a newly installed app becomes trackable.
+        launchIntentCache[pkg]?.let { return it }
+        val trackable = try {
             appContext.packageManager.getLaunchIntentForPackage(pkg) != null
         } catch (_: Exception) {
             false
         }
+        launchIntentCache[pkg] = trackable
+        return trackable
     }
 
     fun recordLaunch(packageName: String, source: String) {
+        // Audit (4th) M-F: the launch-intent cache (see
+        // launchIntentCache) must be invalidated on package changes even
+        // when only the recorder ever runs — register the receiver here
+        // as well as in getTopPackages.
+        ensureLaunchIntentCacheReceiver(appContext)
         // Static lock (see LOCK): two fresh instances must not interleave
         // loadHistory/saveHistory and lose a launch.
         synchronized(LOCK) {
@@ -230,41 +303,63 @@ class RecentAppsManager(context: Context) {
      * @return package names ordered by frequency (most used first), at most
      * [PanelPreferences.recentMaxCount] entries.
      */
-    fun getTopPackages(excludedPackages: Set<String> = emptySet()): List<String> {
-        // Static lock (see LOCK): read under the same lock recordLaunch
-        // writes under, so a concurrent record can't interleave with the
-        // load and produce a half-written history.
-        synchronized(LOCK) {
-            val history = try {
+    suspend fun getTopPackages(excludedPackages: Set<String> = emptySet()): List<String> {
+        // History read under the static lock (see LOCK) so a concurrent
+        // record can't interleave with the load and produce a half-written
+        // history. The PackageManager walk below runs outside the lock:
+        // it suspends on Dispatchers.IO, and holding LOCK across a
+        // suspension would block recorders for the whole scan.
+        val history = synchronized(LOCK) {
+            try {
                 loadHistory()
             } catch (e: Exception) {
                 Log.w(TAG, "getTopPackages failed", e)
                 return emptyList()
             }
-            if (history.isEmpty()) return emptyList()
+        }
+        if (history.isEmpty()) return emptyList()
 
-            val limit = panelPrefs.recentMaxCount.coerceIn(MIN_RECENT_COUNT, MAX_RECENT_COUNT)
+        val limit = panelPrefs.recentMaxCount.coerceIn(MIN_RECENT_COUNT, MAX_RECENT_COUNT)
 
-            // Frequency map + last-seen index for stable tie-breaking (more recent wins ties).
-            val counts = LinkedHashMap<String, Int>()
-            val lastSeen = HashMap<String, Int>()
-            history.forEachIndexed { index, pkg ->
-                counts[pkg] = (counts[pkg] ?: 0) + 1
-                lastSeen[pkg] = index
+        // Frequency map + last-seen index for stable tie-breaking (more recent wins ties).
+        val counts = LinkedHashMap<String, Int>()
+        val lastSeen = HashMap<String, Int>()
+        history.forEachIndexed { index, pkg ->
+            counts[pkg] = (counts[pkg] ?: 0) + 1
+            lastSeen[pkg] = index
+        }
+
+        // Rank first (pure CPU, no PackageManager): filtering before
+        // sorting and sorting before filtering give the same order, so
+        // ranking here and validating in rank order below returns exactly
+        // what the old filter-then-sort-then-take returned — uninstalled,
+        // launcher and non-launchable packages are still dropped before
+        // the limit is applied, so the list still fills to N.
+        val ranked = counts.keys
+            .filter { it !in excludedPackages }
+            .sortedWith(
+                compareByDescending<String> { counts[it] ?: 0 }
+                    .thenByDescending { lastSeen[it] ?: 0 }
+            )
+        if (ranked.isEmpty()) return emptyList()
+
+        // Audit (4th) M-F: the PackageManager validation used to run on
+        // the calling (main) thread — one getLaunchIntentForPackage binder
+        // call per distinct history package, up to 256, twice per panel
+        // open (handle tap + refresh). It now runs on Dispatchers.IO,
+        // results are cached per package (see launchIntentCache), and the
+        // walk stops as soon as `limit` trackable packages are found, so a
+        // warm pass makes no PM calls at all and a cold pass makes ~limit.
+        // Suspend so the main-thread caller (FloatingPanelService's
+        // refreshApps, via getTopRecentApps) is unaffected.
+        ensureLaunchIntentCacheReceiver(appContext)
+        return withContext(Dispatchers.IO) {
+            val out = ArrayList<String>(limit)
+            for (pkg in ranked) {
+                if (out.size >= limit) break
+                if (isTrackableRecent(pkg)) out.add(pkg)
             }
-
-            return counts.entries
-                // Validate before take(limit): uninstalled, launcher and
-                // non-launchable packages are dropped here, so the list
-                // still fills to N instead of coming up short — and
-                // existing polluted history is cleaned the same way.
-                .filter { it.key !in excludedPackages && isTrackableRecent(it.key) }
-                .sortedWith(
-                    compareByDescending<Map.Entry<String, Int>> { it.value }
-                        .thenByDescending { lastSeen[it.key] ?: 0 }
-                )
-                .take(limit)
-                .map { it.key }
+            out
         }
     }
 

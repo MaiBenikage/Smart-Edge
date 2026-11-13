@@ -449,6 +449,10 @@ class PanelAppsAdapter(
                             true
                         }
                         android.view.MotionEvent.ACTION_MOVE -> {
+                            // Previous finger position, before this MOVE
+                            // overwrites it: the new delta in the armed
+                            // branch below is measured from it.
+                            val prevRawY = dragState[0]
                             dragState[0] = event.rawY
                             val armed = v.getTag(R.id.tag_drag_armed) as? Boolean ?: false
                             if (!armed) {
@@ -458,7 +462,17 @@ class PanelAppsAdapter(
                                 }
                                 return@setOnTouchListener true
                             }
-                            val sinceLastTick = dragState[1] - event.rawY
+                            // Audit M-D: the stale backlog here is the
+                            // anchor gap (dragState[1] - prevRawY) — the
+                            // travel held back by the per-MOVE cap. If
+                            // this MOVE runs the other way,
+                            // accumulateDelta discards it; the anchor is
+                            // rebased on the adjusted travel so the
+                            // leftover kept after the emit below is the
+                            // adjusted one, not the stale backlog.
+                            val leftover = dragState[1] - prevRawY
+                            val sinceLastTick = SlideStepMath.accumulateDelta(leftover, prevRawY - event.rawY)
+                            dragState[1] = event.rawY + sinceLastTick
                             // Pacing (see SlideStepMath): at most MAX_STEPS_PER_MOVE
                             // per event — a fast flick or a coalesced MOVE used to
                             // dump a whole slide's worth of ticks in one frame, and

@@ -232,6 +232,15 @@ class AppRepository(context: Context) {
          * launch the backfill.
          */
         private val labelsBackfillAttempted = AtomicBoolean(false)
+
+        /**
+         * One-shot guard for the v1.5.5 shortcut-pin migration (see
+         * [AppRepository.migrateShortcutPinsIfNeeded]): same shape as
+         * [labelsBackfillAttempted] — static so a fresh AppRepository per
+         * call site can't re-run the scan, AtomicBoolean so two concurrent
+         * getPanelApps() calls can't both migrate.
+         */
+        private val shortcutPinsMigrationAttempted = AtomicBoolean(false)
     }
 
     /**
@@ -1110,7 +1119,121 @@ class AppRepository(context: Context) {
      */
     var onLabelsBackfilled: (() -> Unit)? = null
 
+    /**
+     * Audit (4th) Low — one-time migration of shortcut pins created under
+     * v1.5.5 and earlier. The pin identity is the exact intent-URI string,
+     * and commit d7d4bca changed the URI the parser produces: <categories>
+     * and <extra> outside <intent> no longer leak into the launch intent,
+     * so a shortcut pinned before then has a stored URI that no longer
+     * matches the newly-parsed one — isInPanel is false (shows unpinned)
+     * and the stale URI still launches with the leaked categories.
+     *
+     * For each stored `intent:` pin, the current shortcut whose canonical
+     * intent plausibly is the same shortcut (see [sameShortcutTarget]) has
+     * its URI replace the stored one. A stored URI that matches no current
+     * shortcut (the shortcut no longer exists) is left alone — never delete
+     * a user pin — and one matching more than one shortcut (ambiguous) is
+     * left alone too. Display labels are carried over to the new ids.
+     * Guarded by [PanelPreferences.shortcutPinsMigrated] (following the
+     * toolsFolderMigrated pattern) plus the in-process
+     * [shortcutPinsMigrationAttempted], so re-running it is a no-op; the
+     * flag is set even on failure, so a failing scan does not re-run an
+     * expensive full shortcut scan on every panel open. Runs once, on the
+     * first getPanelApps() after the upgrade, on Dispatchers.IO.
+     */
+    private suspend fun migrateShortcutPinsIfNeeded() {
+        if (panelPrefs.shortcutPinsMigrated) return
+        if (!shortcutPinsMigrationAttempted.compareAndSet(false, true)) return
+        try {
+            val stored = panelPrefs.getPanelApps()
+            val intentPins = stored.filter { it.startsWith("intent:") }
+            if (intentPins.isEmpty()) return
+            // Canonical URIs the parser produces today. Live shortcuts
+            // (LauncherApps) never went through the XML parser, so their
+            // URIs never changed — an exact match is skipped below and
+            // only genuinely-changed static URIs are rewritten.
+            val current = getShortcutsByPackage().flatMap { it.items }
+            if (current.isEmpty()) return
+            val rewrites = mutableMapOf<String, String>() // old URI -> canonical URI
+            for (oldUri in intentPins) {
+                val oldIntent = try {
+                    android.content.Intent.parseUri(oldUri, android.content.Intent.URI_INTENT_SCHEME)
+                } catch (_: Exception) {
+                    continue
+                }
+                val matches = current.filter { info ->
+                    val canonicalUri = info.intentUri ?: return@filter false
+                    if (canonicalUri == oldUri) return@filter false // already canonical
+                    val canonical = try {
+                        android.content.Intent.parseUri(canonicalUri, android.content.Intent.URI_INTENT_SCHEME)
+                    } catch (_: Exception) {
+                        return@filter false
+                    }
+                    sameShortcutTarget(oldIntent, canonical)
+                }
+                if (matches.size == 1) {
+                    matches.single().intentUri?.let { rewrites[oldUri] = it }
+                }
+            }
+            if (rewrites.isEmpty()) return
+            // Read the labels BEFORE setPanelApps: it prunes labels of ids
+            // no longer pinned, so reading after the rewrite would find
+            // the old keys already gone and carry nothing over.
+            val labels = panelPrefs.getPanelItemLabels()
+            val rewritten = stored.map { rewrites[it] ?: it }
+            panelPrefs.setPanelApps(rewritten)
+            // Carry display labels over to the new ids: setPanelApps
+            // prunes labels of ids no longer pinned, so the old keys are
+            // gone — re-attach them under the new ids (setPanelItemLabels
+            // keeps only labels of pinned ids, which these now are).
+            val carried = rewrites.mapNotNull { (old, new) ->
+                labels[old]?.let { new to it }
+            }.toMap()
+            if (carried.isNotEmpty()) panelPrefs.setPanelItemLabels(carried)
+        } catch (e: Exception) {
+            Log.w(TAG, "shortcut pin migration failed", e)
+        } finally {
+            panelPrefs.shortcutPinsMigrated = true
+        }
+    }
+
+    /**
+     * Whether two parsed intents plausibly address the same shortcut: same
+     * action, data and component/package, and every category and extra the
+     * canonical intent carries is also in the stored one. The pre-d7d4bca
+     * parser leaked <categories>/<extra> from outside <intent> into the
+     * launch intent, so a v1.5.5 pin's URI has the canonical parts PLUS
+     * leaked ones — subset, not equality, is the match.
+     */
+    private fun sameShortcutTarget(stored: android.content.Intent, canonical: android.content.Intent): Boolean {
+        if (stored.action != canonical.action) return false
+        if (stored.data != canonical.data) return false
+        if (stored.component != canonical.component) return false
+        val storedPkg = stored.component?.packageName ?: stored.`package`
+        val canonicalPkg = canonical.component?.packageName ?: canonical.`package`
+        if (storedPkg != canonicalPkg) return false
+        val storedCategories = stored.categories ?: emptySet()
+        val canonicalCategories = canonical.categories ?: emptySet()
+        if (!storedCategories.containsAll(canonicalCategories)) return false
+        val storedExtras = stored.extras
+        val canonicalExtras = canonical.extras
+        if (canonicalExtras != null) {
+            if (storedExtras == null) return false
+            for (key in canonicalExtras.keySet()) {
+                if (storedExtras.get(key) != canonicalExtras.get(key)) return false
+            }
+        }
+        return true
+    }
+
     suspend fun getPanelApps(): List<AppInfo> = withContext(Dispatchers.IO) {
+        // Audit (4th) Low: one-time rewrite of pre-v1.5.6 shortcut pins
+        // (see migrateShortcutPinsIfNeeded). Runs before the pinned list
+        // is read, so this call already returns the migrated ids — and
+        // before the label backfill below, so backfilled labels land on
+        // the new ids instead of the stale ones.
+        migrateShortcutPinsIfNeeded()
+
         // Opportunistic one-shot label backfill for legacy intent: pins.
         // Runs on the preload scope WITHOUT blocking this call: the
         // backfill does two full PackageManager scans, which used to block

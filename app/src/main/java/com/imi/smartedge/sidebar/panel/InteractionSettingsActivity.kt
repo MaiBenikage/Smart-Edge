@@ -226,12 +226,29 @@ class InteractionSettingsActivity : AppCompatActivity() {
                     runOnUiThread {
                         suppressAutomationSwitchListener = true
                         if (success) {
+                            // Pref write is safe on a destroyed Activity
+                            // (SharedPreferences), so it still lands for
+                            // the recreated instance; only the UI work
+                            // below is gated on the Activity being alive
+                            // (audit M-H).
                             panelPrefs.useAutomationForGestures = true
-                            buttonView.isChecked = true
-                            applyOnly()
+                            if (!isFinishing && !isDestroyed) {
+                                buttonView.isChecked = true
+                                applyOnly()
+                            }
                         } else {
-                            buttonView.isChecked = false
-                            showAutomationSetupDialog()
+                            // Audit M-H (rotation during the root/Shizuku
+                            // prompt): the result arrives via the
+                            // process-scoped pendingShizukuResult lambda,
+                            // which closes over this Activity. If the user
+                            // rotated while the prompt was up, this
+                            // Activity is destroyed and
+                            // showAutomationSetupDialog() throws
+                            // BadTokenException — do nothing instead.
+                            if (!isFinishing && !isDestroyed) {
+                                buttonView.isChecked = false
+                                showAutomationSetupDialog()
+                            }
                         }
                         suppressAutomationSwitchListener = false
                     }

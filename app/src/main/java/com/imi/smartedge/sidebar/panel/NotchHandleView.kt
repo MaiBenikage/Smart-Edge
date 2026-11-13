@@ -166,7 +166,19 @@ class NotchHandleView @JvmOverloads constructor(
                     // ending here) must not fire the tap action.
                     val moved = Math.hypot((event.x - downX).toDouble(), (event.y - downY).toDouble())
                     val outOfBounds = event.x < 0 || event.x > width || event.y < 0 || event.y > height
+                    // Audit M-C (regression from a361e4f): a tap from an
+                    // earlier gesture may still be pending (tapCount > 0,
+                    // tapRunnable cancelled in ACTION_DOWN). If this touch
+                    // lifts without counting as a tap (moved past
+                    // touchSlop, out of bounds, or held past the
+                    // long-press timeout), nothing re-posts the runnable
+                    // — tapCount stays 1 with nothing pending, the first
+                    // tap never fires, and the next tap minutes later
+                    // runs the double-tap action. Re-arm it below, the
+                    // same re-post the ACTION_CANCEL path above does.
+                    var countedAsTap = false
                     if (duration < longPressTimeoutMs() && !outOfBounds && moved <= touchSlop) {
+                        countedAsTap = true
                         // If no double/triple tap actions are set, execute single tap immediately
                         if (panelPrefs.notchDoubleTapAction == PanelPreferences.ACTION_NONE &&
                             panelPrefs.notchTripleTapAction == PanelPreferences.ACTION_NONE) {
@@ -177,6 +189,14 @@ class NotchHandleView @JvmOverloads constructor(
                             handler.postDelayed(tapRunnable, tapTimeoutMs)
                         }
                         performClick()
+                    }
+                    if (!countedAsTap && tapCount > 0) {
+                        // No double-tap can follow this touch, so re-arm
+                        // the pending tap instead of leaving tapCount
+                        // stale. tapRunnable is not pending here — it was
+                        // cancelled in ACTION_DOWN and only the tap-count
+                        // branch above re-posts it.
+                        handler.postDelayed(tapRunnable, tapTimeoutMs)
                     }
                 }
                 return true
@@ -211,6 +231,10 @@ class NotchHandleView @JvmOverloads constructor(
         // panel re-add) must not let a pending tap/long-press fire on a dead
         // view. The runnables are only removed in ACTION_UP/CANCEL otherwise.
         handler.removeCallbacksAndMessages(null)
+        // Audit M-C: the detach above removes the pending tapRunnable, so
+        // reset tapCount too — otherwise a stale 1 survives the detach
+        // and the next tap after re-attach counts as a double-tap.
+        tapCount = 0
     }
 
     override fun onDraw(canvas: android.graphics.Canvas) {

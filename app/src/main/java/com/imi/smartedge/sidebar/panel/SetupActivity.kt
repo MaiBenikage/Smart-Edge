@@ -25,6 +25,15 @@ class SetupActivity : AppCompatActivity() {
     private var grantAllLastStep: String? = null
 
     /**
+     * Audit LOW (notification permission never requested on one-at-a-time
+     * grants): set when POST_NOTIFICATIONS has been asked for after the
+     * notification-listener grant, so declining it doesn't re-prompt on
+     * every resume. Reset when listener access is lost; "Grant All" can
+     * still re-ask explicitly via its notifications-post step.
+     */
+    private var askedPostNotificationsForListener = false
+
+    /**
      * The delayed "automation unavailable" Snackbar runnable (D18): kept
      * as a field so it can be cancelled in onDestroy and replaced when
      * the automation card is tapped again, instead of stacking one
@@ -58,12 +67,14 @@ class SetupActivity : AppCompatActivity() {
         outState.putBoolean(KEY_GRANT_ALL_IN_PROGRESS, grantAllInProgress)
         outState.putString(KEY_GRANT_ALL_LAST_STEP, grantAllLastStep)
         outState.putBoolean(KEY_GRANT_ALL_AUTO_START, hasInteractedWithAutoStart)
+        outState.putBoolean(KEY_ASKED_POST_NOTIFICATIONS, askedPostNotificationsForListener)
     }
 
     companion object {
         private const val KEY_GRANT_ALL_IN_PROGRESS = "grant_all_in_progress"
         private const val KEY_GRANT_ALL_LAST_STEP = "grant_all_last_step"
         private const val KEY_GRANT_ALL_AUTO_START = "grant_all_auto_start"
+        private const val KEY_ASKED_POST_NOTIFICATIONS = "asked_post_notifications_for_listener"
     }
 
     private val overlayPermissionLauncher = registerForActivityResult(
@@ -90,6 +101,7 @@ class SetupActivity : AppCompatActivity() {
         grantAllInProgress = savedInstanceState?.getBoolean(KEY_GRANT_ALL_IN_PROGRESS) ?: false
         grantAllLastStep = savedInstanceState?.getString(KEY_GRANT_ALL_LAST_STEP)
         hasInteractedWithAutoStart = savedInstanceState?.getBoolean(KEY_GRANT_ALL_AUTO_START) ?: false
+        askedPostNotificationsForListener = savedInstanceState?.getBoolean(KEY_ASKED_POST_NOTIFICATIONS) ?: false
         binding = ActivitySetupBinding.inflate(layoutInflater)
         setContentView(binding.root)
         panelPrefs = PanelPreferences(this)
@@ -122,9 +134,22 @@ class SetupActivity : AppCompatActivity() {
             AutomationManager.checkRootAndRequestPermission(this) { success ->
                 runOnUiThread {
                     if (success) {
+                        // Pref write is safe on a destroyed Activity
+                        // (SharedPreferences), so it still lands for the
+                        // recreated instance; only the UI work below is
+                        // gated on the Activity being alive (audit M-H).
                         panelPrefs.useAutomationForGestures = true
-                        updateUI()
+                        if (!isFinishing && !isDestroyed) updateUI()
                     } else {
+                        // Audit M-H (rotation during the root/Shizuku
+                        // prompt): the result arrives via the
+                        // process-scoped pendingShizukuResult lambda,
+                        // which closes over this Activity. If the user
+                        // rotated while the prompt was up, this Activity
+                        // is destroyed and SecureSettingsDialog.show(this)
+                        // throws IllegalStateException on its
+                        // FragmentManager — do nothing instead.
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         SecureSettingsDialog.show(this)
                         // Audit U3: without this follow-up the user dismisses the
                         // ADB-grant dialog and gets no signal about what to do
@@ -184,6 +209,21 @@ class SetupActivity : AppCompatActivity() {
                 else -> grantAllInProgress = false
             }
         }
+        // Audit LOW (notification permission never requested on
+        // one-at-a-time grants): the notifications card opens the
+        // listener settings, so a user who grants the cards one at a
+        // time never sees the POST_NOTIFICATIONS prompt — the only
+        // other call site is the "Grant All" chain. Once listener
+        // access is confirmed, ask for the runtime permission too.
+        // Skipped while "Grant All" is chaining (its notifications-post
+        // step asks already — asking here as well would launch the
+        // dialog twice), and asked only once per listener grant so
+        // declining doesn't re-prompt on every resume.
+        if (!isNotificationAccessEnabled()) {
+            askedPostNotificationsForListener = false
+        } else if (!grantAllInProgress && !hasNotificationPermission() && !askedPostNotificationsForListener) {
+            requestNotificationPermission()
+        }
     }
 
     /**
@@ -217,6 +257,11 @@ class SetupActivity : AppCompatActivity() {
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Audit LOW: mark the ask so the onResume follow-up above
+            // doesn't re-prompt after a decline — every request path
+            // ("Grant All" chain and the listener-grant follow-up)
+            // goes through here.
+            askedPostNotificationsForListener = true
             notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -261,11 +306,15 @@ class SetupActivity : AppCompatActivity() {
             binding.btnContinue.alpha = 0.3f // "Blurred" / Faded effect
         }
 
-        // Notification access is optional (the feature defaults off and
-        // Continue doesn't require it), so it no longer blocks "All
-        // granted". Auto-start is excluded too when it can't be detected
-        // on this OEM (see hasAutoStartPermission).
-        val allGranted = requiredGranted && hasBattery && (hasAutoStart || !isAutoStartDetectable())
+        // Notification-listener access is optional (the feature defaults
+        // off and Continue doesn't require it), so it no longer blocks
+        // "All granted". Auto-start is excluded too when it can't be
+        // detected on this OEM (see hasAutoStartPermission).
+        // POST_NOTIFICATIONS is different: it is required for the
+        // foreground-service notification (including its Stop action) to
+        // show, so "All granted" must not claim success while it is
+        // missing (audit LOW: one-at-a-time grants never asked for it).
+        val allGranted = requiredGranted && hasBattery && (hasAutoStart || !isAutoStartDetectable()) && hasNotificationPermission()
         binding.btnGrantAll.isEnabled = !allGranted
 
         if (allGranted) {

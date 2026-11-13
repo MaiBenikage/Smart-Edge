@@ -127,6 +127,13 @@ class SecureSettingsDialog : BottomSheetDialogFragment() {
         fun show(context: Context) {
             val activity = context as? androidx.fragment.app.FragmentActivity
                 ?: throw IllegalArgumentException("SecureSettingsDialog.show requires a FragmentActivity context")
+            // Audit M-H (rotation during the root/Shizuku prompt): a
+            // result callback can reach show() after its Activity was
+            // destroyed (rotation); showing on a destroyed
+            // FragmentManager throws IllegalStateException. Callers
+            // guard first; this is the backstop, so a missed call site
+            // degrades to a no-op instead of a crash.
+            if (activity.isFinishing || activity.isDestroyed) return
             SecureSettingsDialog().show(activity.supportFragmentManager, TAG)
         }
     }

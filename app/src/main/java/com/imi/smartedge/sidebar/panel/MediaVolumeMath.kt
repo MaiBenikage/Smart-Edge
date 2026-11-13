@@ -39,4 +39,22 @@ object MediaVolumeMath {
         if (current == beforeAdjust) return false // no progress; stop
         return true
     }
+
+    /**
+     * Whether the relative `adjustStreamVolume` fallback may be used for a
+     * batch at all, given whether the shell absolute set succeeded and
+     * whether a privileged shell engine is known to exist.
+     *
+     * Audit (4th) TEST — the no-fallback rule (see MediaVolumeApplier's
+     * class KDoc, path 3): adjust is ONLY for the no-shell-engine case. A
+     * shell set that reported failure (10 s timeout, killed process,
+     * non-zero exit) may still have landed, and a coarse adjust on top of
+     * it moved the volume a whole coarse step past the target — the
+     * intermittent "volume jumps ~10%" bug. A failed shell set goes to
+     * read-back only, never to adjust, even though an engine exists. A
+     * successful shell set needs no adjust either; only "no engine and
+     * nothing landed" falls through to it.
+     */
+    fun mayUseAdjust(shellSetSucceeded: Boolean, hasShellEngine: Boolean): Boolean =
+        !shellSetSucceeded && !hasShellEngine
 }
