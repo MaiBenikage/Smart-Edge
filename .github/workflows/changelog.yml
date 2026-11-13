@@ -34,26 +34,47 @@ jobs:
         run: |
           # Same section rules as release.yml: a section ends at the next
           # '### ' header or a '---' separator.
-          unreleased() {
+          # Count the bullets under '### Unreleased' at a given revision.
+          # The count must grow for the PR to pass: diffing line text let
+          # a reworded (or typo-fixed) bullet pass as a "new" line without
+          # any real entry being added.
+          unreleased_count() {
             git show "$1:CHANGELOG.md" 2>/dev/null | awk '
               /^### / { flag = 0 }
               $0 == "### Unreleased" { flag = 1; next }
               /^---/ { flag = 0 }
-              flag && /^- /
-            ' | sort -u
+              flag && /^- / { count++ }
+              END { print count + 0 }
+            '
           }
           # A release PR legitimately removes/renames Unreleased (it adds the
-          # version section instead), so a new '### vX.Y.Z' header also passes.
+          # version section instead), so a new '### vX.Y.Z' header also passes
+          # — but only when the section holds at least one bullet: a bare
+          # header with nothing underneath is not release notes.
           version_sections() {
-            git show "$1:CHANGELOG.md" 2>/dev/null | grep -E '^### v[0-9]+\.[0-9]+\.[0-9]+' | sort -u
+            git show "$1:CHANGELOG.md" 2>/dev/null | awk '
+              /^### / {
+                if (header != "" && bullets > 0) print header
+                header = ""; bullets = 0
+                if ($0 ~ /^### v[0-9]+\.[0-9]+\.[0-9]+/) header = $0
+                next
+              }
+              /^---/ {
+                if (header != "" && bullets > 0) print header
+                header = ""; bullets = 0
+                next
+              }
+              header != "" && /^- / { bullets++ }
+              END { if (header != "" && bullets > 0) print header }
+            ' | sort -u
           }
-          NEW=$(comm -13 <(unreleased "$BASE_SHA") <(unreleased "$HEAD_SHA"))
+          BASE_COUNT=$(unreleased_count "$BASE_SHA")
+          HEAD_COUNT=$(unreleased_count "$HEAD_SHA")
           NEW_VERSION=$(comm -13 <(version_sections "$BASE_SHA") <(version_sections "$HEAD_SHA"))
-          if [ -z "$NEW" ] && [ -z "$NEW_VERSION" ]; then
-            echo "::error file=CHANGELOG.md::Add a '- ...' bullet under '### Unreleased' in CHANGELOG.md (or a new '### vX.Y.Z' section for a release PR), or label the PR 'skip-changelog' if nothing user-facing changed."
+          if [ "$HEAD_COUNT" -le "$BASE_COUNT" ] && [ -z "$NEW_VERSION" ]; then
+            echo "::error file=CHANGELOG.md::Add a '- ...' bullet under '### Unreleased' in CHANGELOG.md (or a new '### vX.Y.Z' section with at least one bullet for a release PR), or label the PR 'skip-changelog' if nothing user-facing changed."
             exit 1
           fi
-          echo "New Unreleased entries:"
-          echo "$NEW"
+          echo "Unreleased bullets: $BASE_COUNT -> $HEAD_COUNT"
           echo "New version sections:"
           echo "$NEW_VERSION"

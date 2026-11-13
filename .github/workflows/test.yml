@@ -5,6 +5,11 @@ name: Unit tests (reusable)
 # place instead of being duplicated across both workflows.
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: 'Ref to check out (tag or branch). Empty means the calling run''s ref.'
+        type: string
+        default: ''
 
 jobs:
   test:
@@ -14,6 +19,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Test the same code the caller builds: release.yml passes
+          # inputs.tag here, so a manual release tests the tag it will
+          # sign, not the branch selected in the UI. An empty ref falls
+          # back to the run's ref (checkout v5: an empty ref input
+          # resolves to github.context.ref), so a tag push still tests
+          # the tag and callers that pass nothing (ci.yml) are unchanged.
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5

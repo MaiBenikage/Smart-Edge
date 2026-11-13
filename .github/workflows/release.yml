@@ -18,9 +18,14 @@ concurrency:
 jobs:
   # Unit tests run FIRST (shared reusable job from test.yml). The release
   # build below depends on this job, so a release APK is never built (or
-  # published) when the tests fail.
+  # published) when the tests fail. The tag is passed through so the tests
+  # validate the same code the build signs: for a manual run that is
+  # inputs.tag, for a tag push it is empty and test.yml falls back to
+  # the run's ref (the tag).
   test:
     uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ inputs.tag }}
 
   build:
     needs: test
@@ -72,6 +77,39 @@ jobs:
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # Fail fast on a missing changelog section, before any signing
+      # material is decoded or the APK is built. The Extract Changelog
+      # step below runs the same section-presence check and also fails,
+      # but only after the keystore has been decoded and the release
+      # built — a bad tag should never reach that far. This step only
+      # gates; Extract Changelog still runs below to produce the notes.
+      - name: Check changelog has a section for the tag
+        run: |
+          TAG_NAME="${{ steps.tag.outputs.tag }}"
+          # Same section extraction as Extract Changelog: the section
+          # under a header line, up to the next '###' header or '---'
+          # separator. Matches the header exactly, or the header
+          # followed by " (" (for a " (Latest)" suffix) — index() does
+          # literal matching, so the dots in the version are not regex
+          # wildcards (v1.3.8 must not match v1x3y8, nor v1.3.80).
+          extract_section() {
+            awk -v header="$1" '
+              /^### / { flag = 0 }
+              $0 == header || index($0, header " (") == 1 { flag = 1; next }
+              /^---/ { flag = 0 }
+              flag
+            ' CHANGELOG.md
+          }
+          BODY=$(extract_section "### $TAG_NAME")
+          # No silent fallback to '### Unreleased': a tag without its own
+          # section used to ship the Unreleased notes, so v1.5.4 and v1.5.5
+          # published byte-identical bodies. Fail instead and tell the
+          # author to add the section.
+          if [ -z "$(echo "$BODY" | tr -d '[:space:]')" ]; then
+            echo "::error::No '### $TAG_NAME' section in CHANGELOG.md - add a '### $TAG_NAME' section to CHANGELOG.md before tagging; refusing to build a release with another version's notes."
+            exit 1
+          fi
 
       - name: Decode Keystore
         env:
