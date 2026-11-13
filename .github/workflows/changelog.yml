@@ -42,10 +42,18 @@ jobs:
               flag && /^- /
             ' | sort -u
           }
+          # A release PR legitimately removes/renames Unreleased (it adds the
+          # version section instead), so a new '### vX.Y.Z' header also passes.
+          version_sections() {
+            git show "$1:CHANGELOG.md" 2>/dev/null | grep -E '^### v[0-9]+\.[0-9]+\.[0-9]+' | sort -u
+          }
           NEW=$(comm -13 <(unreleased "$BASE_SHA") <(unreleased "$HEAD_SHA"))
-          if [ -z "$NEW" ]; then
-            echo "::error file=CHANGELOG.md::Add a '- **type(scope)**: ...' bullet under '### Unreleased' in CHANGELOG.md, or label the PR 'skip-changelog' if nothing user-facing changed."
+          NEW_VERSION=$(comm -13 <(version_sections "$BASE_SHA") <(version_sections "$HEAD_SHA"))
+          if [ -z "$NEW" ] && [ -z "$NEW_VERSION" ]; then
+            echo "::error file=CHANGELOG.md::Add a '- ...' bullet under '### Unreleased' in CHANGELOG.md (or a new '### vX.Y.Z' section for a release PR), or label the PR 'skip-changelog' if nothing user-facing changed."
             exit 1
           fi
           echo "New Unreleased entries:"
           echo "$NEW"
+          echo "New version sections:"
+          echo "$NEW_VERSION"
